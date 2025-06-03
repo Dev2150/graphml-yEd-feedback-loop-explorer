@@ -1,0 +1,13 @@
+SOURCE_NODE=
+TARGET_NODE=
+ENABLE_NON_CYCLE_PRINTING=True
+SORT_BY_LEN=
+COLOR_THRESHOLD=48
+FOLDER_PATH=C:\Users\Adelin\Documents\OneDrive\My documents 2019\yEd graphs\
+FILE_NAME=GAME - Europa Universalis V Goods
+# Health
+# GAME - Europa Universalis V Goods
+# GAME - Orbi Universo
+# Depression System Dynamics
+# GAME - Europa Universalis V Goods
+# Stuff

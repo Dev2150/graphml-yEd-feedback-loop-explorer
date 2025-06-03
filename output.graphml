@@ -1,0 +1,1674 @@
+<?xml version='1.0' encoding='utf-8'?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:y="http://www.yworks.com/xml/graphml" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://www.yworks.com/xml/schema/graphml/1.1/ygraphml.xsd">
+  
+  <key attr.name="Description" attr.type="string" for="graph" id="d0" />
+  <key for="port" id="d1" yfiles.type="portgraphics" />
+  <key for="port" id="d2" yfiles.type="portgeometry" />
+  <key for="port" id="d3" yfiles.type="portuserdata" />
+  <key attr.name="url" attr.type="string" for="node" id="d4" />
+  <key attr.name="description" attr.type="string" for="node" id="d5" />
+  <key for="node" id="d6" yfiles.type="nodegraphics" />
+  <key for="graphml" id="d7" yfiles.type="resources" />
+  <key attr.name="url" attr.type="string" for="edge" id="d8" />
+  <key attr.name="description" attr.type="string" for="edge" id="d9" />
+  <key for="edge" id="d10" yfiles.type="edgegraphics" />
+  <graph edgedefault="directed" id="G">
+    <data key="d0" xml:space="preserve" />
+    <node id="n0">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="45.359375" x="779.0380859375" y="-3927.0626984126984" />
+          <y:Fill color="#CCFFFF" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="dashed" width="5.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="35.359375" x="5.0" xml:space="preserve" y="5.6494140625">Stone<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n9">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="43.34375" x="1783.7333984375" y="-2290.4281746031747" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="33.34375" x="5.0" xml:space="preserve" y="5.6494140625">Tools<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n13">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="54.69921875" x="3132.447265625" y="-2606.6170634920636" />
+          <y:Fill color="#CCFFFF" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="44.69921875" x="5.0" xml:space="preserve" y="5.6494140625">Leather<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n14">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="50.673828125" x="3757.8251953125" y="-1404.688492063492" />
+          <y:Fill color="#FFFF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="40.673828125" x="5.0" xml:space="preserve" y="-1.701171875">Stone
+Quarry<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n18">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="58.021484375" x="2904.423828125" y="-2680.915873015873" />
+          <y:Fill color="#FFFF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="48.021484375" x="5.0" xml:space="preserve" y="-1.701171875">Tannery
+200.0<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n36">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="41.33984375" x="3139.126953125" y="-2743.6170634920636" />
+          <y:Fill color="#CCFFFF" transparent="false" />
+          <y:BorderStyle color="#FF0000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="31.33984375" x="5.0" xml:space="preserve" y="5.6494140625">Wool<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n46">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="60.669921875" x="3129.4619140625" y="-2224.6242063492064" />
+          <y:Fill color="#CCFFFF" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="50.669921875" x="5.0" xml:space="preserve" y="-1.701171875">Fiber Cr.
+(Linen)<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n60">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="42.013671875" x="4106.2041015625" y="-2233.3253968253966" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="32.013671875" x="5.0" xml:space="preserve" y="5.6494140625">Cloth<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n74">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="72.025390625" x="2897.421875" y="-2617.513492063492" />
+          <y:Fill color="#FFFF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="62.025390625" x="5.0" xml:space="preserve" y="-1.701171875">Sheep
+Farm 1000<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n86">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="48.67578125" x="9206.2509765625" y="-4971.5" />
+          <y:Fill color="#00FF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="38.67578125" x="5.0" xml:space="preserve" y="-1.701171875">Crown
+power<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n94">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="64.6953125" x="7712.34765625" y="-4744.240476190476" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="54.6953125" x="5.0" xml:space="preserve" y="-1.701171875">Maritime
+Presence<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n97">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="69.365234375" x="4864.25" y="-4143.534126984127" />
+          <y:Fill color="#FF99CC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="59.365234375" x="5.0" xml:space="preserve" y="5.6494140625">Blockades<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n102">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="65.357421875" x="7342.64453125" y="-6350.640476190476" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="55.357421875" x="5.0" xml:space="preserve" y="-1.701171875">Research
+speed<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n109">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="56.017578125" x="4668.8828125" y="-6251.733333333334" />
+          <y:Fill color="#00FF00" transparent="false" />
+          <y:BorderStyle color="#0000FF" raised="false" type="line" width="3.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#FFFFFF" verticalTextPosition="bottom" visible="true" width="46.017578125" x="5.0" xml:space="preserve" y="5.6494140625">Stability<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n111">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="52.68359375" x="8297.4228515625" y="-4969.79880952381" />
+          <y:Fill color="#00FF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="42.68359375" x="5.0" xml:space="preserve" y="5.6494140625">Control<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n116">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="41.3515625" x="4106.53515625" y="-5794.651587301587" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="31.3515625" x="5.0" xml:space="preserve" y="-1.701171875">Tax
+Base<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n119">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="41.33984375" x="7130.9521484375" y="-4633.435714285714" />
+          <y:Fill color="#3300FF" transparent="false" />
+          <y:BorderStyle color="#0000FF" raised="false" type="line" width="3.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#FFFFFF" verticalTextPosition="bottom" visible="true" width="31.33984375" x="5.0" xml:space="preserve" y="5.6494140625">Navy<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n122">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="43.34375" x="8848.8779296875" y="-5833.8980158730155" />
+          <y:Fill color="#3300FF" transparent="false" />
+          <y:BorderStyle color="#0000FF" raised="false" type="line" width="3.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#FFFFFF" verticalTextPosition="bottom" visible="true" width="33.34375" x="5.0" xml:space="preserve" y="5.6494140625">Court<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n123">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="71.357421875" x="8976.22265625" y="-5833.8980158730155" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="61.357421875" x="5.0" xml:space="preserve" y="5.6494140625">Legitimacy<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n129">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="68.017578125" x="6111.642578125" y="-4618.136904761905" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="58.017578125" x="5.0" xml:space="preserve" y="5.6494140625">Prosperity<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n132">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="90.03125" x="4651.8759765625" y="-837.6035714285714" />
+          <y:Fill color="#FFFF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="80.03125" x="5.0" xml:space="preserve" y="-1.701171875">Market Village
+1000 MW<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n134">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="90.03125" x="3738.146484375" y="-2106.6242063492064" />
+          <y:Fill color="#FFFF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="80.03125" x="5.0" xml:space="preserve" y="-1.701171875">Market Village
+1000 C<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n139">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="42.013671875" x="8849.54296875" y="-5647.563492063492" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="32.013671875" x="5.0" xml:space="preserve" y="5.6494140625">Rank<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n141">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="66.69921875" x="7711.345703125" y="-6350.640476190476" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="56.69921875" x="5.0" xml:space="preserve" y="5.6494140625">Advances<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n143">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="84.728515625" x="8539.4423828125" y="-5651.313492063492" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="74.728515625" x="5.0" xml:space="preserve" y="5.6494140625">Population++<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n144">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="84.705078125" x="7332.970703125" y="-4553.033333333334" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="74.705078125" x="5.0" xml:space="preserve" y="5.6494140625">Development<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n145">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="70.712890625" x="8748.8349609375" y="-5647.563492063492" />
+          <y:Fill color="#00FF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="60.712890625" x="5.0" xml:space="preserve" y="5.6494140625">Population<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n146">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="35.76985987103194" width="50.0234375" x="6543.5419921875" y="-5561.313104538691" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="7.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="40.0234375" x="5.0" xml:space="preserve" y="1.1837580605160838">RGO
+Output<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n147">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="56.017578125" x="7123.61328125" y="-3850.540873015873" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="46.017578125" x="5.0" xml:space="preserve" y="5.6494140625">Literacy<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n150">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="70.712890625" x="7709.3388671875" y="-5525.20992063492" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="60.712890625" x="5.0" xml:space="preserve" y="-1.701171875">Population
+Capacity<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n151">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="96.705078125" x="7696.3427734375" y="-4143.534126984127" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="86.705078125" x="5.0" xml:space="preserve" y="-1.701171875">Blockade
+Force Required<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n157">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="98.041015625" x="7695.6748046875" y="-3846.790873015873" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="88.041015625" x="5.0" xml:space="preserve" y="-1.701171875">LESS Distance 
+Cost to Capital<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n158">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="68.017578125" x="7341.314453125" y="-4615.734523809524" />
+          <y:Fill color="#FF99CC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="58.017578125" x="5.0" xml:space="preserve" y="-1.701171875">Enemy
+Privateers<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n175">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="104.029296875" x="1474.373046875" y="-2258.6178571428572" />
+          <y:Fill color="#FFFF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="94.029296875" x="5.0" xml:space="preserve" y="-1.701171875">Tools Workshop 
+(Early) 250.0<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n205">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="70.0390625" x="6912.90234375" y="-5559.928174603175" />
+          <y:Fill color="#CC99FF" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="60.0390625" x="5.0" xml:space="preserve" y="-1.701171875">Food
+production<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n211">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="157.390625" x="4820.2373046875" y="-6520.3607142857145" />
+          <y:Fill color="#00FF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="147.390625" x="5.0" xml:space="preserve" y="-1.701171875">Estate Satisfaction
+Affected by Laws, Reforms<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n228">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="60.6875" x="7983.390625" y="-7155.70992063492" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="50.6875" x="5.0" xml:space="preserve" y="-1.701171875">Culture
+Capacity<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n232">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="64.6953125" x="8291.4169921875" y="-7155.70992063492" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="54.6953125" x="5.0" xml:space="preserve" y="-1.701171875">Tolerated
+Cultures<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n253">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="138.716796875" x="6076.29296875" y="-6003.206349206349" />
+          <y:Fill color="#3300FF" transparent="false" />
+          <y:BorderStyle color="#0000FF" raised="false" type="line" width="3.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#FFFFFF" verticalTextPosition="bottom" visible="true" width="128.716796875" x="5.0" xml:space="preserve" y="-1.701171875">Capital Economy
+vs Traditional Economy<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n327">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="90.6875" x="6902.578125" y="-2881.1170634920636" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="80.6875" x="5.0" xml:space="preserve" y="-1.701171875">(Max) Burgher
+Literacy<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n328">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="70.033203125" x="6533.537109375" y="-2893.1170634920636" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="60.033203125" x="5.0" xml:space="preserve" y="5.6494140625">Literacy++<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n329">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="79.349609375" x="6908.2470703125" y="-2944.5194444444446" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="69.349609375" x="5.0" xml:space="preserve" y="-1.701171875">(Max) Noble
+Literacy<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n330">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="78.013671875" x="6908.9150390625" y="-3918.2420634920636" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="68.013671875" x="5.0" xml:space="preserve" y="-1.701171875">(Max) Slave
+Literacy<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n332">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="107.345703125" x="6894.2490234375" y="-3794.8396825396826" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="97.345703125" x="5.0" xml:space="preserve" y="-1.701171875">(Max) Commoner
+Literacy<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n334">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="128.0234375" x="6883.91015625" y="-3856.540873015873" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="118.0234375" x="5.0" xml:space="preserve" y="5.6494140625">(Max) Clergy Literacy<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n343">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="63.3359375" x="7982.06640625" y="-3814.305158730159" />
+          <y:Fill color="#00FF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="18.701171875" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="53.3359375" x="5.0" xml:space="preserve" y="5.6494140625">Proximity<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n365">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="78.025390625" x="2894.421875" y="-2093.851587301587" />
+          <y:Fill color="#FFFF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="68.025390625" x="5.0" xml:space="preserve" y="-1.701171875">Fiber Crops
+Farms 1000<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n366">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="65.3515625" x="9507.2958984375" y="-5127.103571428572" />
+          <y:Fill color="#CCFFCC" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="55.3515625" x="5.0" xml:space="preserve" y="-1.701171875">Tax
+Efficiency<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n379">
+      <data key="d6">
+        <y:ShapeNode>
+          <y:Geometry height="30.0" width="66.986328125" x="3749.6689453125" y="-2387.8464285714285" />
+          <y:Fill color="#FFFF00" transparent="false" />
+          <y:BorderStyle color="#000000" raised="false" type="line" width="1.0" />
+          <y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="33.40234375" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="bottom" visible="true" width="56.986328125" x="5.0" xml:space="preserve" y="-1.701171875">Spinner's 
+Guild<y:LabelModel><y:SmartNodeLabelModel distance="4.0" /></y:LabelModel><y:ModelParameter><y:SmartNodeLabelModelParameter labelRatioX="0.0" labelRatioY="0.0" nodeRatioX="0.0" nodeRatioY="0.0" offsetX="0.0" offsetY="0.0" upX="0.0" upY="-1.0" /></y:ModelParameter></y:NodeLabel>
+          <y:Shape type="rectangle" />
+        </y:ShapeNode>
+      </data>
+    </node>
+    <edge id="e16" source="n14" target="n0">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="-25.3369140625" sy="-2.5" tx="22.6796875" ty="9.230769230769056">
+            <y:Point x="3175.296875" y="-1392.188492063492" />
+            <y:Point x="3175.296875" y="-1393.188492063492" />
+            <y:Point x="1706.90234375" y="-1393.188492063492" />
+            <y:Point x="1706.90234375" y="-2714.1170634920636" />
+            <y:Point x="1125.8876953125" y="-2714.1170634920636" />
+            <y:Point x="1125.8876953125" y="-3902.8319291819294" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="standard" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e19" source="n9" target="n14">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="21.671875" sy="13.54838709677415" tx="-25.3369140625" ty="-7.5">
+            <y:Point x="2526.921875" y="-2261.8797875064006" />
+            <y:Point x="2526.921875" y="-1446.6198412698413" />
+            <y:Point x="2964.9345703125" y="-1446.6198412698413" />
+            <y:Point x="2964.9345703125" y="-1444.6519841269842" />
+            <y:Point x="3285.640625" y="-1444.6519841269842" />
+            <y:Point x="3285.640625" y="-1397.188492063492" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e21" source="n13" target="n14">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="27.349609375" sy="13.125" tx="-25.3369140625" ty="-12.5">
+            <y:Point x="3303.296875" y="-2578.4920634920636" />
+            <y:Point x="3303.296875" y="-1402.188492063492" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e23" source="n18" target="n13">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="29.0107421875" sy="-0.0" tx="-27.349609375" ty="-0.0">
+            <y:Point x="3016.947265625" y="-2665.915873015873" />
+            <y:Point x="3016.947265625" y="-2591.6170634920636" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e58" source="n9" target="n18">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="21.671875" sy="-1.9354838709677473" tx="-29.0107421875" ty="12.666666666666668">
+            <y:Point x="2254.921875" y="-2277.3636584741425" />
+            <y:Point x="2254.921875" y="-2653.2492063492064" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e62" source="n132" target="n9">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="-45.015625" sy="-6.0" tx="21.671875" ty="12.58064516129025">
+            <y:Point x="4212.7138671875" y="-828.6035714285714" />
+            <y:Point x="4212.7138671875" y="-1478.6198412698413" />
+            <y:Point x="2558.921875" y="-1478.6198412698413" />
+            <y:Point x="2558.921875" y="-2262.8475294418845" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e65" source="n134" target="n60">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="45.015625" sy="-0.0" tx="-21.0068359375" ty="7.5">
+            <y:Point x="3843.677734375" y="-2091.6242063492064" />
+            <y:Point x="3843.677734375" y="-2210.8253968253966" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="standard" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e66" source="n36" target="n134">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="20.669921875" sy="11.25" tx="-45.015625" ty="-10.0">
+            <y:Point x="3335.296875" y="-2717.3670634920636" />
+            <y:Point x="3335.296875" y="-2101.6242063492064" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e77" source="n0" target="n18">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="22.6796875" sy="6.923076923077133" tx="-29.0107421875" ty="-2.333333333333485">
+            <y:Point x="1173.8876953125" y="-3905.1396214896213" />
+            <y:Point x="1173.8876953125" y="-2860.1515873015874" />
+            <y:Point x="1722.90234375" y="-2860.1515873015874" />
+            <y:Point x="1722.90234375" y="-2714.1170634920636" />
+            <y:Point x="1884.921875" y="-2714.1170634920636" />
+            <y:Point x="1884.921875" y="-2668.2492063492064" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="dashed" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e84" source="n74" target="n36">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="36.0126953125" sy="-0.0" tx="-20.669921875" ty="-0.0">
+            <y:Point x="2984.947265625" y="-2602.513492063492" />
+            <y:Point x="2984.947265625" y="-2728.6170634920636" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e87" source="n9" target="n74">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="21.671875" sy="-0.9677419354838772" tx="-36.0126953125" ty="-0.0">
+            <y:Point x="2270.921875" y="-2276.3959165386586" />
+            <y:Point x="2270.921875" y="-2602.513492063492" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e119" source="n94" target="n343">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="32.34765625" sy="7.5" tx="-31.66796875" ty="-5.625">
+            <y:Point x="7825.2158203125" y="-4721.740476190476" />
+            <y:Point x="7825.2158203125" y="-3804.930158730159" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e123" source="n97" target="n94">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="34.6826171875" sy="-4.2857142857146755" tx="-32.34765625" ty="10.0">
+            <y:Point x="5013.115234375" y="-4132.819841269842" />
+            <y:Point x="5013.115234375" y="-4319.74126984127" />
+            <y:Point x="7167.1220703125" y="-4319.74126984127" />
+            <y:Point x="7167.1220703125" y="-4568.533333333334" />
+            <y:Point x="7568.513671875" y="-4568.533333333334" />
+            <y:Point x="7568.513671875" y="-4719.240476190476" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e147" source="n109" target="n211">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="28.0087890625" sy="-10.0" tx="-78.6953125" ty="12.0">
+            <y:Point x="4804.7373046875" y="-6246.733333333334" />
+            <y:Point x="4804.7373046875" y="-6493.3607142857145" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e153" source="n111" target="n86">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="26.341796875" sy="-6.0" tx="-24.337890625" ty="-1.199999999999818">
+            <y:Point x="9030.4013671875" y="-4960.79880952381" />
+            <y:Point x="9030.4013671875" y="-4957.7" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="7.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e154" source="n343" target="n111">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="31.66796875" sy="-6.0" tx="-26.341796875" ty="8.0">
+            <y:Point x="8260.25390625" y="-3805.305158730159" />
+            <y:Point x="8260.25390625" y="-4946.79880952381" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="7.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e160" source="n111" target="n116">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="-26.341796875" sy="-8.33333333333303" tx="20.67578125" ty="13.636363636363967">
+            <y:Point x="8029.234375" y="-4963.132142857143" />
+            <y:Point x="8029.234375" y="-5637.813492063492" />
+            <y:Point x="6161.1513671875" y="-5637.813492063492" />
+            <y:Point x="6161.1513671875" y="-5615.313492063492" />
+            <y:Point x="4914.4326171875" y="-5615.313492063492" />
+            <y:Point x="4914.4326171875" y="-5592.813492063492" />
+            <y:Point x="4163.38671875" y="-5592.813492063492" />
+            <y:Point x="4163.38671875" y="-5766.015223665223" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e163" source="n116" target="n119">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="20.67578125" sy="2.7272727272729753" tx="-20.669921875" ty="-7.5">
+            <y:Point x="4390.068359375" y="-5776.924314574314" />
+            <y:Point x="4390.068359375" y="-5777.215873015873" />
+            <y:Point x="4914.4326171875" y="-5777.215873015873" />
+            <y:Point x="4914.4326171875" y="-5719.943253968254" />
+            <y:Point x="6998.44140625" y="-5719.943253968254" />
+            <y:Point x="6998.44140625" y="-4625.935714285714" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e164" source="n119" target="n94">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="20.669921875" sy="-7.5" tx="-32.34765625" ty="3.33333333333303">
+            <y:Point x="7187.7919921875" y="-4625.935714285714" />
+            <y:Point x="7187.7919921875" y="-4632.935714285714" />
+            <y:Point x="7520.513671875" y="-4632.935714285714" />
+            <y:Point x="7520.513671875" y="-4725.907142857143" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e167" source="n116" target="n122">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="20.67578125" sy="-8.181818181818016" tx="-21.671875" ty="-0.0">
+            <y:Point x="4326.068359375" y="-5787.833405483405" />
+            <y:Point x="4326.068359375" y="-5792.125396825397" />
+            <y:Point x="8799.69140625" y="-5792.125396825397" />
+            <y:Point x="8799.69140625" y="-5818.8980158730155" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e168" source="n122" target="n123">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="21.671875" sy="-0.0" tx="-35.6787109375" ty="-0.0" />
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e169" source="n116" target="n109">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="20.67578125" sy="-13.636363636363637" tx="-28.0087890625" ty="2.5">
+            <y:Point x="4278.068359375" y="-5793.287950937951" />
+            <y:Point x="4278.068359375" y="-6234.233333333334" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e177" source="n211" target="n111">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="78.6953125" sy="-0.0" tx="-26.341796875" ty="-11.0">
+            <y:Point x="5057.1279296875" y="-6505.3607142857145" />
+            <y:Point x="5057.1279296875" y="-6362.555555555556" />
+            <y:Point x="7167.1220703125" y="-6362.555555555556" />
+            <y:Point x="7167.1220703125" y="-6303.439285714286" />
+            <y:Point x="7760.1953125" y="-6303.439285714286" />
+            <y:Point x="7760.1953125" y="-6263.738095238095" />
+            <y:Point x="8128.25390625" y="-6263.738095238095" />
+            <y:Point x="8128.25390625" y="-4965.79880952381" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e179" source="n211" target="n129">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="78.6953125" sy="12.857142857142861" tx="-34.0087890625" ty="-10.0">
+            <y:Point x="4993.1279296875" y="-6492.503571428571" />
+            <y:Point x="4993.1279296875" y="-4613.136904761905" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e193" source="n60" target="n132">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="21.0068359375" sy="13.333333333333332" tx="-45.015625" ty="-12.0">
+            <y:Point x="4261.7138671875" y="-2204.992063492063" />
+            <y:Point x="4261.7138671875" y="-834.6035714285714" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e211" source="n102" target="n141">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="32.6787109375" sy="-0.0" tx="-33.349609375" ty="-0.0" />
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e220" source="n205" target="n145">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="35.01953125" sy="-7.5" tx="-35.3564453125" ty="3.75">
+            <y:Point x="7014.44140625" y="-5552.428174603175" />
+            <y:Point x="7014.44140625" y="-5569.629365079365" />
+            <y:Point x="7520.513671875" y="-5569.629365079365" />
+            <y:Point x="7520.513671875" y="-5605.813492063492" />
+            <y:Point x="8639.6708984375" y="-5605.813492063492" />
+            <y:Point x="8639.6708984375" y="-5628.813492063492" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e224" source="n129" target="n143">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="34.0087890625" sy="-4.2857142857146755" tx="-42.3642578125" ty="7.5">
+            <y:Point x="6274.1748046875" y="-4607.422619047619" />
+            <y:Point x="6274.1748046875" y="-4833.338095238095" />
+            <y:Point x="8406.2900390625" y="-4833.338095238095" />
+            <y:Point x="8406.2900390625" y="-5628.813492063492" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e225" source="n129" target="n144">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="34.0087890625" sy="4.2857142857146755" tx="-42.3525390625" ty="-2.5">
+            <y:Point x="6402.1748046875" y="-4598.85119047619" />
+            <y:Point x="6402.1748046875" y="-4540.533333333334" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e226" source="n143" target="n145">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="42.3642578125" sy="-0.0" tx="-35.3564453125" ty="-3.75" />
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e228" source="n129" target="n146">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="34.0087890625" sy="-12.857142857142858" tx="-25.01171875" ty="13.413697451636978">
+            <y:Point x="6223.158203125" y="-4615.994047619048" />
+            <y:Point x="6223.158203125" y="-5530.014477151538" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="dashed" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e229" source="n129" target="n205">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="34.0087890625" sy="-8.571428571428442" tx="-35.01953125" ty="10.5">
+            <y:Point x="6239.158203125" y="-4611.708333333333" />
+            <y:Point x="6239.158203125" y="-4838.624206349206" />
+            <y:Point x="6657.0732421875" y="-4838.624206349206" />
+            <y:Point x="6657.0732421875" y="-5534.428174603175" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="dashed" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e230" source="n129" target="n328">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="34.0087890625" sy="12.857142857142861" tx="-35.0166015625" ty="-10.0">
+            <y:Point x="6274.1748046875" y="-4590.2797619047615" />
+            <y:Point x="6274.1748046875" y="-2888.1170634920636" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="dashed" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e234" source="n144" target="n150">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="42.3525390625" sy="-10.909090909090908" tx="-35.3564453125" ty="6.0">
+            <y:Point x="7600.513671875" y="-4548.942424242425" />
+            <y:Point x="7600.513671875" y="-5504.20992063492" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e235" source="n144" target="n151">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="42.3525390625" sy="8.18181818181818" tx="-48.3525390625" ty="-7.5">
+            <y:Point x="7520.513671875" y="-4529.851515151516" />
+            <y:Point x="7520.513671875" y="-4136.034126984127" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e236" source="n151" target="n97">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="-48.3525390625" sy="7.5" tx="34.6826171875" ty="8.571428571428442">
+            <y:Point x="7390.8232421875" y="-4121.034126984127" />
+            <y:Point x="7390.8232421875" y="-3995.443253968254" />
+            <y:Point x="4981.115234375" y="-3995.443253968254" />
+            <y:Point x="4981.115234375" y="-4119.962698412699" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e237" source="n147" target="n144">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="28.0087890625" sy="-3.75" tx="-42.3525390625" ty="7.5">
+            <y:Point x="7278.1328125" y="-3839.290873015873" />
+            <y:Point x="7278.1328125" y="-4530.533333333334" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e239" source="n150" target="n145">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="35.3564453125" sy="-0.0" tx="-35.3564453125" ty="11.25">
+            <y:Point x="8655.6708984375" y="-5510.20992063492" />
+            <y:Point x="8655.6708984375" y="-5621.313492063492" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e244" source="n144" target="n157">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="42.3525390625" sy="10.909090909090907" tx="-49.0205078125" ty="-7.5">
+            <y:Point x="7488.513671875" y="-4527.124242424243" />
+            <y:Point x="7488.513671875" y="-3839.290873015873" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e245" source="n157" target="n343">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="49.0205078125" sy="-0.0" tx="-31.66796875" ty="-1.875">
+            <y:Point x="7809.2158203125" y="-3831.790873015873" />
+            <y:Point x="7809.2158203125" y="-3801.180158730159" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e246" source="n158" target="n94">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="34.0087890625" sy="-0.0" tx="-32.34765625" ty="6.666666666666666">
+            <y:Point x="7536.513671875" y="-4600.734523809524" />
+            <y:Point x="7536.513671875" y="-4722.573809523809" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e247" source="n119" target="n158">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="20.669921875" sy="7.5" tx="-34.0087890625" ty="-0.0">
+            <y:Point x="7187.7919921875" y="-4610.935714285714" />
+            <y:Point x="7187.7919921875" y="-4600.734523809524" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e296" source="n175" target="n9">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="52.0146484375" sy="-0.0" tx="-21.671875" ty="-0.0">
+            <y:Point x="1609.90234375" y="-2243.6178571428572" />
+            <y:Point x="1609.90234375" y="-2275.4281746031747" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e300" source="n0" target="n175">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="22.6796875" sy="11.53846153846153" tx="-52.0146484375" ty="-12.5">
+            <y:Point x="1077.8876953125" y="-3900.524236874237" />
+            <y:Point x="1077.8876953125" y="-2256.1178571428572" />
+          </y:Path>
+          <y:LineStyle color="#999999" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e359" source="n97" target="n129">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="34.6826171875" sy="-12.857142857142858" tx="-34.0087890625" ty="10.0">
+            <y:Point x="4949.115234375" y="-4141.3912698412705" />
+            <y:Point x="4949.115234375" y="-4593.136904761905" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e360" source="n97" target="n205">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="34.6826171875" sy="-8.571428571428442" tx="-35.01953125" ty="13.5">
+            <y:Point x="4981.115234375" y="-4137.105555555556" />
+            <y:Point x="4981.115234375" y="-4325.027380952381" />
+            <y:Point x="6673.0732421875" y="-4325.027380952381" />
+            <y:Point x="6673.0732421875" y="-5531.428174603175" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e362" source="n97" target="n111">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="34.6826171875" sy="4.2857142857146755" tx="-26.341796875" ty="2.33333333333303">
+            <y:Point x="5013.115234375" y="-4124.248412698413" />
+            <y:Point x="5013.115234375" y="-4000.729365079365" />
+            <y:Point x="8225.25390625" y="-4000.729365079365" />
+            <y:Point x="8225.25390625" y="-4952.465476190477" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e363" source="n97" target="n144">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="34.6826171875" sy="-0.0" tx="-42.3525390625" ty="2.5">
+            <y:Point x="7262.1328125" y="-4128.534126984127" />
+            <y:Point x="7262.1328125" y="-4535.533333333334" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e410" source="n141" target="n228">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="33.349609375" sy="-7.5" tx="-30.34375" ty="10.0">
+            <y:Point x="7817.884765625" y="-6343.140476190476" />
+            <y:Point x="7817.884765625" y="-7130.70992063492" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e414" source="n228" target="n232">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="30.34375" sy="-0.0" tx="-32.34765625" ty="-0.0" />
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e419" source="n232" target="n143">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="32.34765625" sy="7.5" tx="-42.3642578125" ty="-7.5">
+            <y:Point x="8518.2900390625" y="-7133.20992063492" />
+            <y:Point x="8518.2900390625" y="-5643.813492063492" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e513" source="n253" target="n205">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="69.3583984375" sy="10.0" tx="-35.01953125" ty="-10.5">
+            <y:Point x="6434.1748046875" y="-5978.206349206349" />
+            <y:Point x="6434.1748046875" y="-5832.602777777778" />
+            <y:Point x="6689.0654296875" y="-5832.602777777778" />
+            <y:Point x="6689.0654296875" y="-5555.428174603175" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e514" source="n253" target="n150">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="69.3583984375" sy="-10.0" tx="-35.3564453125" ty="-12.0">
+            <y:Point x="6258.8642578125" y="-5998.206349206349" />
+            <y:Point x="6258.8642578125" y="-6140.40753968254" />
+            <y:Point x="7536.513671875" y="-6140.40753968254" />
+            <y:Point x="7536.513671875" y="-5522.20992063492" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e515" source="n253" target="n146">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="69.3583984375" sy="13.333333333333332" tx="-25.01171875" ty="-13.413697451636978">
+            <y:Point x="6402.1748046875" y="-5974.873015873016" />
+            <y:Point x="6402.1748046875" y="-5556.841872054812" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e552" source="n146" target="n205">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="25.01171875" sy="-0.0" tx="-35.01953125" ty="1.5" />
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e559" source="n327" target="n147">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="45.34375" sy="-7.5" tx="-28.0087890625" ty="12.0">
+            <y:Point x="7059.43359375" y="-2873.6170634920636" />
+            <y:Point x="7059.43359375" y="-3823.540873015873" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e562" source="n328" target="n327">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="35.0166015625" sy="12.0" tx="-45.34375" ty="-0.0" />
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e570" source="n329" target="n147">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="39.6748046875" sy="-7.5" tx="-28.0087890625" ty="6.0">
+            <y:Point x="7043.43359375" y="-2937.0194444444446" />
+            <y:Point x="7043.43359375" y="-3829.540873015873" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e571" source="n329" target="n111">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="39.6748046875" sy="7.5" tx="-26.341796875" ty="13.66666666666697">
+            <y:Point x="7808.1953125" y="-2922.0194444444446" />
+            <y:Point x="7808.1953125" y="-3768.805158730159" />
+            <y:Point x="8279.25390625" y="-3768.805158730159" />
+            <y:Point x="8279.25390625" y="-4941.132142857143" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e572" source="n328" target="n329">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="35.0166015625" sy="6.0" tx="-39.6748046875" ty="-0.0">
+            <y:Point x="6756.41015625" y="-2872.1170634920636" />
+            <y:Point x="6756.41015625" y="-2929.5194444444446" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e573" source="n330" target="n147">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="39.0068359375" sy="7.5" tx="-28.0087890625" ty="-12.0">
+            <y:Point x="7027.43359375" y="-3895.7420634920636" />
+            <y:Point x="7027.43359375" y="-3847.540873015873" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e574" source="n328" target="n330">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="35.0166015625" sy="-12.0" tx="-39.0068359375" ty="7.5">
+            <y:Point x="6708.41015625" y="-2890.1170634920636" />
+            <y:Point x="6708.41015625" y="-3895.7420634920636" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e576" source="n332" target="n147">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="53.6728515625" sy="-0.0" tx="-28.0087890625" ty="-0.0">
+            <y:Point x="7027.43359375" y="-3779.8396825396826" />
+            <y:Point x="7027.43359375" y="-3835.540873015873" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e577" source="n328" target="n332">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="35.0166015625" sy="-0.0" tx="-53.6728515625" ty="7.5">
+            <y:Point x="6740.41015625" y="-2878.1170634920636" />
+            <y:Point x="6740.41015625" y="-3772.3396825396826" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e579" source="n147" target="n102">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="28.0087890625" sy="-11.25" tx="-32.6787109375" ty="10.0">
+            <y:Point x="7246.1328125" y="-3846.790873015873" />
+            <y:Point x="7246.1328125" y="-6325.640476190476" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e580" source="n334" target="n147">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="64.01171875" sy="-0.0" tx="-28.0087890625" ty="-6.0" />
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e581" source="n328" target="n334">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="35.0166015625" sy="-6.0" tx="-64.01171875" ty="7.5">
+            <y:Point x="6724.41015625" y="-2884.1170634920636" />
+            <y:Point x="6724.41015625" y="-3834.040873015873" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e652" source="n145" target="n116">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="-35.3564453125" sy="-11.25" tx="20.67578125" ty="-2.7272727272729753">
+            <y:Point x="8639.6708984375" y="-5643.813492063492" />
+            <y:Point x="8639.6708984375" y="-5756.3980158730155" />
+            <y:Point x="8374.2900390625" y="-5756.3980158730155" />
+            <y:Point x="8374.2900390625" y="-5784.670634920635" />
+            <y:Point x="4358.068359375" y="-5784.670634920635" />
+            <y:Point x="4358.068359375" y="-5782.37886002886" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e662" source="n145" target="n139">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="35.3564453125" sy="-0.0" tx="-21.0068359375" ty="-0.0" />
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e695" source="n9" target="n365">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="21.671875" sy="4.838709677419349" tx="-39.0126953125" ty="-10.0">
+            <y:Point x="2878.921875" y="-2270.5894649257552" />
+            <y:Point x="2878.921875" y="-2088.851587301587" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e696" source="n365" target="n46">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="39.0126953125" sy="-0.0" tx="-30.3349609375" ty="-0.0">
+            <y:Point x="2987.947265625" y="-2078.851587301587" />
+            <y:Point x="2987.947265625" y="-2209.6242063492064" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e697" source="n86" target="n366">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="24.337890625" sy="-4.285714285714285" tx="-32.67578125" ty="7.5">
+            <y:Point x="9382.4267578125" y="-4960.785714285715" />
+            <y:Point x="9382.4267578125" y="-5104.603571428572" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e698" source="n366" target="n116">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="-32.67578125" sy="-7.5" tx="20.67578125" ty="-5.454545454545041">
+            <y:Point x="9334.4267578125" y="-5119.603571428572" />
+            <y:Point x="9334.4267578125" y="-5788.3980158730155" />
+            <y:Point x="4342.068359375" y="-5788.3980158730155" />
+            <y:Point x="4342.068359375" y="-5785.106132756132" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e701" source="n123" target="n86">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="35.6787109375" sy="-0.0" tx="-24.337890625" ty="-6.600000000000001">
+            <y:Point x="9116.0810546875" y="-5818.8980158730155" />
+            <y:Point x="9116.0810546875" y="-4963.1" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e715" source="n116" target="n253">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="20.67578125" sy="-10.909090909090992" tx="-69.3583984375" ty="-7.5">
+            <y:Point x="4294.068359375" y="-5790.560678210678" />
+            <y:Point x="4294.068359375" y="-5795.852777777778" />
+            <y:Point x="4712.3916015625" y="-5795.852777777778" />
+            <y:Point x="4712.3916015625" y="-6012.90753968254" />
+            <y:Point x="4940.7744140625" y="-6012.90753968254" />
+            <y:Point x="4940.7744140625" y="-5995.706349206349" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e716" source="n139" target="n123">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="21.0068359375" sy="-13.125" tx="-35.6787109375" ty="10.0">
+            <y:Point x="8907.7216796875" y="-5645.688492063492" />
+            <y:Point x="8907.7216796875" y="-5808.8980158730155" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e728" source="n379" target="n60">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="33.4931640625" sy="-0.0" tx="-21.0068359375" ty="-7.5">
+            <y:Point x="3891.677734375" y="-2372.8464285714285" />
+            <y:Point x="3891.677734375" y="-2225.8253968253966" />
+          </y:Path>
+          <y:LineStyle color="#000000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e729" source="n46" target="n379">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="30.3349609375" sy="-7.5" tx="-33.4931640625" ty="10.0">
+            <y:Point x="3215.974609375" y="-2217.1242063492064" />
+            <y:Point x="3215.974609375" y="-2362.8464285714285" />
+          </y:Path>
+          <y:LineStyle color="#999999" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e730" source="n36" target="n379">
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="20.669921875" sy="3.75" tx="-33.4931640625" ty="-10.0">
+            <y:Point x="3351.296875" y="-2724.8670634920636" />
+            <y:Point x="3351.296875" y="-2382.8464285714285" />
+          </y:Path>
+          <y:LineStyle color="#999999" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+    <edge id="e758" source="n109" target="n109">
+      <data key="d9" />
+      <data key="d10">
+        <y:PolyLineEdge>
+          <y:Path sx="0.0" sy="15.0" tx="-28.0087890625" ty="12.5">
+            <y:Point x="4696.8916015625" y="-6206.233333333334" />
+            <y:Point x="4653.3828125" y="-6206.233333333334" />
+            <y:Point x="4653.3828125" y="-6224.233333333334" />
+          </y:Path>
+          <y:LineStyle color="#FF0000" type="line" width="1.0" />
+          <y:Arrows source="none" target="standard" />
+          <y:BendStyle smoothed="false" />
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+  </graph>
+  <data key="d7">
+    <y:Resources />
+  </data>
+</graphml>
