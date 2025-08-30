@@ -1,10 +1,11 @@
 SOURCE_NODE=
 TARGET_NODE=
+SHOW_ONLY_EDGES=True
 ENABLE_NON_CYCLE_PRINTING=True
 SORT_BY_LEN=
 COLOR_THRESHOLD=48
 FOLDER_PATH=C:\Users\Adelin\Documents\OneDrive\My documents 2019\yEd graphs\
-FILE_NAME=GAME - Europa Universalis V Goods
+FILE_NAME=GAME - EU5 Modding ideas No Groups
 # Health
 # GAME - Europa Universalis V Goods
 # GAME - Orbi Universo

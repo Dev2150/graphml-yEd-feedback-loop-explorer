@@ -1,3 +1,4 @@
+from ctypes.wintypes import PSIZE
 import string
 
 from colorama import Fore, Back
@@ -7,6 +8,7 @@ import xml.etree.ElementTree as ET
 DEBUGGING = True
 prefix = 'src//' if DEBUGGING else '_internal//src//'
 inputFile = prefix + 'input.txt'
+OUTPUT_FOLDER = 'output//'
 
 nodes = {}
 nodeValues = {}
@@ -77,31 +79,46 @@ def findAllPathsForGraphML(nodes, pSource, isReversed=False):
 
 def show_all_paths(nodes, pSource, html_content, isReversed=False):
     html_content += '<br>'
-    if ENABLE_NON_CYCLE_PRINTING:
-        if not isReversed:
-            html_content += f'<h1 style="color:white;">Paths from {nodes[pSource]}</h1>'
-            print(f"\nPaths from {nodes[pSource]}")
-        else:
-            html_content += f'<h1 style="color:white;">Paths leading to {nodes[pSource]}</h1>'
-            print(f"\nPaths leading to {nodes[pSource]}")
-    allPaths = findAllPaths(isReversed, nodes, pSource)
 
-    allPaths = removeDuplicateSubsets(allPaths)
-    allPaths = sortAlphabeticallyByJoiningNumericalStringLists(allPaths, nodes)
+    nodes_to_work_with = []
+
+    if pSource != -1:
+        html_content = add_title_to_html(html_content, nodes, pSource, isReversed)
+        nodes_to_work_with.append(pSource)
+    else:
+        for _, nodeID in enumerate(nodes):
+            pSource = nodeID
+            nodes_to_work_with.append(pSource)
+            
+    allPaths = []
+    for pSource in nodes_to_work_with:
+        allPaths = findAllPaths(allPaths, isReversed, nodes, pSource)
+
+        allPaths = removeDuplicateSubsets(allPaths)
+        allPaths = sortAlphabeticallyByJoiningNumericalStringLists(allPaths, nodes)
 
     for path in allPaths:
         cycleCorrelation, nodesToTraverse, pathLen, hp = initializePrintingNodes(path, False)
         for pathNodeID, nodeID in enumerate(path):
             cycleCorrelation, hp = printNode(path, pathNodeID, pathLen, cycleCorrelation, nodesToTraverse, hp,
-                                             ENABLE_NON_CYCLE_PRINTING)
+                                            ENABLE_NON_CYCLE_PRINTING)
         # print(sp)
         if ENABLE_NON_CYCLE_PRINTING:
             html_content += hp + "</p>"
     return html_content
 
+def add_title_to_html(html_content, nodes, pSource, isReversed):
+    # if ENABLE_NON_CYCLE_PRINTING: ### REDUNDANT CHECK
+    if not isReversed:
+        html_content += f'<h1 style="color:white;">Paths from {nodes[pSource]}</h1>'
+        print(f"\nPaths from {nodes[pSource]}")
+    else:
+        html_content += f'<h1 style="color:white;">Paths leading to {nodes[pSource]}</h1>'
+        print(f"\nPaths leading to {nodes[pSource]}")
+    return html_content
 
-def findAllPaths(isReversed, nodes, pSource):
-    allPaths = []
+
+def findAllPaths(allPaths, isReversed, nodes, pSource):
     for _, nodeID in enumerate(nodes):
         target = nodeID
         source = pSource
@@ -174,9 +191,10 @@ def readFromGraphXML(inputFile):
     return nodes, edges, edgeValues
 
 
-def edgeValueString(edgeValue):
-    return ":--->:" if edgeValue > 0 else ":--X->:"
-    # return ":―→:" if edgeValue > 0 else ":―X→:"
+def edgeValueString(edgeValue, is_simple = False):
+    if not is_simple:
+        return ":--->:" if edgeValue > 0 else ":--X->:"
+    return "->" if edgeValue > 0 else "-X>"
 
 
 def edgeValue(node1, node2):
@@ -290,6 +308,7 @@ def printToFile(pHTMLContent: string):
         if targetNodeExists:
             name += " - " + targetNode
     fileName = name + '.html'
+    file_path = OUTPUT_FOLDER + fileName
 
     pHTMLContent = f"""
     <!DOCTYPE html>
@@ -305,7 +324,7 @@ def printToFile(pHTMLContent: string):
     </html>
     """
 
-    with open(fileName, 'w') as f:
+    with open(file_path, 'w') as f:
         f.write(pHTMLContent)
     print(f"HTML file '{fileName}' has been generated.")
 
@@ -369,15 +388,34 @@ def remove_nodes_from_graphml(p_input_file, p_output_file, nodesToKeep):
         f.write(content)
 
 
-if __name__ == '__main__':
+def read_config_file(inputFile):
     with open(inputFile, "r") as f:
         sourceNode = f.readline().lower().split('=')[1].strip()
         targetNode = f.readline().lower().split('=')[1].strip()
-        ENABLE_NON_CYCLE_PRINTING = bool(f.readline().lower().split('=')[1].strip())
-        SORT_BY_LEN = bool(f.readline().lower().split('=')[1].strip())
+        SHOW_ONLY_EDGES = f.readline().lower().split('=')[1].strip() == 'true'
+        ENABLE_NON_CYCLE_PRINTING = f.readline().lower().split('=')[1].strip() == 'true'
+        SORT_BY_LEN = f.readline().lower().split('=')[1].strip() == 'true'
         COLOR_THRESHOLD = int(f.readline().lower().split('=')[1].strip())
         FOLDER_PATH = f.readline().lower().split('=')[1].strip()
         FILE_NAME = f.readline().lower().split('=')[1].split('#')[0].strip()
+    return sourceNode, targetNode, SHOW_ONLY_EDGES, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN, COLOR_THRESHOLD, FOLDER_PATH,FILE_NAME
+
+def show_edges(edges, html_content):
+    html_content += '<br>'
+    html_content += f'<h1 style="color:white;">Edges</h1>'
+    for edgeID, e in enumerate(edges):
+        try:
+            edgeValueInt = edgeValues.get(str(edgeID))
+            edgeValueStr = edgeValueString(edgeValueInt, True)
+            html_content += f'<p><span style="color:#AAAAFF">{nodes[e[0]]}</span> <span style="color:#000000">{edgeValueStr}</span> <span style="color:#AAAAFF">{nodes[e[1]]}</span></p>'
+        except KeyError as ke:
+            print(f"KeyError for edge {e} with ID {edgeID}: {ke}")
+        except Exception as ex:
+            print(f"An error occurred for edge {e} with ID {edgeID}: {ex}")
+    return html_content
+
+if __name__ == '__main__':
+    sourceNode, targetNode, SHOW_ONLY_EDGES, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN, COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME = read_config_file(inputFile)
 
     inputGraphMLFile = FOLDER_PATH + FILE_NAME + '.graphml'
     nodes, edges, edgeValues = readFromGraphXML(inputGraphMLFile)
@@ -437,26 +475,34 @@ if __name__ == '__main__':
 
     html_content = printNodes(cycles, html_content, True)
 
-    if sourceNodeExists:
-        if targetNodeExists:
-            html_content = printPathsFromSourceToTarget(html_content, sourceNodeID, targetNodeID, sourceNode,
-                                                        targetNode)
-            html_content = printPathsFromSourceToTarget(html_content, targetNodeID, sourceNodeID, targetNode,
-                                                        sourceNode)
-        else:
-            if ENABLE_NON_CYCLE_PRINTING:
-                html_content = show_all_paths(nodes, sourceNodeID, html_content, True)
-                html_content = show_all_paths(nodes, sourceNodeID, html_content)
+    if SHOW_ONLY_EDGES:
+        html_content = show_edges(edges, html_content)
+    else:
+        if sourceNodeExists:
+            if targetNodeExists:
+                html_content = printPathsFromSourceToTarget(html_content, sourceNodeID, targetNodeID, sourceNode,
+                                                            targetNode)
+                html_content = printPathsFromSourceToTarget(html_content, targetNodeID, sourceNodeID, targetNode,
+                                                            sourceNode)
             else:
-                findAllPathsForGraphML(nodes, sourceNodeID, True)
-                findAllPathsForGraphML(nodes, sourceNodeID)
+                if ENABLE_NON_CYCLE_PRINTING:
+                    html_content = show_all_paths(nodes, sourceNodeID, html_content, True)
+                    html_content = show_all_paths(nodes, sourceNodeID, html_content)
+                else:
+                    findAllPathsForGraphML(nodes, sourceNodeID, True)
+                    findAllPathsForGraphML(nodes, sourceNodeID)
+        else:
+            if not targetNodeExists:
+                html_content = show_all_paths(nodes, sourceNodeID, html_content)
+            
+                
 
     printToFile(html_content)
 
     print(f"Node count: {len(nodesPrinted)} / {len(nodes)} ({int(100 * len(nodesPrinted) / len(nodes))}%)")
     # print (f"Edges count: {len(edgesPrinted)} / {len(edges)} ({int(100 * len(edgesPrinted) / len(edges))}%)")
 
-    output_file = 'output.graphml'
+    output_file = OUTPUT_FOLDER + 'output.graphml'
     nodesToKeep = [f'n{num}' for num in nodesPrinted]
     nodesToExclude = sorted([nodes[y] for y in [x for x in nodes if x not in nodesToKeep]])
 
@@ -464,3 +510,5 @@ if __name__ == '__main__':
     for i in nodesToExclude:
         print(i, end=', ')
     remove_nodes_from_graphml(inputGraphMLFile, output_file, nodesToKeep)  # filter_graphml(, , nodesPrinted)
+
+
