@@ -1,3 +1,4 @@
+import configparser
 import os
 import xml.etree.ElementTree as emTree
 from typing import List, Any
@@ -9,6 +10,9 @@ DEBUGGING = True
 prefix = 'src//' if DEBUGGING else '_internal//src//'
 input_file = prefix + 'input.txt'
 OUTPUT_FOLDER = 'output//'
+
+# Define the section name
+SECTION = 'SETTINGS'
 
 nodes = {}
 node_values = {}
@@ -38,26 +42,41 @@ def filter_graphml(p_input_file, p_output_file, keep_nodes=None, keep_edges=None
 	nx.write_graphml(g, p_output_file)
 
 
-def shift_to(lst: list, target_node):
+def shift_to(lst: list, p_target_node):
 	if not lst:
 		return lst
 
-	min_index = lst.index(target_node)
+	min_index = lst.index(p_target_node)
 
 	return lst[min_index:] + lst[:min_index]
 
 
-def remove_duplicate_subsets(list_of_lists: List[List[Any]]) -> List[List[Any]]:
+def remove_duplicate_subsequences(list_of_lists: List[List[Any]]) -> List[List[Any]]:
+	# Sort by length in reverse order. This ensures we check if a shorter list
+	# is a sub-sequence of a longer list that has already been added to 'result'.
 	sorted_lists = sorted(list_of_lists, key=len, reverse=True)
 	result: List[List[Any]] = []
+
 	for current_list in sorted_lists:
-		if not any(set(current_list).issubset(set(x)) for x in result):
+		# Convert the current list to a string representation for easy sub-sequence checking.
+		# We use a unique separator (e.g., ',') to prevent false matches (e.g., '1' in '10').
+		current_str = ','.join(map(str, current_list))
+
+		# Check if the current list (path) is a contiguous sub-sequence of any path already in 'result'.
+		is_subsequence = False
+		for existing_list in result:
+			existing_str = ','.join(map(str, existing_list))
+			# Check if the current_str is found contiguously within the existing_str
+			if current_str in existing_str:
+				is_subsequence = True
+				break
+		# If the current list is NOT a contiguous sub-sequence of any existing, keep it.
+		if not is_subsequence:
 			result.append(current_list)
 	return result
 
 
 def find_all_paths_for_graph_ml(p_nodes, p_source, is_reversed=False):
-	# allPaths = findAllPaths(isReversed, nodes, pSource)
 	for _, nodeID in enumerate(p_nodes):
 		target = nodeID
 		source = p_source
@@ -88,14 +107,14 @@ def show_all_paths(p_nodes, p_source, p_html_content, is_reversed=False):
 	for p_source in nodes_to_work_with:
 		all_paths = find_all_paths(all_paths, is_reversed, p_nodes, p_source)
 
-		all_paths = remove_duplicate_subsets(all_paths)
+		all_paths = remove_duplicate_subsequences(all_paths)
 		all_paths = sort_alphabetically_by_joining_numerical_string_lists(all_paths, p_nodes)
 
 	for path in all_paths:
 		cycle_correlation, nodes_to_traverse, path_len, hp = initialize_printing_nodes(path, False)
 		for pathNodeID, nodeID in enumerate(path):
 			cycle_correlation, hp = print_node(path, pathNodeID, path_len, cycle_correlation, nodes_to_traverse, hp,
-											  ENABLE_NON_CYCLE_PRINTING)
+											   ENABLE_NON_CYCLE_PRINTING)
 		# print(sp)
 		if ENABLE_NON_CYCLE_PRINTING:
 			p_html_content += hp + "</p>"
@@ -103,7 +122,6 @@ def show_all_paths(p_nodes, p_source, p_html_content, is_reversed=False):
 
 
 def add_title_to_html(p_html_content, p_nodes, p_source, is_reversed):
-	# if ENABLE_NON_CYCLE_PRINTING: ### REDUNDANT CHECK
 	if not is_reversed:
 		p_html_content += f'<h1 style="color:white;">Paths from {p_nodes[p_source]}</h1>'
 		print(f"\nPaths from {p_nodes[p_source]}")
@@ -143,7 +161,7 @@ def find_node(child):
 						node_values[node_id] = 0
 					else:
 						color = attrib['color'][1:]
-						if color in ['FFCC00', '99CCFF', 'FFFF00']: # noqa: spellcheck
+						if color in ['FFCC00', '99CCFF', 'FFFF00']:  # noqa: spellcheck
 							node_values[node_id] = 0
 						else:
 							r, g, b = int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
@@ -220,11 +238,11 @@ def get_color_by_node_properties(cycle_correlation, convenience):
 	return "#FFFFFF" if cycle_correlation > 0 else "#777777"
 
 
-def print_paths_from_source_to_target(p_html_content, source_node_id, target_node_id, source_node, target_node):
+def print_paths_from_source_to_target(p_html_content, p_source_node_id, p_target_node_id, p_source_node, p_target_node):
 	p_html_content += '<br>'
-	p_html_content += f'<h1>Paths: {source_node} -> {target_node}</h1>'
+	p_html_content += f'<h1>Paths: {p_source_node} -> {p_target_node}</h1>'
 	# print(f"\n {Fore.RESET}Paths: {sourceNode} -> {targetNode}")
-	all_paths = list(nx.all_simple_paths(G, source=source_node_id, target=target_node_id))
+	all_paths = list(nx.all_simple_paths(G, source=p_source_node_id, target=p_target_node_id))
 	p_html_content = print_nodes(all_paths, p_html_content)
 	return p_html_content
 
@@ -245,7 +263,7 @@ def print_node(path, path_node_id, path_len, cycle_correlation, nodes_to_travers
 	try:
 		node_name = nodes[node_id]
 		convenience = cycle_correlation * node_values[node_id]
-		is_special_node = targetNode == node_name or sourceNode == node_name
+		is_special_node = target_node == node_name or source_node == node_name
 		if is_printing_to_html:
 			hp_text_style = (
 								"background-color:black;" if is_special_node else "") + "color:" + get_color_by_node_properties(
@@ -295,12 +313,12 @@ def initialize_printing_nodes(path, is_cycle):
 
 
 def print_to_file(p_html_content: str):
-	if not sourceNodeExists:
+	if not source_node_exists:
 		name = FILE_NAME
 	else:
-		name = sourceNode
-		if targetNodeExists:
-			name += " - " + targetNode
+		name = source_node
+		if target_node_exists:
+			name += " - " + target_node
 	file_name = name + '.html'
 	file_path = OUTPUT_FOLDER + file_name
 
@@ -323,7 +341,7 @@ def print_to_file(p_html_content: str):
 	print(f"HTML file '{file_name}' has been generated.")
 
 
-def remove_nodes_from_graphml(p_input_file, p_output_file, nodes_to_keep):
+def remove_nodes_from_graphml(p_input_file, p_output_file, p_nodes_to_keep):
 	# Register namespaces to ensure proper parsing
 	emTree.register_namespace('', 'http://graphml.graphdrawing.org/xmlns')
 	emTree.register_namespace('y', 'http://www.yworks.com/xml/graphml')
@@ -348,7 +366,7 @@ def remove_nodes_from_graphml(p_input_file, p_output_file, nodes_to_keep):
 		nodes_to_delete = set()
 		for node in graph.findall('graphml:node', namespaces):
 			node_id = node.get('id')
-			if node_id not in nodes_to_keep:
+			if node_id not in p_nodes_to_keep:
 				nodes_to_delete.add(node)
 
 		# Actually remove the nodes
@@ -361,7 +379,7 @@ def remove_nodes_from_graphml(p_input_file, p_output_file, nodes_to_keep):
 			source = edge.get('source')
 			target = edge.get('target')
 
-			if source not in nodes_to_keep or target not in nodes_to_keep:
+			if source not in p_nodes_to_keep or target not in p_nodes_to_keep:
 				edges_to_delete.append(edge)
 
 		# Actually remove the edges
@@ -383,40 +401,51 @@ def remove_nodes_from_graphml(p_input_file, p_output_file, nodes_to_keep):
 
 
 def read_config_file(p_input_file):
-	with open(p_input_file, "r") as f:
-		source_node = f.readline().lower().split('=')[1].strip()
-		target_node = f.readline().lower().split('=')[1].strip()
-		show_only_edges = f.readline().lower().split('=')[1].strip() == 'true'
-		enable_non_cycle_printing = f.readline().lower().split('=')[1].strip() == 'true'
-		sort_by_len = f.readline().lower().split('=')[1].strip() == 'true'
-		color_threshold = int(f.readline().lower().split('=')[1].strip())
-		folder_path = f.readline().lower().split('=')[1].strip()
-		file_name = f.readline().lower().split('=')[1].split('#')[0].strip()
-	return source_node, target_node, show_only_edges, enable_non_cycle_printing, sort_by_len, color_threshold, folder_path, file_name
+	config = configparser.ConfigParser()
+
+	# Read the file. Note: configparser is case-insensitive for keys by default.
+	config.read(p_input_file)
+
+	# Safely get values with type conversion and defaults
+	p_source_node = config.get(SECTION, 'source_node', fallback='').lower()
+	p_target_node = config.get(SECTION, 'target_node', fallback='').lower()
+
+	# configparser has built-in methods for booleans and integers
+	show_only_edges = config.getboolean(SECTION, 'show_only_edges', fallback=False)
+	enable_non_cycle_printing = config.getboolean(SECTION, 'enable_non_cycle_printing', fallback=False)
+	sort_by_len = config.getboolean(SECTION, 'sort_by_len', fallback=False)
+
+	color_threshold = config.getint(SECTION, 'color_threshold', fallback=48)
+
+	folder_path = config.get(SECTION, 'folder_path', fallback='').strip()
+	file_name = config.get(SECTION, 'file_name', fallback='').strip()
+
+	return p_source_node, p_target_node, show_only_edges, enable_non_cycle_printing, sort_by_len, color_threshold, folder_path, file_name
 
 
 def show_edges(p_edges, p_html_content):
 	p_html_content += '<br>'
 	p_html_content += f'<h1 style="color:white;">Edges</h1>'
-	for edgeID, e in enumerate(p_edges):
+	for edge_id, e in enumerate(p_edges):
 		try:
-			edge_value_int = edge_values.get(str(edgeID))
+			edge_value_int = edge_values.get(str(edge_id))
 			edge_value_str = edge_value_string(edge_value_int, True)
 			p_html_content += f'<p><span style="color:#AAAAFF">{nodes[e[0]]}</span> <span style="color:#000000">{edge_value_str}</span> <span style="color:#AAAAFF">{nodes[e[1]]}</span></p>'
 		except KeyError as ke:
-			print(f"KeyError for edge {e} with ID {edgeID}: {ke}")
+			print(f"KeyError for edge {e} with ID {edge_id}: {ke}")
 		except Exception as ex:
-			print(f"An error occurred for edge {e} with ID {edgeID}: {ex}")
+			print(f"An error occurred for edge {e} with ID {edge_id}: {ex}")
 	return p_html_content
 
 
 def create_input_file():
 	print(f"Configuration file '{input_file}' not found. Creating a default one.")
-	default_content = """SOURCE_NODE=
+	default_content = f"""[{SECTION}]
+SOURCE_NODE=
 TARGET_NODE=
-SHOW_ONLY_EDGES=True
+SHOW_ONLY_EDGES=False
 ENABLE_NON_CYCLE_PRINTING=True
-SORT_BY_LEN=
+SORT_BY_LEN=False
 COLOR_THRESHOLD=48
 FOLDER_PATH=
 FILE_NAME=
@@ -429,56 +458,54 @@ FILE_NAME=
 		print("Default configuration file created successfully.")
 	except Exception as e:
 		print(f"Error creating default configuration file: {e}")
-	# You might want to exit here if file creation is critical
-	# exit(1)
 
 
 if __name__ == '__main__':
 	if not os.path.exists(input_file):
 		create_input_file()
-	sourceNode, targetNode, SHOW_ONLY_EDGES, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN, COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME = read_config_file(
-			input_file)
+	source_node, target_node, SHOW_ONLY_EDGES, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN, COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME = read_config_file(
+		input_file)
 
-	inputGraphMLFile = FOLDER_PATH + FILE_NAME + '.graphml'
-	nodes, edges, edge_values = read_from_graph_xml(inputGraphMLFile)
+	input_graph_ml_file = FOLDER_PATH + FILE_NAME + '.graphml'
+	nodes, edges, edge_values = read_from_graph_xml(input_graph_ml_file)
 
 	G = nx.DiGraph()
 	G.add_nodes_from(nodes.keys())
 
-	sourceNodeExists = False
-	targetNodeExists = False
-	sourceNodeID = -1
-	targetNodeID = -1
-	if sourceNode:
+	source_node_exists = False
+	target_node_exists = False
+	source_node_id = -1
+	target_node_id = -1
+	if source_node:
 		for cycleNodeID in nodes:
 			nodeKey = nodes[cycleNodeID]
-			if nodeKey.lower() == sourceNode:
-				sourceNodeID = cycleNodeID
-				sourceNodeExists = True
+			if nodeKey.lower() == source_node:
+				source_node_id = cycleNodeID
+				source_node_exists = True
 
-		if not sourceNodeExists:
-			raise Exception(f"Cound not find source node {sourceNode}")
+		if not source_node_exists:
+			raise Exception(f"Cound not find source node {source_node}")
 
-	if targetNode:
+	if target_node:
 		for cycleNodeID in nodes:
 			nodeKey = nodes[cycleNodeID]
-			if nodeKey.lower() == targetNode:
-				targetNodeID = cycleNodeID
-				targetNodeExists = True
-		if not targetNodeExists:
-			raise Exception(f"Cound not find target node {targetNode}")
+			if nodeKey.lower() == target_node:
+				target_node_id = cycleNodeID
+				target_node_exists = True
+		if not target_node_exists:
+			raise Exception(f"Cound not find target node {target_node}")
 
 	G.add_edges_from(edges)
 	cycles = list(nx.simple_cycles(G))
 
-	if targetNodeExists:
-		cycles = [cycle for cycle in cycles if targetNodeID in cycle]
-	if sourceNodeExists:
-		cycles = [cycle for cycle in cycles if sourceNodeID in cycle]
+	if target_node_exists:
+		cycles = [cycle for cycle in cycles if target_node_id in cycle]
+	if source_node_exists:
+		cycles = [cycle for cycle in cycles if source_node_id in cycle]
 
 		newCycles = []
 		for cycle in cycles:
-			newCycles.append(shift_to(cycle, sourceNodeID))
+			newCycles.append(shift_to(cycle, source_node_id))
 		cycles = newCycles
 
 	cycles = sort_alphabetically_by_joining_numerical_string_lists(cycles, nodes)
@@ -486,48 +513,48 @@ if __name__ == '__main__':
 		cycles = sorted(cycles, key=len)
 
 	html_content = ''
-	# with open('output.csv', "a+", encoding='utf-16be') as f:
-	if sourceNode:
-		if targetNode:
-			s = f"Cycles: {Back.LIGHTBLACK_EX}{sourceNode}{Back.RESET} -> {Back.LIGHTBLACK_EX}{targetNode}{Back.RESET}\n"
-			html_content += f'<h1 style="color:white;">Cycles: {sourceNode} -> {targetNode}</h1>'
+	if source_node:
+		if target_node:
+			s = f"Cycles: {Back.LIGHTBLACK_EX}{source_node}{Back.RESET} -> {Back.LIGHTBLACK_EX}{target_node}{Back.RESET}\n"
+			html_content += f'<h1 style="color:white;">Cycles: {source_node} -> {target_node}</h1>'
 		else:
-			s = f"Cycles from: {Back.BLACK}{sourceNode}{Back.RESET}\n"
-			html_content += f'<h1 style="color:white;">Cycles from: {sourceNode}</h1>'
+			s = f"Cycles from: {Back.BLACK}{source_node}{Back.RESET}\n"
+			html_content += f'<h1 style="color:white;">Cycles from: {source_node}</h1>'
 
 	html_content = print_nodes(cycles, html_content, True)
 
 	if SHOW_ONLY_EDGES:
 		html_content = show_edges(edges, html_content)
 	else:
-		if sourceNodeExists:
-			if targetNodeExists:
-				html_content = print_paths_from_source_to_target(html_content, sourceNodeID, targetNodeID, sourceNode,
-																 targetNode)
-				html_content = print_paths_from_source_to_target(html_content, targetNodeID, sourceNodeID, targetNode,
-																 sourceNode)
+		if source_node_exists:
+			if target_node_exists:
+				html_content = print_paths_from_source_to_target(html_content, source_node_id, target_node_id,
+																 source_node,
+																 target_node)
+				html_content = print_paths_from_source_to_target(html_content, target_node_id, source_node_id,
+																 target_node,
+																 source_node)
 			else:
 				if ENABLE_NON_CYCLE_PRINTING:
-					html_content = show_all_paths(nodes, sourceNodeID, html_content, True)
-					html_content = show_all_paths(nodes, sourceNodeID, html_content)
+					html_content = show_all_paths(nodes, source_node_id, html_content, True)
+					html_content = show_all_paths(nodes, source_node_id, html_content)
 				else:
-					find_all_paths_for_graph_ml(nodes, sourceNodeID, True)
-					find_all_paths_for_graph_ml(nodes, sourceNodeID)
+					find_all_paths_for_graph_ml(nodes, source_node_id, True)
+					find_all_paths_for_graph_ml(nodes, source_node_id)
 		else:
-			if not targetNodeExists:
-				html_content = show_all_paths(nodes, sourceNodeID, html_content)
+			if not target_node_exists:
+				html_content = show_all_paths(nodes, source_node_id, html_content)
 
 	print_to_file(html_content)
 
 	print(f"Node count: {len(nodes_printed)} / {len(nodes)} ({int(100 * len(nodes_printed) / len(nodes))}%)")
-	# print (f"Edges count: {len(edgesPrinted)} / {len(edges)} ({int(100 * len(edgesPrinted) / len(edges))}%)")
 
 	output_file = OUTPUT_FOLDER + 'output.graphml'
-	nodesToKeep = [f'n{num}' for num in nodes_printed]
-	nodesToExclude = sorted([nodes[y] for y in [x for x in nodes if x not in nodesToKeep]])
+	nodes_to_keep = [f'n{num}' for num in nodes_printed]
+	nodes_to_exclude = sorted([nodes[y] for y in [x for x in nodes if x not in nodes_to_keep]])
 
 	print('Irrelevant nodes:')
-	for i in nodesToExclude:
+	for i in nodes_to_exclude:
 		print(i, end=', ')
-	remove_nodes_from_graphml(inputGraphMLFile, output_file, nodesToKeep)  # filter_graphml(, , nodesPrinted)
+	remove_nodes_from_graphml(input_graph_ml_file, output_file, nodes_to_keep)
 	print('\nDone')
