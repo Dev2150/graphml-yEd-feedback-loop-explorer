@@ -17,5 +17,24 @@ Its main functions are:
   - Generates an HTML file to visualize the found feedback loops, besides incoming & outgoing paths, using colors and symbols (:--->:, :--X->:) based on the nature of the node and edge.
 - Filtering: Reports on irrelevant nodes (those not part of any printed path or cycle) and generates a new, filtered GraphML file containing only the relevant nodes and edges.
 
+## HTML Legend:
+
+| Color       | Node nature | Change |
+|-------------|-------------|--------|
+| White       | Neutral     | +      |
+| Gray        | Neutral     | -      |
+| Green       | Positive    | +      |
+| Pink        | Positive    | -      |
+| Red         | Negative    | +      |
+| Light green | Negative    | -      |
+
+| Edge | Correlation |
+|------|-------------|
+| ---> | +           |
+| -X-> | -           |
+
+
+## Example:
+
 <img width="1509" height="555" alt="image" src="https://github.com/user-attachments/assets/52960631-91fb-43a9-ba6d-164a9c140b9b" />
 <img width="1920" height="753" alt="image" src="https://github.com/user-attachments/assets/8ad4992a-8a1b-4fcf-b31f-be2782a6ccd5" />
