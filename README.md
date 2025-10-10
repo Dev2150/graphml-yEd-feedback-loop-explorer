@@ -11,5 +11,5 @@ Its main functions are:
   - Finds all simple paths between specified source and target nodes.
 - Analysis & Output:
   - Calculates a "cycle correlation" by multiplying the edge values along a path/cycle.
-  - Generates an HTML file (e.g., GAME - EU5 Modding ideas 2.html) to visualize the found cycles and paths, using colors and symbols (:--->:, :--X->:) based on the node and edge values.
+  - Generates an HTML file to visualize the found cycles and paths, using colors and symbols (:--->:, :--X->:) based on the node and edge values.
 - Filtering: Reports on irrelevant nodes (those not part of any printed path or cycle) and generates a new, filtered GraphML file containing only the relevant nodes and edges.
