@@ -552,6 +552,65 @@ if __name__ == '__main__':
 
 	G.add_edges_from(edges)
 
+	# --------------------------------------------------------------------------
+	# Connection Guessing Game Mode
+	# --------------------------------------------------------------------------
+	if SHOW_CONNECTIONS_LIST and CONNECTIONS_SKIPPED > 0:
+		play_game = input("Do you want to run the connection guessing game? (y/n): ").strip().lower()
+		if play_game == 'y':
+			import random
+			import sys
+
+			target_length = CONNECTIONS_SKIPPED + 1
+			all_paths = []
+
+			# Gather all simple paths of target length matching the skip condition
+			for source in G.nodes():
+				stack = [(source, [source])]
+				while stack:
+					curr, path = stack.pop()
+					if len(path) - 1 == target_length:
+						all_paths.append(path)
+						continue
+					for neighbor in G.successors(curr):
+						if neighbor not in path:
+							stack.append((neighbor, path + [neighbor]))
+
+			if not all_paths:
+				print(f"No connections found with exactly {CONNECTIONS_SKIPPED} intermediate elements.")
+			else:
+				# Group paths by (source, target) to display alternate correct options
+				from collections import defaultdict
+				paths_by_pair = defaultdict(list)
+				for path in all_paths:
+					src = path[0]
+					tgt = path[-1]
+					intermediates = path[1:-1]
+					paths_by_pair[(src, tgt)].append(intermediates)
+
+				pairs = list(paths_by_pair.keys())
+				print("\n--- Connection Guessing Game ---")
+				print("Guess the element(s) in-between. Enter 0 to stop.\n")
+
+				while True:
+					src, tgt = random.choice(pairs)
+					src_name = nodes.get(src, src)
+					tgt_name = nodes.get(tgt, tgt)
+
+					placeholder = " -> ".join(["[?]" for _ in range(CONNECTIONS_SKIPPED)])
+					print(f"Connection: {src_name} -> {placeholder} -> {tgt_name}")
+
+					user_input = input("Your guess: ").strip()
+					if user_input == '0':
+						print("Stopping the program.")
+						sys.exit(0)
+
+					print("Correct answer(s):")
+					for idx, inter_nodes in enumerate(paths_by_pair[(src, tgt)]):
+						names = [nodes.get(n_id, n_id) for n_id in inter_nodes]
+						print(f"  Option {idx + 1}: {' -> '.join(names)}")
+					print("-" * 50 + "\n")
+
 	html_content = ''
 
 	if SHOW_CONNECTIONS_LIST:
