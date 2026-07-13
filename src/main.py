@@ -336,7 +336,7 @@ def print_to_file(p_html_content: str):
     </html>
     """
 
-	with open(file_path, 'w') as f:
+	with open(file_path, 'w', encoding="utf-8") as f:
 		f.write(p_html_content)
 	print(f"HTML file '{file_name}' has been generated.")
 
@@ -412,6 +412,8 @@ def read_config_file(p_input_file):
 
 	# configparser has built-in methods for booleans and integers
 	show_only_edges = config.getboolean(SECTION, 'show_only_edges', fallback=False)
+	show_connections_list = config.getboolean(SECTION, 'show_connections_list', fallback=False)
+	connections_skipped = config.getint(SECTION, 'connections_skipped', fallback=0)
 	enable_non_cycle_printing = config.getboolean(SECTION, 'enable_non_cycle_printing', fallback=False)
 	sort_by_len = config.getboolean(SECTION, 'sort_by_len', fallback=False)
 
@@ -420,7 +422,7 @@ def read_config_file(p_input_file):
 	folder_path = config.get(SECTION, 'folder_path', fallback='').strip()
 	file_name = config.get(SECTION, 'file_name', fallback='').strip()
 
-	return p_source_node, p_target_node, show_only_edges, enable_non_cycle_printing, sort_by_len, color_threshold, folder_path, file_name
+	return p_source_node, p_target_node, show_only_edges, show_connections_list, connections_skipped, enable_non_cycle_printing, sort_by_len, color_threshold, folder_path, file_name
 
 
 def show_edges(p_edges, p_html_content):
@@ -438,12 +440,65 @@ def show_edges(p_edges, p_html_content):
 	return p_html_content
 
 
+def show_connections_list(p_graph, p_connections_skipped, p_html_content):
+	p_html_content += '<br>'
+	p_html_content += f'<h1 style="color:white;">Connection List</h1>'
+
+	if p_connections_skipped <= 0:
+		# Use direct edges
+		for edge_id, e in enumerate(edges):
+			try:
+				source_name = nodes[e[0]]
+				target_name = nodes[e[1]]
+				p_html_content += f'<p style="color:white;">{source_name} → {target_name}</p>'
+				nodes_printed.add(e[0])
+				nodes_printed.add(e[1])
+			except KeyError as ke:
+				print(f"KeyError for edge {e} with ID {edge_id}: {ke}")
+			except Exception as ex:
+				print(f"An error occurred for edge {e} with ID {edge_id}: {ex}")
+	else:
+		# Search for simple paths of length: target_length = p_connections_skipped + 1
+		target_length = p_connections_skipped + 1
+		seen_connections = set()
+
+		for source in p_graph.nodes():
+			# Depth First Search for simple paths of a specific length
+			stack = [(source, [source])]
+			while stack:
+				curr, path = stack.pop()
+				if len(path) - 1 == target_length:
+					seen_connections.add((path[0], path[-1]))
+					continue
+				for neighbor in p_graph.successors(curr):
+					if neighbor not in path:
+						stack.append((neighbor, path + [neighbor]))
+
+		# Display connections alphabetically
+		sorted_connections = sorted(list(seen_connections), key=lambda x: (nodes.get(x[0], ''), nodes.get(x[1], '')))
+		for e in sorted_connections:
+			try:
+				source_name = nodes[e[0]]
+				target_name = nodes[e[1]]
+				p_html_content += f'<p style="color:white;">{source_name} → {target_name}</p>'
+				nodes_printed.add(e[0])
+				nodes_printed.add(e[1])
+			except KeyError as ke:
+				print(f"KeyError for connection {e}: {ke}")
+			except Exception as ex:
+				print(f"An error occurred for connection {e}: {ex}")
+
+	return p_html_content
+
+
 def create_input_file():
 	print(f"Configuration file '{input_file}' not found. Creating a default one.")
 	default_content = f"""[{SECTION}]
 SOURCE_NODE=
 TARGET_NODE=
 SHOW_ONLY_EDGES=False
+SHOW_CONNECTIONS_LIST=False
+CONNECTIONS_SKIPPED=0
 ENABLE_NON_CYCLE_PRINTING=True
 SORT_BY_LEN=False
 COLOR_THRESHOLD=48
@@ -463,7 +518,7 @@ FILE_NAME=
 if __name__ == '__main__':
 	if not os.path.exists(input_file):
 		create_input_file()
-	source_node, target_node, SHOW_ONLY_EDGES, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN, COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME = read_config_file(
+	source_node, target_node, SHOW_ONLY_EDGES, SHOW_CONNECTIONS_LIST, CONNECTIONS_SKIPPED, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN, COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME = read_config_file(
 		input_file)
 
 	input_graph_ml_file = FOLDER_PATH + FILE_NAME + '.graphml'
@@ -496,54 +551,59 @@ if __name__ == '__main__':
 			raise Exception(f"Cound not find target node {target_node}")
 
 	G.add_edges_from(edges)
-	cycles = list(nx.simple_cycles(G))
-
-	if target_node_exists:
-		cycles = [cycle for cycle in cycles if target_node_id in cycle]
-	if source_node_exists:
-		cycles = [cycle for cycle in cycles if source_node_id in cycle]
-
-		newCycles = []
-		for cycle in cycles:
-			newCycles.append(shift_to(cycle, source_node_id))
-		cycles = newCycles
-
-	cycles = sort_alphabetically_by_joining_numerical_string_lists(cycles, nodes)
-	if SORT_BY_LEN:
-		cycles = sorted(cycles, key=len)
 
 	html_content = ''
-	if source_node:
-		if target_node:
-			s = f"Cycles: {Back.LIGHTBLACK_EX}{source_node}{Back.RESET} -> {Back.LIGHTBLACK_EX}{target_node}{Back.RESET}\n"
-			html_content += f'<h1 style="color:white;">Cycles: {source_node} -> {target_node}</h1>'
-		else:
-			s = f"Cycles from: {Back.BLACK}{source_node}{Back.RESET}\n"
-			html_content += f'<h1 style="color:white;">Cycles from: {source_node}</h1>'
 
-	html_content = print_nodes(cycles, html_content, True)
-
-	if SHOW_ONLY_EDGES:
-		html_content = show_edges(edges, html_content)
+	if SHOW_CONNECTIONS_LIST:
+		html_content = show_connections_list(G, CONNECTIONS_SKIPPED, html_content)
 	else:
+		cycles = list(nx.simple_cycles(G))
+
+		if target_node_exists:
+			cycles = [cycle for cycle in cycles if target_node_id in cycle]
 		if source_node_exists:
-			if target_node_exists:
-				html_content = print_paths_from_source_to_target(html_content, source_node_id, target_node_id,
-																 source_node,
-																 target_node)
-				html_content = print_paths_from_source_to_target(html_content, target_node_id, source_node_id,
-																 target_node,
-																 source_node)
+			cycles = [cycle for cycle in cycles if source_node_id in cycle]
+
+			newCycles = []
+			for cycle in cycles:
+				newCycles.append(shift_to(cycle, source_node_id))
+			cycles = newCycles
+
+		cycles = sort_alphabetically_by_joining_numerical_string_lists(cycles, nodes)
+		if SORT_BY_LEN:
+			cycles = sorted(cycles, key=len)
+
+		if source_node:
+			if target_node:
+				s = f"Cycles: {Back.LIGHTBLACK_EX}{source_node}{Back.RESET} -> {Back.LIGHTBLACK_EX}{target_node}{Back.RESET}\n"
+				html_content += f'<h1 style="color:white;">Cycles: {source_node} -> {target_node}</h1>'
 			else:
-				if ENABLE_NON_CYCLE_PRINTING:
-					html_content = show_all_paths(nodes, source_node_id, html_content, True)
-					html_content = show_all_paths(nodes, source_node_id, html_content)
-				else:
-					find_all_paths_for_graph_ml(nodes, source_node_id, True)
-					find_all_paths_for_graph_ml(nodes, source_node_id)
+				s = f"Cycles from: {Back.BLACK}{source_node}{Back.RESET}\n"
+				html_content += f'<h1 style="color:white;">Cycles from: {source_node}</h1>'
+
+		html_content = print_nodes(cycles, html_content, True)
+
+		if SHOW_ONLY_EDGES:
+			html_content = show_edges(edges, html_content)
 		else:
-			if not target_node_exists:
-				html_content = show_all_paths(nodes, source_node_id, html_content)
+			if source_node_exists:
+				if target_node_exists:
+					html_content = print_paths_from_source_to_target(html_content, source_node_id, target_node_id,
+																	 source_node,
+																	 target_node)
+					html_content = print_paths_from_source_to_target(html_content, target_node_id, source_node_id,
+																	 target_node,
+																	 source_node)
+				else:
+					if ENABLE_NON_CYCLE_PRINTING:
+						html_content = show_all_paths(nodes, source_node_id, html_content, True)
+						html_content = show_all_paths(nodes, source_node_id, html_content)
+					else:
+						find_all_paths_for_graph_ml(nodes, source_node_id, True)
+						find_all_paths_for_graph_ml(nodes, source_node_id)
+			else:
+				if not target_node_exists:
+					html_content = show_all_paths(nodes, source_node_id, html_content)
 
 	print_to_file(html_content)
 
