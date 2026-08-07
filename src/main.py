@@ -1,6 +1,9 @@
 import configparser
 import os
+import random
+import sys
 import xml.etree.ElementTree as emTree
+from collections import defaultdict
 from typing import List, Any
 
 import networkx as nx
@@ -558,9 +561,6 @@ if __name__ == '__main__':
 	if SHOW_CONNECTIONS_LIST and CONNECTIONS_SKIPPED > 0:
 		play_game = input("Do you want to run the connection guessing game? (y/n): ").strip().lower()
 		if play_game == 'y':
-			import random
-			import sys
-
 			target_length = CONNECTIONS_SKIPPED + 1
 			all_paths = []
 
@@ -580,7 +580,6 @@ if __name__ == '__main__':
 				print(f"No connections found with exactly {CONNECTIONS_SKIPPED} intermediate elements.")
 			else:
 				# Group paths by (source, target) to display alternate correct options
-				from collections import defaultdict
 				paths_by_pair = defaultdict(list)
 				for path in all_paths:
 					src = path[0]
@@ -588,28 +587,44 @@ if __name__ == '__main__':
 					intermediates = path[1:-1]
 					paths_by_pair[(src, tgt)].append(intermediates)
 
-				pairs = list(paths_by_pair.keys())
+				# Get all unique (source, target) pairs for the quiz
+				quiz_cases = list(paths_by_pair.keys())
+				# Shuffle the cases to present them in a random order without repetition
+				random.shuffle(quiz_cases)
+
 				print("\n--- Connection Guessing Game ---")
+				print(f"Total questions: {len(quiz_cases)}")
 				print("Guess the element(s) in-between. Enter 0 to stop.\n")
 
-				while True:
-					src, tgt = random.choice(pairs)
+				# Iterate through the shuffled list of cases, so each is shown once
+				for i, (src, tgt) in enumerate(quiz_cases):
 					src_name = nodes.get(src, src)
 					tgt_name = nodes.get(tgt, tgt)
 
 					placeholder = " -> ".join(["[?]" for _ in range(CONNECTIONS_SKIPPED)])
-					print(f"Connection: {src_name} -> {placeholder} -> {tgt_name}")
+					print(f"Question {i + 1}/{len(quiz_cases)}: {src_name} -> {placeholder} -> {tgt_name}", end='; ')
 
-					user_input = input("Your guess: ").strip()
+					user_input = input().strip()
 					if user_input == '0':
-						print("Stopping the program.")
-						sys.exit(0)
+						print("Stopping the game.")
+						break  # Exit the loop gracefully
 
-					print("Correct answer(s):")
-					for idx, inter_nodes in enumerate(paths_by_pair[(src, tgt)]):
-						names = [nodes.get(n_id, n_id) for n_id in inter_nodes]
-						print(f"  Option {idx + 1}: {' -> '.join(names)}")
-					print("-" * 50 + "\n")
+					correct_paths = paths_by_pair[(src, tgt)]
+
+					if len(correct_paths) == 1:
+						# Only one correct answer
+						names = [nodes.get(n_id, n_id) for n_id in correct_paths[0]]
+						print(f"Correct answer: {' -> '.join(names)}")
+					else:
+						# Multiple correct answers
+						print("Correct answer(s):")
+						for idx, inter_nodes in enumerate(correct_paths):
+							names = [nodes.get(n_id, n_id) for n_id in inter_nodes]
+							print(f"  Option {idx + 1}: {' -> '.join(names)}")
+					print()
+
+				print("Quiz complete! You have gone through all the questions.")
+				sys.exit(0)  # Exit the program after the quiz is finished or stopped
 
 	html_content = ''
 
