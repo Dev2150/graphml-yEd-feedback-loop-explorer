@@ -638,6 +638,17 @@ if __name__ == '__main__':
 						for idx, inter_nodes in enumerate(correct_paths):
 							names = [nodes.get(n_id, n_id) for n_id in inter_nodes]
 							print(f"  Option {idx + 1}: {' -> '.join(names)}")
+
+					# Check for more direct connections (paths shorter than target_length)
+					shorter_paths = list(nx.all_simple_paths(G, source=src, target=tgt, cutoff=target_length - 1))
+					if shorter_paths:
+						print("More direct connection(s) also exist:")
+						# Sort by length so the shortest paths (e.g., direct edges) appear first
+						shorter_paths.sort(key=len)
+						for sp in shorter_paths:
+							names = [nodes.get(n_id, n_id) for n_id in sp]
+							print(f"  {' -> '.join(names)}")
+
 					print()
 
 				print("Quiz complete! You have gone through all the questions.")
