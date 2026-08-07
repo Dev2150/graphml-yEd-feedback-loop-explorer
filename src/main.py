@@ -193,15 +193,34 @@ def read_from_graph_xml(p_input_file):
 		if tag == 'node':
 			find_node(child)
 		elif tag == 'edge':
-			edge_id = child.attrib['id'].replace('e', '')
 			source = child.attrib['source'][1:].replace('n', '')
 			target = child.attrib['target'][1:].replace('n', '')
 			for data in child:
 				if data.attrib['key'] == "d10":
-					edge_color = data[0][1].attrib['color'][1:]
+					edge_color = "000000"
+					is_bidirectional = False
+
+					# Parse the y:PolyLineEdge children to find color and arrows
+					for element in data[0]:
+						tag_name = element.tag.split('}', 1)[-1]
+						if tag_name == 'LineStyle':
+							edge_color = element.attrib.get('color', '#000000')[1:]
+						elif tag_name == 'Arrows':
+							# If there is an arrow at the source, it's a bidirectional edge
+							if element.attrib.get('source') == 'standard':
+								is_bidirectional = True
+
 					r, g, b = int(edge_color[0:2], 16), int(edge_color[2:4], 16), int(edge_color[4:6], 16)
+					val = -1 if r > (g + b) / 2 + COLOR_THRESHOLD else +1
+
+					# Add standard direction
 					edges.append((source, target))
-					edge_values[edge_id] = -1 if r > (g + b) / 2 + COLOR_THRESHOLD else +1
+					edge_values[(source, target)] = val
+
+					# Add reverse direction if bidirectional
+					if is_bidirectional:
+						edges.append((target, source))
+						edge_values[(target, source)] = val
 
 	return nodes, edges, edge_values
 
@@ -213,10 +232,8 @@ def edge_value_string(p_edge_value, is_simple=False):
 
 
 def edge_value(node1, node2):
-	for idEdge, e in enumerate(edges):
-		if e[0] == node1 and e[1] == node2:
-			value = edge_values.get(str(idEdge))
-			if value:
+	value = edge_values.get((node1, node2))
+	if value is not None:
 				return value
 	raise Exception("Edge not found!")
 
@@ -431,15 +448,15 @@ def read_config_file(p_input_file):
 def show_edges(p_edges, p_html_content):
 	p_html_content += '<br>'
 	p_html_content += f'<h1 style="color:white;">Edges</h1>'
-	for edge_id, e in enumerate(p_edges):
+	for e in p_edges:
 		try:
-			edge_value_int = edge_values.get(str(edge_id))
+			edge_value_int = edge_values.get((e[0], e[1]))
 			edge_value_str = edge_value_string(edge_value_int, True)
 			p_html_content += f'<p><span style="color:#AAAAFF">{nodes[e[0]]}</span> <span style="color:#000000">{edge_value_str}</span> <span style="color:#AAAAFF">{nodes[e[1]]}</span></p>'
 		except KeyError as ke:
-			print(f"KeyError for edge {e} with ID {edge_id}: {ke}")
+			print(f"KeyError for edge {e}: {ke}")
 		except Exception as ex:
-			print(f"An error occurred for edge {e} with ID {edge_id}: {ex}")
+			print(f"An error occurred for edge {e}: {ex}")
 	return p_html_content
 
 
@@ -449,7 +466,7 @@ def show_connections_list(p_graph, p_connections_skipped, p_html_content):
 
 	if p_connections_skipped <= 0:
 		# Use direct edges
-		for edge_id, e in enumerate(edges):
+		for e in edges:
 			try:
 				source_name = nodes[e[0]]
 				target_name = nodes[e[1]]
@@ -457,9 +474,9 @@ def show_connections_list(p_graph, p_connections_skipped, p_html_content):
 				nodes_printed.add(e[0])
 				nodes_printed.add(e[1])
 			except KeyError as ke:
-				print(f"KeyError for edge {e} with ID {edge_id}: {ke}")
+				print(f"KeyError for edge {e}: {ke}")
 			except Exception as ex:
-				print(f"An error occurred for edge {e} with ID {edge_id}: {ex}")
+				print(f"An error occurred for edge {e}: {ex}")
 	else:
 		# Search for simple paths of length: target_length = p_connections_skipped + 1
 		target_length = p_connections_skipped + 1
@@ -602,7 +619,7 @@ if __name__ == '__main__':
 					tgt_name = nodes.get(tgt, tgt)
 
 					placeholder = " -> ".join(["[?]" for _ in range(CONNECTIONS_SKIPPED)])
-					print(f"Question {i + 1}/{len(quiz_cases)}: {src_name} -> {placeholder} -> {tgt_name}", end='; ')
+					print(f"Question {i + 1}/{len(quiz_cases)}: {src_name} -> {placeholder} -> {tgt_name}", end=' ')
 
 					user_input = input().strip()
 					if user_input == '0':
