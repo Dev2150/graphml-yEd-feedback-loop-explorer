@@ -442,7 +442,11 @@ def read_config_file(p_input_file):
 	folder_path = config.get(SECTION, 'folder_path', fallback='').strip()
 	file_name = config.get(SECTION, 'file_name', fallback='').strip()
 
-	return p_source_node, p_target_node, show_only_edges, show_connections_list, connections_skipped, enable_non_cycle_printing, sort_by_len, color_threshold, folder_path, file_name
+	block_starting_node_str = config.get(SECTION, 'block_starting_node', fallback='')
+	block_starting_node = [x.strip().lower() for x in block_starting_node_str.split(',') if
+						   x.strip()] if block_starting_node_str else []
+
+	return p_source_node, p_target_node, show_only_edges, show_connections_list, connections_skipped, enable_non_cycle_printing, sort_by_len, color_threshold, folder_path, file_name, block_starting_node
 
 
 def show_edges(p_edges, p_html_content):
@@ -524,6 +528,7 @@ SORT_BY_LEN=False
 COLOR_THRESHOLD=48
 FOLDER_PATH=
 FILE_NAME=
+BLOCK_STARTING_NODE=
 """
 	try:
 		# Ensure the directory exists before writing the file
@@ -538,7 +543,7 @@ FILE_NAME=
 if __name__ == '__main__':
 	if not os.path.exists(input_file):
 		create_input_file()
-	source_node, target_node, SHOW_ONLY_EDGES, SHOW_CONNECTIONS_LIST, CONNECTIONS_SKIPPED, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN, COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME = read_config_file(
+	source_node, target_node, SHOW_ONLY_EDGES, SHOW_CONNECTIONS_LIST, CONNECTIONS_SKIPPED, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN, COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE = read_config_file(
 		input_file)
 
 	input_graph_ml_file = FOLDER_PATH + FILE_NAME + '.graphml'
@@ -583,6 +588,8 @@ if __name__ == '__main__':
 
 			# Gather all simple paths of target length matching the skip condition
 			for source in G.nodes():
+				if str(nodes.get(source, source)).lower() in BLOCK_STARTING_NODE:
+					continue
 				stack = [(source, [source])]
 				while stack:
 					curr, path = stack.pop()
