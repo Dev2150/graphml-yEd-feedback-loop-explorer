@@ -580,9 +580,20 @@ if __name__ == '__main__':
 	# --------------------------------------------------------------------------
 	# Connection Guessing Game Mode
 	# --------------------------------------------------------------------------
-	if SHOW_CONNECTIONS_LIST and CONNECTIONS_SKIPPED > 0:
+	if SHOW_CONNECTIONS_LIST:
 		play_game = input("Do you want to run the connection guessing game? (y/n): ").strip().lower()
 		if play_game == 'y':
+			while True:
+				try:
+					skip_input = input("Enter the number of connections to skip (must be > 0): ").strip()
+					CONNECTIONS_SKIPPED = int(skip_input)
+					if CONNECTIONS_SKIPPED > 0:
+						break
+					else:
+						print("Please enter a positive number greater than 0.")
+				except ValueError:
+					print("Invalid input. Please enter a valid integer.")
+
 			target_length = CONNECTIONS_SKIPPED + 1
 			all_paths = []
 
