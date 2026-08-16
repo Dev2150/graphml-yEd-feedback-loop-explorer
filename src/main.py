@@ -3,6 +3,7 @@ import os
 import random
 import sys
 import xml.etree.ElementTree as emTree
+import json
 from collections import defaultdict
 from typing import List, Any
 
@@ -515,6 +516,41 @@ def show_connections_list(p_graph, p_connections_skipped, p_html_content):
 	return p_html_content
 
 
+def get_save_file_path(file_name):
+	# Use APPDATA on Windows, fallback to home directory on other OS
+	appdata = os.getenv('APPDATA')
+	if not appdata:
+		appdata = os.path.expanduser('~')
+
+	save_dir = os.path.join(appdata, 'YAMLGuessingGame')
+	os.makedirs(save_dir, exist_ok=True)
+
+	# Sanitize file_name to ensure it's a valid file name
+	safe_name = "".join([c for c in file_name if c.isalpha() or c.isdigit() or c == ' ']).rstrip()
+	if not safe_name:
+		safe_name = "default_graph"
+
+	return os.path.join(save_dir, f"{safe_name}_progress.json")
+
+
+def load_progress(save_path):
+	if os.path.exists(save_path):
+		try:
+			with open(save_path, 'r', encoding='utf-8') as f:
+				return json.load(f)
+		except Exception as e:
+			print(f"Error loading progress: {e}")
+	return {}
+
+
+def save_progress(save_path, progress_data):
+	try:
+		with open(save_path, 'w', encoding='utf-8') as f:
+			json.dump(progress_data, f, indent=4)
+	except Exception as e:
+		print(f"Error saving progress: {e}")
+
+
 def create_input_file():
 	print(f"Configuration file '{input_file}' not found. Creating a default one.")
 	default_content = f"""[{SECTION}]
@@ -624,20 +660,41 @@ if __name__ == '__main__':
 
 				# Get all unique (source, target) pairs for the quiz
 				quiz_cases = list(paths_by_pair.keys())
-				# Shuffle the cases to present them in a random order without repetition
-				random.shuffle(quiz_cases)
 
-				print("\n--- Connection Guessing Game ---")
-				print(f"Total questions: {len(quiz_cases)}")
+				# --- PROGRESS TRACKING LOGIC ---
+				save_path = get_save_file_path(FILE_NAME)
+				progress_data = load_progress(save_path)
+
+				# Use the number of skipped connections as the top-level key in the JSON
+				skip_key = str(CONNECTIONS_SKIPPED)
+				if skip_key not in progress_data:
+					progress_data[skip_key] = {}
+
+				# Helper function to get counter using node text instead of ID
+				def get_counter_by_node_text(case):
+					src_text = nodes.get(case[0], case[0])
+					tgt_text = nodes.get(case[1], case[1])
+					return progress_data[skip_key].get(f"{src_text},{tgt_text}", 0)
+
+				# Sort cases by (counter, random_value) using node text keys
+				quiz_cases.sort(key=lambda case: (
+					get_counter_by_node_text(case),
+					random.random()
+				))
+
 				print("Guess the element(s) in-between. Enter 0 to stop.\n")
 
-				# Iterate through the shuffled list of cases, so each is shown once
+				# Iterate through the sorted list of cases
 				for i, (src, tgt) in enumerate(quiz_cases):
 					src_name = nodes.get(src, src)
 					tgt_name = nodes.get(tgt, tgt)
 
+					# Key generated using node text (names) instead of IDs
+					pair_key = f"{src_name},{tgt_name}"
+					current_counter = progress_data[skip_key].get(pair_key, 0)
+
 					placeholder = " -> ".join(["[?]" for _ in range(CONNECTIONS_SKIPPED)])
-					print(f"Question {i + 1}/{len(quiz_cases)}: {src_name} -> {placeholder} -> {tgt_name}", end=' ')
+					print(f"Question {i + 1}/{len(quiz_cases)} (x{current_counter}): {src_name} -> {placeholder} -> {tgt_name}", end=' ')
 
 					user_input = input().strip()
 					if user_input == '0':
@@ -668,6 +725,10 @@ if __name__ == '__main__':
 							print(f"  {' -> '.join(names)}")
 
 					print()
+
+					# Update and save progress using node text key
+					progress_data[skip_key][pair_key] = current_counter + 1
+					save_progress(save_path, progress_data)
 
 				print("Quiz complete! You have gone through all the questions.")
 				sys.exit(0)  # Exit the program after the quiz is finished or stopped
