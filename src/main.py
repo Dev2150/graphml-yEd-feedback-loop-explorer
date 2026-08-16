@@ -776,6 +776,22 @@ def run_connection_guessing_game():
 	if skip_key not in progress_data:
 		progress_data[skip_key] = {}
 
+	def get_connection_game_stats():
+		counts = [progress_data[skip_key].get(f"{nodes.get(s, s)},{nodes.get(t, t)}", 0)
+				  for s, t in paths_by_pair]
+		if not counts:
+			return 0, 0, 0, 0
+		min_c = min(counts)
+		at_min = sum(1 for c in counts if c == min_c)
+		total = len(counts)
+		pct = int(100 * (total - at_min) / total) if total else 0
+		return min_c, at_min, total, pct
+
+	def print_connection_game_stats():
+		min_c, at_min, total, pct = get_connection_game_stats()
+		print(f"\n--- Progress [Tier {min_c}] ---")
+		print(f"  Connections: {at_min}/{total} ({pct}%)\n")
+
 	def get_counter_by_node_text(case):
 		src_text = nodes.get(case[0], case[0])
 		tgt_text = nodes.get(case[1], case[1])
@@ -786,6 +802,8 @@ def run_connection_guessing_game():
 		random.random()
 	))
 
+	print_connection_game_stats()
+	current_tier = get_connection_game_stats()[0]
 	print("Guess the element(s) in-between. Enter 0 to stop.\n")
 
 	for i, (src, tgt) in enumerate(quiz_cases):
@@ -811,7 +829,7 @@ def run_connection_guessing_game():
 				q_parts.append(f"{arrow} {tgt_name}")
 
 		question_str = " ".join(q_parts)
-		print(f"Question {i + 1}/{len(quiz_cases)} (x{current_counter}): {question_str}", end=' ')
+		print(f"Question {i + 1}/{len(quiz_cases)}: {question_str}", end=' ')
 
 		user_input = input().strip()
 		if user_input == '0':
@@ -857,6 +875,10 @@ def run_connection_guessing_game():
 		print()
 		progress_data[skip_key][pair_key] = current_counter + 1
 		save_progress(save_path, progress_data)
+		new_tier = get_connection_game_stats()[0]
+		if new_tier != current_tier:
+			current_tier = new_tier
+			print_connection_game_stats()
 
 	print("Quiz finished.")
 	sys.exit(0)
@@ -969,6 +991,44 @@ def run_relationship_guessing_game():
 	def get_item_count(item):
 		return progress_data[game2_key].get(get_item_key(item), 0)
 
+	_category_config = [
+		('Leaf', leaf_items),
+		('Direct', direct_items),
+		('Indirect', indirect_items),
+		('Same/Shared', same_items),
+		('Irrelevant', irrelevant_items),
+	]
+
+	def get_category_stats(items):
+		if not items:
+			return None
+		counts = [get_item_count(it) for it in items]
+		tier = min(counts)
+		total = len(counts)
+		questions_answered = total - sum(1 for c in counts if c == tier)
+		pct = int(100 * questions_answered / total) if total else 0
+		return tier, questions_answered, total, pct
+
+	def get_global_tiers():
+		rel_min = min((get_item_count(it) for it in all_relevant_items), default=0)
+		irr_min = min((get_item_count(it) for it in irrelevant_items), default=0)
+		return rel_min, irr_min
+
+	def print_relationship_stats():
+		print("\n--- Category Progress ---")
+		minTier = sys.maxsize
+		for cat_name, items in _category_config:
+			if not items:
+				continue
+			tier, at_min, total, pct = get_category_stats(items)
+			if minTier > tier:
+				minTier = tier
+			print(f"  {cat_name}: {at_min}/{total} ({pct}%)")
+		print(f"  Current tier: {minTier}")
+		print()
+
+	print_relationship_stats()
+	current_tiers = get_global_tiers()
 	question_num = 0
 	while True:
 		question_num += 1
@@ -1044,7 +1104,7 @@ def run_relationship_guessing_game():
 			leaf_key = f"leaf_src:{target_name}"
 			current_counter = progress_data[game2_key].get(leaf_key, 0)
 
-			print(f"Question {question_num} (x{current_counter}): [?] → {target_name}", end=' ')
+			print(f"Question {question_num}: [?] → {target_name}", end=' ')
 			user_input = input().strip()
 			if user_input == '0':
 				print("Stopping the game.")
@@ -1061,6 +1121,10 @@ def run_relationship_guessing_game():
 			print()
 			progress_data[game2_key][leaf_key] = current_counter + 1
 			save_progress(save_path, progress_data)
+			new_tiers = get_global_tiers()
+			if new_tiers != current_tiers:
+				current_tiers = new_tiers
+				print_relationship_stats()
 			continue
 
 		# Handle Leaf Destination Question
@@ -1070,7 +1134,7 @@ def run_relationship_guessing_game():
 			leaf_key = f"leaf_dst:{source_name}"
 			current_counter = progress_data[game2_key].get(leaf_key, 0)
 
-			print(f"Question {question_num} (x{current_counter}): {source_name} → [?]", end=' ')
+			print(f"Question {question_num}: {source_name} → [?]", end=' ')
 			user_input = input().strip()
 			if user_input == '0':
 				print("Stopping the game.")
@@ -1087,6 +1151,10 @@ def run_relationship_guessing_game():
 			print()
 			progress_data[game2_key][leaf_key] = current_counter + 1
 			save_progress(save_path, progress_data)
+			new_tiers = get_global_tiers()
+			if new_tiers != current_tiers:
+				current_tiers = new_tiers
+				print_relationship_stats()
 			continue
 
 		# Handle Pair Question
@@ -1100,7 +1168,7 @@ def run_relationship_guessing_game():
 			pair_key = get_pair_key(u, v)
 			current_counter = progress_data[game2_key].get(pair_key, 0)
 
-			print(f"Question {question_num} (x{current_counter}): {u_name} [?] {v_name}", end=' ')
+			print(f"Question {question_num}: {u_name} [?] {v_name}", end=' ')
 
 			user_input = input().strip()
 			if user_input == '0':
@@ -1217,6 +1285,10 @@ def run_relationship_guessing_game():
 			print()
 			progress_data[game2_key][pair_key] = current_counter + 1
 			save_progress(save_path, progress_data)
+			new_tiers = get_global_tiers()
+			if new_tiers != current_tiers:
+				current_tiers = new_tiers
+				print_relationship_stats()
 
 	print("Quiz finished.")
 	sys.exit(0)
