@@ -558,21 +558,9 @@ def read_config_file(p_input_file):
 						   x.strip()] if block_starting_node_str else []
 
 	# Game settings
-	chance_irrelevant = config.getfloat(SECTION, 'chance_irrelevant', fallback=0.33)
+	chance_irrelevant = config.getfloat(SECTION, 'chance_irrelevant', fallback=0.20)
 	if chance_irrelevant > 1.0:
 		chance_irrelevant /= 100.0
-
-	chance_indirect = config.getfloat(SECTION, 'chance_indirect', fallback=0.33)
-	if chance_indirect > 1.0:
-		chance_indirect /= 100.0
-
-	chance_same = config.getfloat(SECTION, 'chance_same', fallback=0.33)
-	if chance_same > 1.0:
-		chance_same /= 100.0
-
-	chance_leaf = config.getfloat(SECTION, 'chance_leaf', fallback=0.05)
-	if chance_leaf > 1.0:
-		chance_leaf /= 100.0
 
 	max_cycle_length_html = config.getint(SECTION, 'max_cycle_length_html',
 										  fallback=config.getint(SECTION, 'max_cycle_length', fallback=0))
@@ -585,7 +573,7 @@ def read_config_file(p_input_file):
 			connections_skipped, enable_non_cycle_printing, sort_by_len,
 			color_threshold, max_cycle_length_html, max_cycle_length_game,
 			folder_path, file_name, block_starting_node,
-			chance_irrelevant, chance_indirect, chance_same, chance_leaf, max_indirectness,
+			chance_irrelevant, max_indirectness,
 			max_indirectness_game, leaf_only)
 
 
@@ -707,10 +695,7 @@ MAX_CYCLE_LENGTH_GAME=3
 FOLDER_PATH=
 FILE_NAME=
 BLOCK_STARTING_NODE=
-CHANCE_SAME=0.1
 CHANCE_IRRELEVANT=0.20
-CHANCE_INDIRECT=0.35
-CHANCE_LEAF=0.05
 MAX_INDIRECTNESS=1
 MAX_INDIRECTNESS_GAME=2
 LEAF_ONLY=False
@@ -734,6 +719,13 @@ def format_path_string(path):
 		arrow = "📉" if val < 0 else "📈"
 		parts.append(f"{arrow} {nodes.get(v, v)}")
 	return " ".join(parts)
+
+
+def get_path_net_effect_arrow(path):
+	corr = 1
+	for k in range(len(path) - 1):
+		corr *= edge_values.get((path[k], path[k + 1]), 1)
+	return "📉" if corr < 0 else "📈"
 
 
 def run_connection_guessing_game():
@@ -977,15 +969,6 @@ def run_relationship_guessing_game():
 	def get_item_count(item):
 		return progress_data[game2_key].get(get_item_key(item), 0)
 
-	# Configure base category weights
-	cat_weights = {
-		'leaf': CHANCE_LEAF,
-		'same': CHANCE_SAME,
-		'indirect': CHANCE_INDIRECT,
-		'irrelevant': CHANCE_IRRELEVANT,
-		'direct': max(0.05, 1.0 - (CHANCE_LEAF + CHANCE_SAME + CHANCE_INDIRECT + CHANCE_IRRELEVANT))
-	}
-
 	question_num = 0
 	while True:
 		question_num += 1
@@ -1030,9 +1013,24 @@ def run_relationship_guessing_game():
 			print("No questions available.")
 			break
 
-		# Choose category using configured weights
+		# Calculate weights dynamically to evenly distribute questions across categories
 		active_cats = list(eligible_by_cat.keys())
-		active_weights = [max(cat_weights.get(c, 0.1), 0.001) for c in active_cats]
+		relevant_cats = [c for c in active_cats if c != 'irrelevant']
+		total_rel_count = sum(len(eligible_by_cat[c]) for c in relevant_cats)
+
+		active_weights = []
+		for c in active_cats:
+			if c == 'irrelevant':
+				if relevant_cats and total_rel_count > 0:
+					active_weights.append(CHANCE_IRRELEVANT)
+				else:
+					active_weights.append(1.0)
+			else:
+				if 'irrelevant' in active_cats:
+					rem_prob = max(0.0, 1.0 - CHANCE_IRRELEVANT)
+					active_weights.append(rem_prob * (len(eligible_by_cat[c]) / total_rel_count))
+				else:
+					active_weights.append(len(eligible_by_cat[c]) / total_rel_count)
 
 		chosen_cat = random.choices(active_cats, weights=active_weights, k=1)[0]
 		chosen_item = random.choice(eligible_by_cat[chosen_cat])
@@ -1143,20 +1141,20 @@ def run_relationship_guessing_game():
 					connection_lines.append(f"Direct: {format_path_string([u, v])}")
 					if has_disp_v_u:
 						for p in paths_v_u:
-							connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p)}")
+							connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p)} ({get_path_net_effect_arrow(p)})")
 				elif len_v_u == 1:
 					connection_lines.append(f"Direct: {format_path_string([v, u])}")
 					if has_disp_u_v:
 						for p in paths_u_v:
-							connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p)}")
+							connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p)} ({get_path_net_effect_arrow(p)})")
 			elif is_indirect:
 				if has_disp_u_v:
 					for p in paths_u_v:
-						connection_lines.append(f"Indirect ({len(p) - 2}): {format_path_string(p)}")
+						connection_lines.append(f"Indirect ({len(p) - 2}): {format_path_string(p)} ({get_path_net_effect_arrow(p)})")
 				if has_disp_v_u:
 					for p in paths_v_u:
 						prefix = "Indirect ↩" if has_disp_u_v else "Indirect"
-						connection_lines.append(f"{prefix} ({len(p) - 2}): {format_path_string(p)}")
+						connection_lines.append(f"{prefix} ({len(p) - 2}): {format_path_string(p)} ({get_path_net_effect_arrow(p)})")
 
 			for s in shared_srcs:
 				val_u = edge_values.get((s, u), 1)
@@ -1329,7 +1327,7 @@ if __name__ == '__main__':
 	 CONNECTIONS_SKIPPED, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN,
 	 COLOR_THRESHOLD, MAX_CYCLE_LENGTH_HTML, MAX_CYCLE_LENGTH_GAME,
 	 FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE,
-	 CHANCE_IRRELEVANT, CHANCE_INDIRECT, CHANCE_SAME, CHANCE_LEAF, MAX_INDIRECTNESS,
+	 CHANCE_IRRELEVANT, MAX_INDIRECTNESS,
 	 MAX_INDIRECTNESS_GAME, LEAF_ONLY) = read_config_file(input_file)
 
 	# Determine if FILE_NAME is an absolute or full path (contains slashes)
