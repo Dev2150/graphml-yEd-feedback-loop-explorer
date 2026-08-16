@@ -229,7 +229,7 @@ def read_from_graph_xml(p_input_file):
 def edge_value_string(p_edge_value, is_simple=False):
 	if not is_simple:
 		return ":--->:" if p_edge_value > 0 else ":--X->:"
-	return "->" if p_edge_value > 0 else "-X>"
+	return "→" if p_edge_value > 0 else "-X>"
 
 
 def edge_value(node1, node2):
@@ -261,8 +261,8 @@ def get_color_by_node_properties(cycle_correlation, convenience):
 
 def print_paths_from_source_to_target(p_html_content, p_source_node_id, p_target_node_id, p_source_node, p_target_node):
 	p_html_content += '<br>'
-	p_html_content += f'<h1>Paths: {p_source_node} -> {p_target_node}</h1>'
-	# print(f"\n {Fore.RESET}Paths: {sourceNode} -> {targetNode}")
+	p_html_content += f'<h1>Paths: {p_source_node} → {p_target_node}</h1>'
+	# print(f"\n {Fore.RESET}Paths: {sourceNode} → {targetNode}")
 	all_paths = list(nx.all_simple_paths(G, source=p_source_node_id, target=p_target_node_id))
 	p_html_content = print_nodes(all_paths, p_html_content)
 	return p_html_content
@@ -693,26 +693,53 @@ if __name__ == '__main__':
 					pair_key = f"{src_name},{tgt_name}"
 					current_counter = progress_data[skip_key].get(pair_key, 0)
 
-					placeholder = " -> ".join(["[?]" for _ in range(CONNECTIONS_SKIPPED)])
-					print(f"Question {i + 1}/{len(quiz_cases)} (x{current_counter}): {src_name} -> {placeholder} -> {tgt_name}", end=' ')
+					correct_paths = paths_by_pair[(src, tgt)]
+
+					# Build the question string with correct arrows based on the first valid path
+					first_full_path = [src] + correct_paths[0] + [tgt]
+					q_parts = [src_name]
+					for k in range(len(first_full_path) - 1):
+						u = first_full_path[k]
+						v = first_full_path[k+1]
+						edge_val = edge_values.get((u, v), 1)
+						arrow = "→↓" if edge_val < 0 else "→"
+
+						if k < len(first_full_path) - 2:
+							q_parts.append(f"{arrow} [?]")
+						else:
+							q_parts.append(f"{arrow} {tgt_name}")
+
+					question_str = " ".join(q_parts)
+					print(f"Question {i + 1}/{len(quiz_cases)} (x{current_counter}): {question_str}", end=' ')
 
 					user_input = input().strip()
 					if user_input == '0':
 						print("Stopping the game.")
 						break  # Exit the loop gracefully
 
-					correct_paths = paths_by_pair[(src, tgt)]
-
 					if len(correct_paths) == 1:
 						# Only one correct answer
-						names = [nodes.get(n_id, n_id) for n_id in correct_paths[0]]
-						print(f"Correct answer: {' -> '.join(names)}")
+						inter_nodes = correct_paths[0]
+						ans_parts = [nodes.get(inter_nodes[0], inter_nodes[0])]
+						for k in range(len(inter_nodes) - 1):
+							u = inter_nodes[k]
+							v = inter_nodes[k+1]
+							edge_val = edge_values.get((u, v), 1)
+							arrow = "→ ↓" if edge_val < 0 else "→"
+							ans_parts.append(f"{arrow} {nodes.get(v, v)}")
+						print(f"Correct answer: {' '.join(ans_parts)}")
 					else:
 						# Multiple correct answers
 						print("Correct answer(s):")
 						for idx, inter_nodes in enumerate(correct_paths):
-							names = [nodes.get(n_id, n_id) for n_id in inter_nodes]
-							print(f"  Option {idx + 1}: {' -> '.join(names)}")
+							ans_parts = [nodes.get(inter_nodes[0], inter_nodes[0])]
+							for k in range(len(inter_nodes) - 1):
+								u = inter_nodes[k]
+								v = inter_nodes[k+1]
+								edge_val = edge_values.get((u, v), 1)
+								arrow = "→ ↓" if edge_val < 0 else "→"
+								ans_parts.append(f"{arrow} {nodes.get(v, v)}")
+							print(f"  Option {idx + 1}: {' '.join(ans_parts)}")
 
 					# Check for more direct connections (paths shorter than target_length)
 					shorter_paths = list(nx.all_simple_paths(G, source=src, target=tgt, cutoff=target_length - 1))
@@ -721,8 +748,14 @@ if __name__ == '__main__':
 						# Sort by length so the shortest paths (e.g., direct edges) appear first
 						shorter_paths.sort(key=len)
 						for sp in shorter_paths:
-							names = [nodes.get(n_id, n_id) for n_id in sp]
-							print(f"  {' -> '.join(names)}")
+							sp_parts = [nodes.get(sp[0], sp[0])]
+							for k in range(len(sp) - 1):
+								u = sp[k]
+								v = sp[k+1]
+								edge_val = edge_values.get((u, v), 1)
+								arrow = "→ ↓" if edge_val < 0 else "→"
+								sp_parts.append(f"{arrow} {nodes.get(v, v)}")
+							print(f"  {' '.join(sp_parts)}")
 
 					print()
 
@@ -756,8 +789,8 @@ if __name__ == '__main__':
 
 		if source_node:
 			if target_node:
-				s = f"Cycles: {Back.LIGHTBLACK_EX}{source_node}{Back.RESET} -> {Back.LIGHTBLACK_EX}{target_node}{Back.RESET}\n"
-				html_content += f'<h1 style="color:white;">Cycles: {source_node} -> {target_node}</h1>'
+				s = f"Cycles: {Back.LIGHTBLACK_EX}{source_node}{Back.RESET} → {Back.LIGHTBLACK_EX}{target_node}{Back.RESET}\n"
+				html_content += f'<h1 style="color:white;">Cycles: {source_node} → {target_node}</h1>'
 			else:
 				s = f"Cycles from: {Back.BLACK}{source_node}{Back.RESET}\n"
 				html_content += f'<h1 style="color:white;">Cycles from: {source_node}</h1>'
