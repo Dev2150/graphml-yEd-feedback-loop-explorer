@@ -570,16 +570,19 @@ def read_config_file(p_input_file):
 	if chance_same > 1.0:
 		chance_same /= 100.0
 
-	max_cycle_length = config.getint(SECTION, 'max_cycle_length', fallback=3)
+	max_cycle_length_html = config.getint(SECTION, 'max_cycle_length_html',
+										  fallback=config.getint(SECTION, 'max_cycle_length', fallback=0))
+	max_cycle_length_game = config.getint(SECTION, 'max_cycle_length_game', fallback=3)
 	max_indirectness = config.getint(SECTION, 'max_indirectness', fallback=3)
-	max_displayed_indirectness = config.getint(SECTION, 'max_displayed_indirectness', fallback=3)
+	max_indirectness_game = config.getint(SECTION, 'max_indirectness_game', fallback=3)
 	leaf_only = config.getboolean(SECTION, 'leaf_only', fallback=False)
 
 	return (p_source_node, p_target_node, show_only_edges, show_connections_list,
 			connections_skipped, enable_non_cycle_printing, sort_by_len,
-			color_threshold, max_cycle_length, folder_path, file_name, block_starting_node,
+			color_threshold, max_cycle_length_html, max_cycle_length_game,
+			folder_path, file_name, block_starting_node,
 			chance_irrelevant, chance_indirect, chance_same, max_indirectness,
-			max_displayed_indirectness, leaf_only)
+			max_indirectness_game, leaf_only)
 
 
 def show_edges(p_edges, p_html_content):
@@ -695,7 +698,8 @@ CONNECTIONS_SKIPPED=0
 ENABLE_NON_CYCLE_PRINTING=True
 SORT_BY_LEN=False
 COLOR_THRESHOLD=48
-MAX_CYCLE_LENGTH=5
+MAX_CYCLE_LENGTH_HTML=5
+MAX_CYCLE_LENGTH_GAME=3
 FOLDER_PATH=
 FILE_NAME=
 BLOCK_STARTING_NODE=
@@ -703,7 +707,7 @@ CHANCE_SAME=0.1
 CHANCE_IRRELEVANT=0.20
 CHANCE_INDIRECT=0.35
 MAX_INDIRECTNESS=1
-MAX_DISPLAYED_INDIRECTNESS=2
+MAX_INDIRECTNESS_GAME=2
 LEAF_ONLY=False
 """
 	try:
@@ -992,9 +996,9 @@ def run_relationship_guessing_game():
 		paths_u_v = list(nx.all_shortest_paths(G, u, v)) if has_u_v else []
 		paths_v_u = list(nx.all_shortest_paths(G, v, u)) if has_v_u else []
 
-		# Filter out paths exceeding MAX_DISPLAYED_INDIRECTNESS (intermediate nodes > MAX_DISPLAYED_INDIRECTNESS)
-		paths_u_v = [p for p in paths_u_v if (len(p) - 2) <= MAX_DISPLAYED_INDIRECTNESS]
-		paths_v_u = [p for p in paths_v_u if (len(p) - 2) <= MAX_DISPLAYED_INDIRECTNESS]
+		# Filter out paths exceeding MAX_INDIRECTNESS_GAME (intermediate nodes > MAX_INDIRECTNESS_GAME)
+		paths_u_v = [p for p in paths_u_v if (len(p) - 2) <= MAX_INDIRECTNESS_GAME]
+		paths_v_u = [p for p in paths_v_u if (len(p) - 2) <= MAX_INDIRECTNESS_GAME]
 
 		has_disp_u_v = bool(paths_u_v)
 		has_disp_v_u = bool(paths_v_u)
@@ -1042,11 +1046,9 @@ def run_relationship_guessing_game():
 			arr_u = "→↓" if val_u < 0 else "→"
 			arr_v = "→↓" if val_v < 0 else "→"
 			if arr_u == arr_v:
-				connection_lines.append(
-					f"Shared Source: {nodes.get(s, s)} {arr_u} {nodes.get(u, u)} + {nodes.get(v, v)}")
+				connection_lines.append(f"Shared Source: {nodes.get(s, s)} {arr_u} 🅰️&🅱️")
 			else:
-				connection_lines.append(
-					f"Shared Source: {nodes.get(s, s)} {arr_u} {nodes.get(u, u)} + {arr_v} {nodes.get(v, v)}")
+				connection_lines.append(f"Shared Source: {nodes.get(s, s)} {arr_u} {nodes.get(u, u)} + {arr_v} {nodes.get(v, v)}")
 
 		for d in shared_dsts:
 			val_u = edge_values.get((u, d), 1)
@@ -1055,10 +1057,41 @@ def run_relationship_guessing_game():
 			arr_v = "→↓" if val_v < 0 else "→"
 			if arr_u == arr_v:
 				connection_lines.append(
-					f"Shared Destination: {nodes.get(u, u)} + {nodes.get(v, v)} {arr_u} {nodes.get(d, d)}")
+					f"Shared Destination: 🅰️&🅱️ {arr_u} {nodes.get(d, d)}")
 			else:
 				connection_lines.append(
 					f"Shared Destination: {nodes.get(u, u)} ({arr_u}) + {nodes.get(v, v)} ({arr_v}) → {nodes.get(d, d)}")
+
+		# Find and display feedback loops / cycles containing both u and v (<= MAX_CYCLE_LENGTH_GAME)
+		if MAX_CYCLE_LENGTH_GAME >= 2:
+			paths_fwd = list(nx.all_simple_paths(G, source=u, target=v, cutoff=MAX_CYCLE_LENGTH_GAME - 1))
+			paths_bwd = list(nx.all_simple_paths(G, source=v, target=u, cutoff=MAX_CYCLE_LENGTH_GAME - 1))
+			seen_cycles = set()
+			pair_cycles = []
+
+			for p1 in paths_fwd:
+				mid1 = set(p1[1:-1])
+				for p2 in paths_bwd:
+					total_nodes = (len(p1) - 1) + (len(p2) - 1)
+					if total_nodes <= MAX_CYCLE_LENGTH_GAME and mid1.isdisjoint(p2[1:-1]):
+						full_cycle = p1[:-1] + p2
+						cycle_tuple = tuple(full_cycle[:-1])
+						min_i = cycle_tuple.index(min(cycle_tuple))
+						canonical = cycle_tuple[min_i:] + cycle_tuple[:min_i]
+						if canonical not in seen_cycles:
+							seen_cycles.add(canonical)
+							pair_cycles.append(full_cycle)
+
+			pair_cycles.sort(key=lambda c: (len(c), [str(nodes.get(n, n)) for n in c]))
+
+			for cyc in pair_cycles:
+				cycle_corr = 1
+				for k in range(len(cyc) - 1):
+					cycle_corr *= edge_values.get((cyc[k], cyc[k + 1]), 1)
+				polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
+				cyc_len = len(cyc) - 1
+				connection_lines.append(f"Cycle ({cyc_len}) {polarity_icon}: {format_path_string(cyc)}")
+
 
 		# Print inline if single path or irrelevant; otherwise print list
 		if not connection_lines:
@@ -1066,7 +1099,6 @@ def run_relationship_guessing_game():
 		elif len(connection_lines) == 1:
 			print(f"Answer: {connection_lines[0]}")
 		else:
-			print("Answer:")
 			for line in connection_lines:
 				print(f"  • {line}")
 
@@ -1109,8 +1141,8 @@ def generate_html_and_graphml():
 	html_content = ''
 
 	# Compute and display Cycles / Feedback loops if MAX_CYCLE_LENGTH > 0
-	if MAX_CYCLE_LENGTH > 0:
-		cycles = find_bounded_cycles(G, MAX_CYCLE_LENGTH)
+	if MAX_CYCLE_LENGTH_HTML > 0:
+		cycles = find_bounded_cycles(G, MAX_CYCLE_LENGTH_HTML)
 
 		if target_node_exists:
 			cycles = [cycle for cycle in cycles if target_node_id in cycle]
@@ -1131,12 +1163,12 @@ def generate_html_and_graphml():
 			else:
 				html_content += f'<h1 style="color:white;">Cycles from: {source_node} ({len(cycles)})</h1>'
 		else:
-			html_content += f'<h1 style="color:white;">All Cycles / Feedback Loops (max len {MAX_CYCLE_LENGTH}: {len(cycles)})</h1>'
+			html_content += f'<h1 style="color:white;">All Cycles / Feedback Loops (max len {MAX_CYCLE_LENGTH_HTML}: {len(cycles)})</h1>'
 
 		if cycles:
 			html_content = print_nodes(cycles, html_content, True)
 		else:
-			html_content += f'<p style="color:#888888;">No feedback loops found with length ≤ {MAX_CYCLE_LENGTH}.</p>'
+			html_content += f'<p style="color:#888888;">No feedback loops found with length ≤ {MAX_CYCLE_LENGTH_HTML}.</p>'
 
 	# Append Connection List, Edges, or Paths
 	if SHOW_CONNECTIONS_LIST:
@@ -1181,9 +1213,10 @@ if __name__ == '__main__':
 		create_input_file()
 	(source_node, target_node, SHOW_ONLY_EDGES, SHOW_CONNECTIONS_LIST,
 	 CONNECTIONS_SKIPPED, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN,
-	 COLOR_THRESHOLD, MAX_CYCLE_LENGTH, FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE,
+	 COLOR_THRESHOLD, MAX_CYCLE_LENGTH_HTML, MAX_CYCLE_LENGTH_GAME,
+	 FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE,
 	 CHANCE_IRRELEVANT, CHANCE_INDIRECT, CHANCE_SAME, MAX_INDIRECTNESS,
-	 MAX_DISPLAYED_INDIRECTNESS, LEAF_ONLY) = read_config_file(input_file)
+	 MAX_INDIRECTNESS_GAME, LEAF_ONLY) = read_config_file(input_file)
 
 	# Determine if FILE_NAME is an absolute or full path (contains slashes)
 	if '/' in FILE_NAME or '\\' in FILE_NAME or os.path.isabs(FILE_NAME):
