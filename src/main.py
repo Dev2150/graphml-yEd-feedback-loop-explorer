@@ -1076,6 +1076,77 @@ def run_relationship_guessing_game():
 	sys.exit(0)
 
 
+def generate_html_and_graphml():
+	global html_content
+	html_content = ''
+
+	# Compute and display Cycles / Feedback loops
+	cycles = list(nx.simple_cycles(G))
+
+	if target_node_exists:
+		cycles = [cycle for cycle in cycles if target_node_id in cycle]
+	if source_node_exists:
+		cycles = [cycle for cycle in cycles if source_node_id in cycle]
+		newCycles = []
+		for cycle in cycles:
+			newCycles.append(shift_to(cycle, source_node_id))
+		cycles = newCycles
+
+	cycles = sort_alphabetically_by_joining_numerical_string_lists(cycles, nodes)
+	if SORT_BY_LEN:
+		cycles = sorted(cycles, key=len)
+
+	if source_node:
+		if target_node:
+			html_content += f'<h1 style="color:white;">Cycles: {source_node} → {target_node} ({len(cycles)})</h1>'
+		else:
+			html_content += f'<h1 style="color:white;">Cycles from: {source_node} ({len(cycles)})</h1>'
+	else:
+		html_content += f'<h1 style="color:white;">All Cycles / Feedback Loops ({len(cycles)})</h1>'
+
+	if cycles:
+		html_content = print_nodes(cycles, html_content, True)
+	else:
+		html_content += '<p style="color:#888888;">No feedback loops / cycles found in this graph.</p>'
+
+	# Append Connection List, Edges, or Paths
+	if SHOW_CONNECTIONS_LIST:
+		html_content = show_connections_list(G, CONNECTIONS_SKIPPED, html_content)
+	elif SHOW_ONLY_EDGES:
+		html_content = show_edges(edges, html_content)
+	else:
+		if source_node_exists:
+			if target_node_exists:
+				html_content = print_paths_from_source_to_target(html_content, source_node_id, target_node_id,
+																 source_node, target_node)
+				html_content = print_paths_from_source_to_target(html_content, target_node_id, source_node_id,
+																 target_node, source_node)
+			else:
+				if ENABLE_NON_CYCLE_PRINTING:
+					html_content = show_all_paths(nodes, source_node_id, html_content, True)
+					html_content = show_all_paths(nodes, source_node_id, html_content)
+				else:
+					find_all_paths_for_graph_ml(nodes, source_node_id, True)
+					find_all_paths_for_graph_ml(nodes, source_node_id)
+		else:
+			if not target_node_exists:
+				html_content = show_all_paths(nodes, source_node_id, html_content)
+
+	print_to_file(html_content)
+
+	print(f"Node count: {len(nodes_printed)} / {len(nodes)} ({int(100 * len(nodes_printed) / len(nodes)) if len(nodes) > 0 else 0}%)")
+
+	output_file = OUTPUT_FOLDER + 'output.graphml'
+	nodes_to_keep = set(nodes_printed)
+	nodes_to_exclude = sorted([nodes[y] for y in nodes if y not in nodes_to_keep])
+
+	print('Irrelevant nodes:')
+	for i in nodes_to_exclude:
+		print(i, end=', ')
+	remove_nodes_from_graphml(input_graph_ml_file, output_file, nodes_to_keep)
+	print('\nHTML & GraphML files generated.\n')
+
+
 if __name__ == '__main__':
 	if not os.path.exists(input_file):
 		create_input_file()
@@ -1121,14 +1192,17 @@ if __name__ == '__main__':
 
 	G.add_edges_from(edges)
 
+	# Always generate HTML and GraphML first
+	generate_html_and_graphml()
+
 	# --------------------------------------------------------------------------
 	# Game Selection Menu
 	# --------------------------------------------------------------------------
-	print("\n" + "=" * 50)
+	print("=" * 50)
 	print("Select Game Mode:")
 	print("  [1] Connection Guessing Game (Guess intermediate nodes)")
-	print("  [2] Relationship Guessing Game (Direct / Indirect / Shared source/destination / Irrelevant)")
-	print("  [0] No Game (Generate HTML / Graph output only)")
+	print("  [2] Relationship Guessing Game (Direct / Indirect / Same / Irrelevant)")
+	print("  [0] Exit (HTML already generated)")
 	print("=" * 50)
 	game_choice = input("Enter choice (0-2): ").strip()
 
@@ -1136,73 +1210,3 @@ if __name__ == '__main__':
 		run_connection_guessing_game()
 	elif game_choice == '2':
 		run_relationship_guessing_game()
-
-	# --------------------------------------------------------------------------
-	# HTML / GraphML Output Generation
-	# --------------------------------------------------------------------------
-	html_content = ''
-
-	if SHOW_CONNECTIONS_LIST:
-		html_content = show_connections_list(G, CONNECTIONS_SKIPPED, html_content)
-	else:
-		cycles = list(nx.simple_cycles(G))
-
-		if target_node_exists:
-			cycles = [cycle for cycle in cycles if target_node_id in cycle]
-		if source_node_exists:
-			cycles = [cycle for cycle in cycles if source_node_id in cycle]
-
-			newCycles = []
-			for cycle in cycles:
-				newCycles.append(shift_to(cycle, source_node_id))
-			cycles = newCycles
-
-		cycles = sort_alphabetically_by_joining_numerical_string_lists(cycles, nodes)
-		if SORT_BY_LEN:
-			cycles = sorted(cycles, key=len)
-
-		if source_node:
-			if target_node:
-				s = f"Cycles: {Back.LIGHTBLACK_EX}{source_node}{Back.RESET} → {Back.LIGHTBLACK_EX}{target_node}{Back.RESET}\n"
-				html_content += f'<h1 style="color:white;">Cycles: {source_node} → {target_node}</h1>'
-			else:
-				s = f"Cycles from: {Back.BLACK}{source_node}{Back.RESET}\n"
-				html_content += f'<h1 style="color:white;">Cycles from: {source_node}</h1>'
-
-		html_content = print_nodes(cycles, html_content, True)
-
-		if SHOW_ONLY_EDGES:
-			html_content = show_edges(edges, html_content)
-		else:
-			if source_node_exists:
-				if target_node_exists:
-					html_content = print_paths_from_source_to_target(html_content, source_node_id, target_node_id,
-																	 source_node,
-																	 target_node)
-					html_content = print_paths_from_source_to_target(html_content, target_node_id, source_node_id,
-																	 target_node,
-																	 source_node)
-				else:
-					if ENABLE_NON_CYCLE_PRINTING:
-						html_content = show_all_paths(nodes, source_node_id, html_content, True)
-						html_content = show_all_paths(nodes, source_node_id, html_content)
-					else:
-						find_all_paths_for_graph_ml(nodes, source_node_id, True)
-						find_all_paths_for_graph_ml(nodes, source_node_id)
-			else:
-				if not target_node_exists:
-					html_content = show_all_paths(nodes, source_node_id, html_content)
-
-	print_to_file(html_content)
-
-	print(f"Node count: {len(nodes_printed)} / {len(nodes)} ({int(100 * len(nodes_printed) / len(nodes)) if len(nodes) > 0 else 0}%)")
-
-	output_file = OUTPUT_FOLDER + 'output.graphml'
-	nodes_to_keep = set(nodes_printed)
-	nodes_to_exclude = sorted([nodes[y] for y in nodes if y not in nodes_to_keep])
-
-	print('Irrelevant nodes:')
-	for i in nodes_to_exclude:
-		print(i, end=', ')
-	remove_nodes_from_graphml(input_graph_ml_file, output_file, nodes_to_keep)
-	print('\nDone')
