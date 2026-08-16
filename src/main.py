@@ -388,7 +388,7 @@ def print_node(path, path_node_id, path_len, cycle_correlation, nodes_to_travers
 			cycle_correlation *= edge_correlation
 			if is_printing_to_html:
 				str_connector = edge_value_string(edge_correlation)
-				hp_text_style = "color:" + ("#AAAAFF" if edge_correlation < 0 else "#000000")
+				hp_text_style = "color:" + ("#FFAAAA" if edge_correlation < 0 else "#CCCCCC")
 				hp += '<span style="' + hp_text_style + '">' + str_connector + ' </span>'
 	except KeyError:
 		pass
@@ -570,13 +570,14 @@ def read_config_file(p_input_file):
 	if chance_same > 1.0:
 		chance_same /= 100.0
 
+	max_cycle_length = config.getint(SECTION, 'max_cycle_length', fallback=3)
 	max_indirectness = config.getint(SECTION, 'max_indirectness', fallback=3)
 	max_displayed_indirectness = config.getint(SECTION, 'max_displayed_indirectness', fallback=3)
 	leaf_only = config.getboolean(SECTION, 'leaf_only', fallback=False)
 
 	return (p_source_node, p_target_node, show_only_edges, show_connections_list,
 			connections_skipped, enable_non_cycle_printing, sort_by_len,
-			color_threshold, folder_path, file_name, block_starting_node,
+			color_threshold, max_cycle_length, folder_path, file_name, block_starting_node,
 			chance_irrelevant, chance_indirect, chance_same, max_indirectness,
 			max_displayed_indirectness, leaf_only)
 
@@ -694,6 +695,7 @@ CONNECTIONS_SKIPPED=0
 ENABLE_NON_CYCLE_PRINTING=True
 SORT_BY_LEN=False
 COLOR_THRESHOLD=48
+MAX_CYCLE_LENGTH=5
 FOLDER_PATH=
 FILE_NAME=
 BLOCK_STARTING_NODE=
@@ -1076,38 +1078,65 @@ def run_relationship_guessing_game():
 	sys.exit(0)
 
 
+def find_bounded_cycles(graph, max_len):
+	if max_len <= 1:
+		return []
+	try:
+		# NetworkX 2.6+ length-bounded search (prunes deep branches automatically)
+		return list(nx.simple_cycles(graph, length_bound=max_len))
+	except TypeError:
+		# Fallback depth-pruned DFS for older NetworkX versions
+		cycles = []
+		nodes_list = list(graph.nodes())
+		for i, start_node in enumerate(nodes_list):
+			valid_nodes = set(nodes_list[i:])
+			stack = [(start_node, [start_node])]
+			while stack:
+				curr, path = stack.pop()
+				if len(path) > max_len:
+					continue
+				for neighbor in graph.successors(curr):
+					if neighbor == start_node and len(path) >= 2:
+						cycles.append(path)
+					elif neighbor in valid_nodes and neighbor not in path:
+						if len(path) < max_len:
+							stack.append((neighbor, path + [neighbor]))
+		return cycles
+
+
 def generate_html_and_graphml():
 	global html_content
 	html_content = ''
 
-	# Compute and display Cycles / Feedback loops
-	cycles = list(nx.simple_cycles(G))
+	# Compute and display Cycles / Feedback loops if MAX_CYCLE_LENGTH > 0
+	if MAX_CYCLE_LENGTH > 0:
+		cycles = find_bounded_cycles(G, MAX_CYCLE_LENGTH)
 
-	if target_node_exists:
-		cycles = [cycle for cycle in cycles if target_node_id in cycle]
-	if source_node_exists:
-		cycles = [cycle for cycle in cycles if source_node_id in cycle]
-		newCycles = []
-		for cycle in cycles:
-			newCycles.append(shift_to(cycle, source_node_id))
-		cycles = newCycles
+		if target_node_exists:
+			cycles = [cycle for cycle in cycles if target_node_id in cycle]
+		if source_node_exists:
+			cycles = [cycle for cycle in cycles if source_node_id in cycle]
+			newCycles = []
+			for cycle in cycles:
+				newCycles.append(shift_to(cycle, source_node_id))
+			cycles = newCycles
 
-	cycles = sort_alphabetically_by_joining_numerical_string_lists(cycles, nodes)
-	if SORT_BY_LEN:
-		cycles = sorted(cycles, key=len)
+		cycles = sort_alphabetically_by_joining_numerical_string_lists(cycles, nodes)
+		if SORT_BY_LEN:
+			cycles = sorted(cycles, key=len)
 
-	if source_node:
-		if target_node:
-			html_content += f'<h1 style="color:white;">Cycles: {source_node} → {target_node} ({len(cycles)})</h1>'
+		if source_node:
+			if target_node:
+				html_content += f'<h1 style="color:white;">Cycles: {source_node} → {target_node} ({len(cycles)})</h1>'
+			else:
+				html_content += f'<h1 style="color:white;">Cycles from: {source_node} ({len(cycles)})</h1>'
 		else:
-			html_content += f'<h1 style="color:white;">Cycles from: {source_node} ({len(cycles)})</h1>'
-	else:
-		html_content += f'<h1 style="color:white;">All Cycles / Feedback Loops ({len(cycles)})</h1>'
+			html_content += f'<h1 style="color:white;">All Cycles / Feedback Loops (max len {MAX_CYCLE_LENGTH}: {len(cycles)})</h1>'
 
-	if cycles:
-		html_content = print_nodes(cycles, html_content, True)
-	else:
-		html_content += '<p style="color:#888888;">No feedback loops / cycles found in this graph.</p>'
+		if cycles:
+			html_content = print_nodes(cycles, html_content, True)
+		else:
+			html_content += f'<p style="color:#888888;">No feedback loops found with length ≤ {MAX_CYCLE_LENGTH}.</p>'
 
 	# Append Connection List, Edges, or Paths
 	if SHOW_CONNECTIONS_LIST:
@@ -1152,7 +1181,7 @@ if __name__ == '__main__':
 		create_input_file()
 	(source_node, target_node, SHOW_ONLY_EDGES, SHOW_CONNECTIONS_LIST,
 	 CONNECTIONS_SKIPPED, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN,
-	 COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE,
+	 COLOR_THRESHOLD, MAX_CYCLE_LENGTH, FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE,
 	 CHANCE_IRRELEVANT, CHANCE_INDIRECT, CHANCE_SAME, MAX_INDIRECTNESS,
 	 MAX_DISPLAYED_INDIRECTNESS, LEAF_ONLY) = read_config_file(input_file)
 
