@@ -29,7 +29,7 @@ def filter_graphml(p_input_file, p_output_file, keep_nodes=None, keep_edges=None
 	g = nx.read_graphml(p_input_file)
 
 	if keep_nodes is not None:
-		keep_nodes = [f'n{num}' for num in keep_nodes]
+		keep_nodes = [str(num) if str(num).startswith('n') else f'n{num}' for num in keep_nodes]
 		nodes_to_remove = [node for node in g.nodes()
 						   if node not in keep_nodes]
 		g.remove_nodes_from(nodes_to_remove)
@@ -147,80 +147,175 @@ def find_all_paths(all_paths, is_reversed, p_nodes, p_source):
 	return all_paths
 
 
-def find_node(child):
-	node_id = child.attrib['id'].replace('n', '')
-	if node_id == "91::0":
-		pass
-	for dataNode in child:
-		tag = dataNode.tag.split('}', 1)[-1]
-		if tag == 'data':
-			key = dataNode.attrib['key']
-			if key == "d6":
-				d6_descendant = dataNode[0]
-				if d6_descendant.tag.split('}', 1)[-1] == 'ShapeNode':
-					node_name = d6_descendant[3].text.replace("\n", " ")
-					attrib = d6_descendant[1].attrib
-					if 'hasColor' in attrib and attrib['hasColor'] == 'false':
-						node_values[node_id] = 0
-					else:
-						color = attrib['color'][1:]
-						if color in ['FFCC00', '99CCFF', 'FFFF00']:  # noqa: spellcheck
-							node_values[node_id] = 0
-						else:
-							r, g, b = int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
-							node_values[node_id] = -1 if r > (g + b) / 2 + COLOR_THRESHOLD else + 1 if g > (
-									r + b) / 2 + COLOR_THRESHOLD else 0
-					nodes[node_id] = node_name
-				else:
-					d6_descendant = d6_descendant[0][0]
-					for element in d6_descendant:
-						if element.tag.split('}', 1)[-1] == 'NodeLabel':
-							node_name = d6_descendant[3].text.replace("\n", " ")
-							nodes[node_id] = node_name
-		elif tag == 'graph':
-			for dataNodeChild in dataNode:
-				find_node(dataNodeChild)
-
-
-def read_from_graph_xml(p_input_file):
+def read_from_graph_xml(p_input_file, p_color_threshold=48):
 	tree = emTree.parse(p_input_file)
 	root = tree.getroot()
 
-	# Iterate through elements
-	children = root[len(root) - 2]
-	for child in children:
-		tag = child.tag.split('}', 1)[-1]
-		if tag == 'node':
-			find_node(child)
-		elif tag == 'edge':
-			source = child.attrib['source'][1:].replace('n', '')
-			target = child.attrib['target'][1:].replace('n', '')
-			for data in child:
-				if data.attrib['key'] == "d10":
-					edge_color = "000000"
-					is_bidirectional = False
+	def get_local_tag(elem):
+		return elem.tag.split('}', 1)[-1]
 
-					# Parse the y:PolyLineEdge children to find color and arrows
-					for element in data[0]:
-						tag_name = element.tag.split('}', 1)[-1]
-						if tag_name == 'LineStyle':
-							edge_color = element.attrib.get('color', '#000000')[1:]
-						elif tag_name == 'Arrows':
-							# If there is an arrow at the source, it's a bidirectional edge
-							if element.attrib.get('source') == 'standard':
-								is_bidirectional = True
+	all_nodes = {}
+	is_group = {}
+	group_children = defaultdict(list)
 
-					r, g, b = int(edge_color[0:2], 16), int(edge_color[2:4], 16), int(edge_color[4:6], 16)
-					val = -1 if r > (g + b) / 2 + COLOR_THRESHOLD else +1
+	# Recursive scanner to map all groups and leaf nodes
+	def scan_node(node_elem):
+		node_id = node_elem.attrib['id']
+		all_nodes[node_id] = node_elem
 
-					# Add standard direction
-					edges.append((source, target))
-					edge_values[(source, target)] = val
+		foldertype = node_elem.attrib.get('yfiles.foldertype', '').lower()
+		has_graph_child = False
 
-					# Add reverse direction if bidirectional
-					if is_bidirectional:
-						edges.append((target, source))
-						edge_values[(target, source)] = val
+		for child in node_elem:
+			if get_local_tag(child) == 'graph':
+				has_graph_child = True
+				for sub_elem in child:
+					if get_local_tag(sub_elem) == 'node':
+						sub_id = sub_elem.attrib['id']
+						group_children[node_id].append(sub_id)
+						scan_node(sub_elem)
+
+		has_group_graphics = False
+		for elem in node_elem.iter():
+			tag = get_local_tag(elem)
+			if tag in ('GroupNode', 'ProxyAutoBoundsNode'):
+				has_group_graphics = True
+				break
+
+		if foldertype in ('group', 'folder') or has_graph_child or has_group_graphics:
+			is_group[node_id] = True
+		else:
+			is_group[node_id] = False
+
+	# Find top-level nodes across graphs
+	for elem in root.iter():
+		if get_local_tag(elem) == 'graph':
+			for child in elem:
+				if get_local_tag(child) == 'node' and child.attrib['id'] not in all_nodes:
+					scan_node(child)
+
+	# Extract leaf nodes
+	for node_id, node_elem in all_nodes.items():
+		if not is_group.get(node_id, False):
+			node_name = None
+			node_val = 0
+
+			# Extract node label
+			for sub in node_elem.iter():
+				if get_local_tag(sub) == 'NodeLabel' and sub.text and sub.text.strip():
+					node_name = sub.text.strip().replace('\r\n', ' ').replace('\n', ' ')
+					break
+
+			if not node_name:
+				node_name = node_id
+
+			# Extract node color/fill value
+			for sub in node_elem.iter():
+				if get_local_tag(sub) == 'Fill':
+					attrib = sub.attrib
+					if attrib.get('hasColor') == 'false' or attrib.get('transparent') == 'true':
+						node_val = 0
+					elif 'color' in attrib:
+						color = attrib['color']
+						if color.startswith('#'):
+							color = color[1:]
+						if color.upper() in ['FFCC00', '99CCFF', 'FFFF00', 'FFFFFF', 'F5F5F5']:
+							node_val = 0
+						elif len(color) == 6:
+							try:
+								r, g, b = int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
+								node_val = -1 if r > (g + b) / 2 + p_color_threshold else +1 if g > (r + b) / 2 + p_color_threshold else 0
+							except ValueError:
+								node_val = 0
+					break
+
+			nodes[node_id] = node_name
+			node_values[node_id] = node_val
+
+	# Helper to resolve all descendant leaf nodes for groups or individual nodes
+	def get_leaf_nodes(nid):
+		if not is_group.get(nid, False):
+			return [nid] if nid in nodes else []
+		leaves = []
+		stack = [nid]
+		visited = set()
+		while stack:
+			curr = stack.pop()
+			if curr in visited:
+				continue
+			visited.add(curr)
+			if not is_group.get(curr, False):
+				if curr in nodes:
+					leaves.append(curr)
+			else:
+				for ch in group_children.get(curr, []):
+					stack.append(ch)
+		return leaves
+
+	# Scan and expand all edges throughout the XML
+	edge_set = set()
+	for edge_elem in root.iter():
+		if get_local_tag(edge_elem) == 'edge':
+			source_id = edge_elem.attrib.get('source')
+			target_id = edge_elem.attrib.get('target')
+			if not source_id or not target_id:
+				continue
+
+			# Edge line color
+			edge_color = "000000"
+			for sub in edge_elem.iter():
+				if get_local_tag(sub) == 'LineStyle':
+					col = sub.attrib.get('color', '#000000')
+					if col.startswith('#'):
+						col = col[1:]
+					edge_color = col
+					break
+
+			try:
+				r, g, b = int(edge_color[0:2], 16), int(edge_color[2:4], 16), int(edge_color[4:6], 16)
+				val = -1 if r > (g + b) / 2 + p_color_threshold else +1
+			except Exception:
+				val = +1
+
+			# Edge arrowheads (handles standard, reversed, and bidirectional)
+			src_arrow = 'none'
+			tgt_arrow = 'standard'
+			has_arrows_tag = False
+			for sub in edge_elem.iter():
+				if get_local_tag(sub) == 'Arrows':
+					src_arrow = sub.attrib.get('source', 'none')
+					tgt_arrow = sub.attrib.get('target', 'standard')
+					has_arrows_tag = True
+					break
+
+			if not has_arrows_tag:
+				has_forward = True
+				has_backward = False
+			else:
+				has_forward = (tgt_arrow not in ('none', '')) or (src_arrow in ('none', '') and tgt_arrow in ('none', ''))
+				has_backward = (src_arrow not in ('none', ''))
+
+			src_leaves = get_leaf_nodes(source_id)
+			tgt_leaves = get_leaf_nodes(target_id)
+
+			# Expand interactions to all member nodes
+			if has_forward:
+				for s in src_leaves:
+					for t in tgt_leaves:
+						if s != t:
+							if (s, t) not in edge_set:
+								edges.append((s, t))
+								edge_set.add((s, t))
+							edge_values[(s, t)] = val
+
+			if has_backward:
+				for s in src_leaves:
+					for t in tgt_leaves:
+						if s != t:
+							if (t, s) not in edge_set:
+								edges.append((t, s))
+								edge_set.add((t, s))
+							edge_values[(t, s)] = val
 
 	return nodes, edges, edge_values
 
@@ -235,7 +330,7 @@ def edge_value(node1, node2):
 	value = edge_values.get((node1, node2))
 	if value is not None:
 		return value
-	raise Exception("Edge not found!")
+	return 1 # raise Exception("Edge not found!")
 
 
 def rgb_print(text, r, g, b):
@@ -332,6 +427,7 @@ def initialize_printing_nodes(path, is_cycle):
 
 
 def print_to_file(p_html_content: str):
+	os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 	if not source_node_exists:
 		base_file_name = os.path.splitext(os.path.basename(FILE_NAME))[0]
 		name = base_file_name if base_file_name else FILE_NAME
@@ -340,7 +436,7 @@ def print_to_file(p_html_content: str):
 		if target_node_exists:
 			name += " - " + target_node
 	file_name = name + '.html'
-	file_path = OUTPUT_FOLDER + file_name
+	file_path = os.path.join(OUTPUT_FOLDER, file_name)
 
 	p_html_content = f"""
     <!DOCTYPE html>
@@ -378,16 +474,33 @@ def remove_nodes_from_graphml(p_input_file, p_output_file, p_nodes_to_keep):
 		'yed': 'http://www.yworks.com/xml/yed/3'
 	}
 
-	# Find the graph element
-	graph = root.find('.//graphml:graph', namespaces)
+	kept_set = set(p_nodes_to_keep)
 
-	# Remove specified nodes
-	if graph is not None:
-		nodes_to_delete = set()
+	# Mark group nodes as kept if any member inside is kept
+	def mark_kept_groups(node_elem):
+		node_id = node_elem.get('id')
+		is_kept = node_id in kept_set
+		for child in node_elem:
+			if child.tag.split('}', 1)[-1] == 'graph':
+				for nested_node in child:
+					if nested_node.tag.split('}', 1)[-1] == 'node':
+						if mark_kept_groups(nested_node):
+							is_kept = True
+		if is_kept:
+			kept_set.add(node_id)
+		return is_kept
+
+	for graph in root.findall('.//graphml:graph', namespaces):
+		for node in graph.findall('graphml:node', namespaces):
+			mark_kept_groups(node)
+
+	# Remove unkept nodes across all levels
+	for graph in root.findall('.//graphml:graph', namespaces):
+		nodes_to_delete = []
 		for node in graph.findall('graphml:node', namespaces):
 			node_id = node.get('id')
-			if node_id not in p_nodes_to_keep:
-				nodes_to_delete.add(node)
+			if node_id not in kept_set:
+				nodes_to_delete.append(node)
 
 		# Actually remove the nodes
 		for node in nodes_to_delete:
@@ -398,8 +511,7 @@ def remove_nodes_from_graphml(p_input_file, p_output_file, p_nodes_to_keep):
 		for edge in graph.findall('graphml:edge', namespaces):
 			source = edge.get('source')
 			target = edge.get('target')
-
-			if source not in p_nodes_to_keep or target not in p_nodes_to_keep:
+			if source not in kept_set or target not in kept_set:
 				edges_to_delete.append(edge)
 
 		# Actually remove the edges
@@ -409,14 +521,13 @@ def remove_nodes_from_graphml(p_input_file, p_output_file, p_nodes_to_keep):
 	# Write the modified XML
 	tree.write(p_output_file, encoding='utf-8', xml_declaration=True)
 
-	# Optionally, manually fix the XML to ensure proper formatting
-	with open(p_output_file, 'r') as f:
+	with open(p_output_file, 'r', encoding='utf-8') as f:
 		content = f.read()
 
 	# Remove standalone attribute if needed
 	content = content.replace(' standalone="no"', '')
 
-	with open(p_output_file, 'w') as f:
+	with open(p_output_file, 'w', encoding='utf-8') as f:
 		f.write(content)
 
 
@@ -469,7 +580,7 @@ def show_edges(p_edges, p_html_content):
 	p_html_content += f'<h1 style="color:white;">Edges</h1>'
 	for e in p_edges:
 		try:
-			edge_value_int = edge_values.get((e[0], e[1]))
+			edge_value_int = edge_values.get((e[0], e[1]), 1)
 			edge_value_str = edge_value_string(edge_value_int, True)
 			p_html_content += f'<p><span style="color:#AAAAFF">{nodes[e[0]]}</span> <span style="color:#000000">{edge_value_str}</span> <span style="color:#AAAAFF">{nodes[e[1]]}</span></p>'
 		except KeyError as ke:
@@ -870,7 +981,7 @@ def run_relationship_guessing_game():
 		connection_lines = []
 		if is_direct:
 			if len_u_v == 1 and len_v_u == 1:
-				connection_lines.append(f"Direct (Bidirectional): {format_path_string([u, v])} AND {format_path_string([v, u])}")
+				connection_lines.append(f"Direct (⟳): {format_path_string([u, v])} ↔ {format_path_string([v, u])}")
 			elif len_u_v == 1:
 				connection_lines.append(f"Direct: {format_path_string([u, v])}")
 				if has_v_u:
@@ -922,7 +1033,7 @@ if __name__ == '__main__':
 	else:
 		input_graph_ml_file = FOLDER_PATH + FILE_NAME + ('' if FILE_NAME.endswith('.graphml') else '.graphml')
 
-	nodes, edges, edge_values = read_from_graph_xml(input_graph_ml_file)
+	nodes, edges, edge_values = read_from_graph_xml(input_graph_ml_file, COLOR_THRESHOLD)
 
 	G = nx.DiGraph()
 	G.add_nodes_from(nodes.keys())
@@ -1026,11 +1137,11 @@ if __name__ == '__main__':
 
 	print_to_file(html_content)
 
-	print(f"Node count: {len(nodes_printed)} / {len(nodes)} ({int(100 * len(nodes_printed) / len(nodes))}%)")
+	print(f"Node count: {len(nodes_printed)} / {len(nodes)} ({int(100 * len(nodes_printed) / len(nodes)) if len(nodes) > 0 else 0}%)")
 
 	output_file = OUTPUT_FOLDER + 'output.graphml'
-	nodes_to_keep = [f'n{num}' for num in nodes_printed]
-	nodes_to_exclude = sorted([nodes[y] for y in [x for x in nodes if x not in nodes_to_keep]])
+	nodes_to_keep = set(nodes_printed)
+	nodes_to_exclude = sorted([nodes[y] for y in nodes if y not in nodes_to_keep])
 
 	print('Irrelevant nodes:')
 	for i in nodes_to_exclude:
