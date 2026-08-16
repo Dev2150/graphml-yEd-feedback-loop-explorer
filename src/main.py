@@ -330,7 +330,7 @@ def edge_value(node1, node2):
 	value = edge_values.get((node1, node2))
 	if value is not None:
 		return value
-	return 1 # raise Exception("Edge not found!")
+	return 1  # raise Exception("Edge not found!")
 
 
 def rgb_print(text, r, g, b):
@@ -557,7 +557,7 @@ def read_config_file(p_input_file):
 	block_starting_node = [x.strip().lower() for x in block_starting_node_str.split(',') if
 						   x.strip()] if block_starting_node_str else []
 
-	# New game settings
+	# Game settings
 	chance_irrelevant = config.getfloat(SECTION, 'chance_irrelevant', fallback=0.33)
 	if chance_irrelevant > 1.0:
 		chance_irrelevant /= 100.0
@@ -566,13 +566,17 @@ def read_config_file(p_input_file):
 	if chance_indirect > 1.0:
 		chance_indirect /= 100.0
 
+	chance_same = config.getfloat(SECTION, 'chance_same', fallback=0.33)
+	if chance_same > 1.0:
+		chance_same /= 100.0
+
 	max_indirectness = config.getint(SECTION, 'max_indirectness', fallback=3)
 	leaf_only = config.getboolean(SECTION, 'leaf_only', fallback=False)
 
 	return (p_source_node, p_target_node, show_only_edges, show_connections_list,
 			connections_skipped, enable_non_cycle_printing, sort_by_len,
 			color_threshold, folder_path, file_name, block_starting_node,
-			chance_irrelevant, chance_indirect, max_indirectness, leaf_only)
+			chance_irrelevant, chance_indirect, chance_same, max_indirectness, leaf_only)
 
 
 def show_edges(p_edges, p_html_content):
@@ -691,9 +695,10 @@ COLOR_THRESHOLD=48
 FOLDER_PATH=
 FILE_NAME=
 BLOCK_STARTING_NODE=
-CHANCE_IRRELEVANT=0.33
-CHANCE_INDIRECT=0.33
-MAX_INDIRECTNESS=3
+CHANCE_SAME=0.1
+CHANCE_IRRELEVANT=0.20
+CHANCE_INDIRECT=0.35
+MAX_INDIRECTNESS=1
 LEAF_ONLY=False
 """
 	try:
@@ -853,8 +858,8 @@ def run_connection_guessing_game():
 
 def run_relationship_guessing_game():
 	print("\n--- Relationship Guessing Game ---")
-	print("Guess if the 2 nodes connect Directly, Indirectly, or are Irrelevant. Enter 0 to stop.")
-	print("[Direct / Indirect / Irrelevant] (Press Enter to reveal answer, or 0 to quit).\n")
+	print("Guess if the 2 nodes connect Directly, Indirectly, Share a Source/Destination, or are Irrelevant. Enter 0 to stop.")
+	print("[Direct / Indirect / Shared sources/destinations / Irrelevant] (Press Enter to reveal answer, or 0 to quit).\n")
 
 	# Find leaf nodes if LEAF_ONLY is set
 	leaf_nodes = set()
@@ -866,6 +871,7 @@ def run_relationship_guessing_game():
 	all_node_list = list(G.nodes())
 	direct_pairs = []
 	indirect_pairs = []
+	same_pairs = []
 	irrelevant_pairs = []
 
 	max_cutoff = MAX_INDIRECTNESS + 1
@@ -883,6 +889,14 @@ def run_relationship_guessing_game():
 			if u_name in BLOCK_STARTING_NODE and v_name in BLOCK_STARTING_NODE:
 				continue
 
+			# Shared direct sources & shared direct destinations
+			shared_srcs = [s for s in set(G.predecessors(u)).intersection(G.predecessors(v)) if s != u and s != v]
+			shared_dsts = [d for d in set(G.successors(u)).intersection(G.successors(v)) if d != u and d != v]
+			has_shared = bool(shared_srcs or shared_dsts)
+
+			if has_shared:
+				same_pairs.append((u, v))
+
 			# Check shortest path in both directions
 			has_u_to_v = nx.has_path(G, u, v)
 			has_v_to_u = nx.has_path(G, v, u)
@@ -894,10 +908,10 @@ def run_relationship_guessing_game():
 				direct_pairs.append((u, v))
 			elif (len_u_v <= max_cutoff) or (len_v_u <= max_cutoff):
 				indirect_pairs.append((u, v))
-			elif not has_u_to_v and not has_v_to_u:
+			elif not has_u_to_v and not has_v_to_u and not has_shared:
 				irrelevant_pairs.append((u, v))
 
-	if not direct_pairs and not indirect_pairs and not irrelevant_pairs:
+	if not direct_pairs and not indirect_pairs and not irrelevant_pairs and not same_pairs:
 		print("No valid node pairs found matching your graph and filter settings.")
 		return
 
@@ -917,26 +931,28 @@ def run_relationship_guessing_game():
 	while True:
 		question_num += 1
 
-		# Pick category based on CHANCE_IRRELEVANT and CHANCE_INDIRECT
-		rand_cat = random.random()
+		# Pick category based on CHANCE_SAME, CHANCE_IRRELEVANT, and CHANCE_INDIRECT
+		rand_val = random.random()
 		chosen_pool = None
 
-		if rand_cat < CHANCE_IRRELEVANT and irrelevant_pairs:
+		if rand_val < CHANCE_SAME and same_pairs:
+			chosen_pool = same_pairs
+		elif rand_val < (CHANCE_SAME + CHANCE_IRRELEVANT) and irrelevant_pairs:
 			chosen_pool = irrelevant_pairs
-		else:
-			rand_ind = random.random()
-			if rand_ind < CHANCE_INDIRECT and indirect_pairs:
-				chosen_pool = indirect_pairs
-			elif direct_pairs:
-				chosen_pool = direct_pairs
-			elif indirect_pairs:
-				chosen_pool = indirect_pairs
-			elif irrelevant_pairs:
-				chosen_pool = irrelevant_pairs
+		elif rand_val < (CHANCE_SAME + CHANCE_IRRELEVANT + CHANCE_INDIRECT) and indirect_pairs:
+			chosen_pool = indirect_pairs
+		elif direct_pairs:
+			chosen_pool = direct_pairs
+		elif same_pairs:
+			chosen_pool = same_pairs
+		elif indirect_pairs:
+			chosen_pool = indirect_pairs
+		elif irrelevant_pairs:
+			chosen_pool = irrelevant_pairs
 
 		if not chosen_pool:
 			# Fallback if preferred pools are empty
-			all_valid = direct_pairs + indirect_pairs + irrelevant_pairs
+			all_valid = direct_pairs + indirect_pairs + same_pairs + irrelevant_pairs
 			if not all_valid:
 				print("No pairs available.")
 				break
@@ -977,6 +993,13 @@ def run_relationship_guessing_game():
 		is_direct = (len_u_v == 1 or len_v_u == 1)
 		is_indirect = not is_direct and (has_u_v or has_v_u)
 
+		# Find shared sources and shared destinations
+		shared_srcs = [s for s in set(G.predecessors(u)).intersection(G.predecessors(v)) if s != u and s != v]
+		shared_dsts = [d for d in set(G.successors(u)).intersection(G.successors(v)) if d != u and d != v]
+
+		shared_srcs.sort(key=lambda s: str(nodes.get(s, s)).lower())
+		shared_dsts.sort(key=lambda d: str(nodes.get(d, d)).lower())
+
 		# Collect all distinct connection options
 		connection_lines = []
 		if is_direct:
@@ -1000,6 +1023,12 @@ def run_relationship_guessing_game():
 				for p in paths_v_u:
 					prefix = "Indirect ↩" if has_u_v else "Indirect"
 					connection_lines.append(f"{prefix} ({len(p) - 2}): {format_path_string(p)}")
+
+		for s in shared_srcs:
+			connection_lines.append(f"Shared Source: {format_path_string([s, u])}, {format_path_string([s, v])}")
+
+		for d in shared_dsts:
+			connection_lines.append(f"Shared Destination: {format_path_string([u, d])}, {format_path_string([v, d])}")
 
 		# Print inline if single path or irrelevant; otherwise print list
 		if not connection_lines:
@@ -1025,7 +1054,7 @@ if __name__ == '__main__':
 	(source_node, target_node, SHOW_ONLY_EDGES, SHOW_CONNECTIONS_LIST,
 	 CONNECTIONS_SKIPPED, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN,
 	 COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE,
-	 CHANCE_IRRELEVANT, CHANCE_INDIRECT, MAX_INDIRECTNESS, LEAF_ONLY) = read_config_file(input_file)
+	 CHANCE_IRRELEVANT, CHANCE_INDIRECT, CHANCE_SAME, MAX_INDIRECTNESS, LEAF_ONLY) = read_config_file(input_file)
 
 	# Determine if FILE_NAME is an absolute or full path (contains slashes)
 	if '/' in FILE_NAME or '\\' in FILE_NAME or os.path.isabs(FILE_NAME):
@@ -1069,7 +1098,7 @@ if __name__ == '__main__':
 	print("\n" + "=" * 50)
 	print("Select Game Mode:")
 	print("  [1] Connection Guessing Game (Guess intermediate nodes)")
-	print("  [2] Relationship Guessing Game (Direct / Indirect / Irrelevant)")
+	print("  [2] Relationship Guessing Game (Direct / Indirect / Shared source/destination / Irrelevant)")
 	print("  [0] No Game (Generate HTML / Graph output only)")
 	print("=" * 50)
 	game_choice = input("Enter choice (0-2): ").strip()
