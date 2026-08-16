@@ -234,7 +234,7 @@ def edge_value_string(p_edge_value, is_simple=False):
 def edge_value(node1, node2):
 	value = edge_values.get((node1, node2))
 	if value is not None:
-				return value
+		return value
 	raise Exception("Edge not found!")
 
 
@@ -261,7 +261,6 @@ def get_color_by_node_properties(cycle_correlation, convenience):
 def print_paths_from_source_to_target(p_html_content, p_source_node_id, p_target_node_id, p_source_node, p_target_node):
 	p_html_content += '<br>'
 	p_html_content += f'<h1>Paths: {p_source_node} → {p_target_node}</h1>'
-	# print(f"\n {Fore.RESET}Paths: {sourceNode} → {targetNode}")
 	all_paths = list(nx.all_simple_paths(G, source=p_source_node_id, target=p_target_node_id))
 	p_html_content = print_nodes(all_paths, p_html_content)
 	return p_html_content
@@ -334,7 +333,8 @@ def initialize_printing_nodes(path, is_cycle):
 
 def print_to_file(p_html_content: str):
 	if not source_node_exists:
-		name = FILE_NAME
+		base_file_name = os.path.splitext(os.path.basename(FILE_NAME))[0]
+		name = base_file_name if base_file_name else FILE_NAME
 	else:
 		name = source_node
 		if target_node_exists:
@@ -539,8 +539,9 @@ def get_save_file_path(file_name):
 	save_dir = os.path.join(appdata, 'YAMLGuessingGame')
 	os.makedirs(save_dir, exist_ok=True)
 
-	# Sanitize file_name to ensure it's a valid file name
-	safe_name = "".join([c for c in file_name if c.isalpha() or c.isdigit() or c == ' ']).rstrip()
+	# Extract filename without path and extension
+	base_name = os.path.splitext(os.path.basename(file_name))[0]
+	safe_name = "".join([c for c in base_name if c.isalpha() or c.isdigit() or c == ' ']).rstrip()
 	if not safe_name:
 		safe_name = "default_graph"
 
@@ -592,6 +593,7 @@ LEAF_ONLY=False
 		print("Default configuration file created successfully.")
 	except Exception as e:
 		print(f"Error creating default configuration file: {e}")
+
 
 def format_path_string(path):
 	parts = [nodes.get(path[0], path[0])]
@@ -740,7 +742,8 @@ def run_connection_guessing_game():
 
 def run_relationship_guessing_game():
 	print("\n--- Relationship Guessing Game ---")
-	print("Guess if the 2 nodes connect Directly, Indirectly, or are Irrelevant. Enter 0 to stop.\n")
+	print("Guess if the 2 nodes connect Directly, Indirectly, or are Irrelevant. Enter 0 to stop.")
+	print("[Direct / Indirect / Irrelevant] (Press Enter to reveal answer, or 0 to quit).\n")
 
 	# Find leaf nodes if LEAF_ONLY is set
 	leaf_nodes = set()
@@ -844,8 +847,7 @@ def run_relationship_guessing_game():
 		pair_key = get_pair_key(u, v)
 		current_counter = progress_data[game2_key].get(pair_key, 0)
 
-		print(f"Question {question_num} (x{current_counter}): What is the relationship between '{u_name}' and '{v_name}'?")
-		print("  [Direct / Indirect / Irrelevant] (Press Enter to reveal answer, or 0 to quit): ", end='')
+		print(f"Question {question_num} (x{current_counter}): {u_name} [?] {v_name}", end=' ')
 
 		user_input = input().strip()
 		if user_input == '0':
@@ -864,29 +866,39 @@ def run_relationship_guessing_game():
 		is_direct = (len_u_v == 1 or len_v_u == 1)
 		is_indirect = not is_direct and (has_u_v or has_v_u)
 
-		print("Answer: ", end='')
+		# Collect all distinct connection options
+		connection_lines = []
 		if is_direct:
-			print("DIRECT CONNECTION")
 			if len_u_v == 1 and len_v_u == 1:
-				print(f"  • Bidirectional: {format_path_string([u, v])} AND {format_path_string([v, u])}")
+				connection_lines.append(f"Direct (Bidirectional): {format_path_string([u, v])} AND {format_path_string([v, u])}")
 			elif len_u_v == 1:
-				print(f"  • Direct: {format_path_string([u, v])}")
+				connection_lines.append(f"Direct: {format_path_string([u, v])}")
 				if has_v_u:
-					print(f"  • Reverse is Indirect: {format_path_string(paths_v_u[0])}")
+					for p in paths_v_u:
+						connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p)}")
 			elif len_v_u == 1:
-				print(f"  • Direct: {format_path_string([v, u])}")
+				connection_lines.append(f"Direct: {format_path_string([v, u])}")
 				if has_u_v:
-					print(f"  • Reverse is Indirect: {format_path_string(paths_u_v[0])}")
+					for p in paths_u_v:
+						connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p)}")
 		elif is_indirect:
-			print("INDIRECT CONNECTION")
 			if has_u_v:
 				for p in paths_u_v:
-					print(f"  • {format_path_string(p)} ({len(p) - 2} intermediate node(s))")
+					connection_lines.append(f"Indirect ({len(p) - 2}): {format_path_string(p)}")
 			if has_v_u:
 				for p in paths_v_u:
-					print(f"  • {format_path_string(p)} ({len(p) - 2} intermediate node(s))")
+					prefix = "Indirect ↩" if has_u_v else "Indirect"
+					connection_lines.append(f"{prefix} ({len(p) - 2}): {format_path_string(p)}")
+
+		# Print inline if single path or irrelevant; otherwise print list
+		if not connection_lines:
+			print("Answer: IRRELEVANT")
+		elif len(connection_lines) == 1:
+			print(f"Answer: {connection_lines[0]}")
 		else:
-			print("IRRELEVANT (No connection in either direction)")
+			print("Answer:")
+			for line in connection_lines:
+				print(f"  • {line}")
 
 		print()
 		progress_data[game2_key][pair_key] = current_counter + 1
@@ -904,7 +916,12 @@ if __name__ == '__main__':
 	 COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE,
 	 CHANCE_IRRELEVANT, CHANCE_INDIRECT, MAX_INDIRECTNESS, LEAF_ONLY) = read_config_file(input_file)
 
-	input_graph_ml_file = FOLDER_PATH + FILE_NAME + '.graphml'
+	# Determine if FILE_NAME is an absolute or full path (contains slashes)
+	if '/' in FILE_NAME or '\\' in FILE_NAME or os.path.isabs(FILE_NAME):
+		input_graph_ml_file = FILE_NAME if FILE_NAME.endswith('.graphml') else FILE_NAME + '.graphml'
+	else:
+		input_graph_ml_file = FOLDER_PATH + FILE_NAME + ('' if FILE_NAME.endswith('.graphml') else '.graphml')
+
 	nodes, edges, edge_values = read_from_graph_xml(input_graph_ml_file)
 
 	G = nx.DiGraph()
