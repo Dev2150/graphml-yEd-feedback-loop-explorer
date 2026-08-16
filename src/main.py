@@ -119,7 +119,6 @@ def show_all_paths(p_nodes, p_source, p_html_content, is_reversed=False):
 		for pathNodeID, nodeID in enumerate(path):
 			cycle_correlation, hp = print_node(path, pathNodeID, path_len, cycle_correlation, nodes_to_traverse, hp,
 											   ENABLE_NON_CYCLE_PRINTING)
-		# print(sp)
 		if ENABLE_NON_CYCLE_PRINTING:
 			p_html_content += hp + "</p>"
 	return p_html_content
@@ -447,7 +446,22 @@ def read_config_file(p_input_file):
 	block_starting_node = [x.strip().lower() for x in block_starting_node_str.split(',') if
 						   x.strip()] if block_starting_node_str else []
 
-	return p_source_node, p_target_node, show_only_edges, show_connections_list, connections_skipped, enable_non_cycle_printing, sort_by_len, color_threshold, folder_path, file_name, block_starting_node
+	# New game settings
+	chance_irrelevant = config.getfloat(SECTION, 'chance_irrelevant', fallback=0.33)
+	if chance_irrelevant > 1.0:
+		chance_irrelevant /= 100.0
+
+	chance_indirect = config.getfloat(SECTION, 'chance_indirect', fallback=0.33)
+	if chance_indirect > 1.0:
+		chance_indirect /= 100.0
+
+	max_indirectness = config.getint(SECTION, 'max_indirectness', fallback=3)
+	leaf_only = config.getboolean(SECTION, 'leaf_only', fallback=False)
+
+	return (p_source_node, p_target_node, show_only_edges, show_connections_list,
+			connections_skipped, enable_non_cycle_printing, sort_by_len,
+			color_threshold, folder_path, file_name, block_starting_node,
+			chance_irrelevant, chance_indirect, max_indirectness, leaf_only)
 
 
 def show_edges(p_edges, p_html_content):
@@ -565,6 +579,10 @@ COLOR_THRESHOLD=48
 FOLDER_PATH=
 FILE_NAME=
 BLOCK_STARTING_NODE=
+CHANCE_IRRELEVANT=0.33
+CHANCE_INDIRECT=0.33
+MAX_INDIRECTNESS=3
+LEAF_ONLY=False
 """
 	try:
 		# Ensure the directory exists before writing the file
@@ -575,12 +593,316 @@ BLOCK_STARTING_NODE=
 	except Exception as e:
 		print(f"Error creating default configuration file: {e}")
 
+def format_path_string(path):
+	parts = [nodes.get(path[0], path[0])]
+	for k in range(len(path) - 1):
+		u = path[k]
+		v = path[k + 1]
+		val = edge_values.get((u, v), 1)
+		arrow = "→↓" if val < 0 else "→"
+		parts.append(f"{arrow} {nodes.get(v, v)}")
+	return " ".join(parts)
+
+
+def run_connection_guessing_game():
+	while True:
+		try:
+			skip_input = input("Enter the number of connections to skip (must be > 0): ").strip()
+			con_skipped = int(skip_input)
+			if con_skipped > 0:
+				break
+			else:
+				print("Please enter a positive number greater than 0.")
+		except ValueError:
+			print("Invalid input. Please enter a valid integer.")
+
+	target_length = con_skipped + 1
+	all_paths = []
+
+	for source in G.nodes():
+		if str(nodes.get(source, source)).lower() in BLOCK_STARTING_NODE:
+			continue
+		stack = [(source, [source])]
+		while stack:
+			curr, path = stack.pop()
+			if len(path) - 1 == target_length:
+				all_paths.append(path)
+				continue
+			for neighbor in G.successors(curr):
+				if neighbor not in path:
+					stack.append((neighbor, path + [neighbor]))
+
+	if not all_paths:
+		print(f"No connections found with exactly {con_skipped} intermediate elements.")
+		return
+
+	paths_by_pair = defaultdict(list)
+	for path in all_paths:
+		src = path[0]
+		tgt = path[-1]
+		intermediates = path[1:-1]
+		paths_by_pair[(src, tgt)].append(intermediates)
+
+	quiz_cases = list(paths_by_pair.keys())
+
+	save_path = get_save_file_path(FILE_NAME)
+	progress_data = load_progress(save_path)
+
+	skip_key = str(con_skipped)
+	if skip_key not in progress_data:
+		progress_data[skip_key] = {}
+
+	def get_counter_by_node_text(case):
+		src_text = nodes.get(case[0], case[0])
+		tgt_text = nodes.get(case[1], case[1])
+		return progress_data[skip_key].get(f"{src_text},{tgt_text}", 0)
+
+	quiz_cases.sort(key=lambda case: (
+		get_counter_by_node_text(case),
+		random.random()
+	))
+
+	print("Guess the element(s) in-between. Enter 0 to stop.\n")
+
+	for i, (src, tgt) in enumerate(quiz_cases):
+		src_name = nodes.get(src, src)
+		tgt_name = nodes.get(tgt, tgt)
+
+		pair_key = f"{src_name},{tgt_name}"
+		current_counter = progress_data[skip_key].get(pair_key, 0)
+
+		correct_paths = paths_by_pair[(src, tgt)]
+
+		first_full_path = [src] + correct_paths[0] + [tgt]
+		q_parts = [src_name]
+		for k in range(len(first_full_path) - 1):
+			u = first_full_path[k]
+			v = first_full_path[k + 1]
+			edge_val = edge_values.get((u, v), 1)
+			arrow = "→↓" if edge_val < 0 else "→"
+
+			if k < len(first_full_path) - 2:
+				q_parts.append(f"{arrow} [?]")
+			else:
+				q_parts.append(f"{arrow} {tgt_name}")
+
+		question_str = " ".join(q_parts)
+		print(f"Question {i + 1}/{len(quiz_cases)} (x{current_counter}): {question_str}", end=' ')
+
+		user_input = input().strip()
+		if user_input == '0':
+			print("Stopping the game.")
+			break
+
+		if len(correct_paths) == 1:
+			inter_nodes = correct_paths[0]
+			ans_parts = [nodes.get(inter_nodes[0], inter_nodes[0])]
+			for k in range(len(inter_nodes) - 1):
+				u = inter_nodes[k]
+				v = inter_nodes[k + 1]
+				edge_val = edge_values.get((u, v), 1)
+				arrow = "→ ↓" if edge_val < 0 else "→"
+				ans_parts.append(f"{arrow} {nodes.get(v, v)}")
+			print(f"Correct answer: {' '.join(ans_parts)}")
+		else:
+			print("Correct answer(s):")
+			for idx, inter_nodes in enumerate(correct_paths):
+				ans_parts = [nodes.get(inter_nodes[0], inter_nodes[0])]
+				for k in range(len(inter_nodes) - 1):
+					u = inter_nodes[k]
+					v = inter_nodes[k + 1]
+					edge_val = edge_values.get((u, v), 1)
+					arrow = "→ ↓" if edge_val < 0 else "→"
+					ans_parts.append(f"{arrow} {nodes.get(v, v)}")
+				print(f"  Option {idx + 1}: {' '.join(ans_parts)}")
+
+		shorter_paths = list(nx.all_simple_paths(G, source=src, target=tgt, cutoff=target_length - 1))
+		if shorter_paths:
+			print("More direct connection(s) also exist:")
+			shorter_paths.sort(key=len)
+			for sp in shorter_paths:
+				sp_parts = [nodes.get(sp[0], sp[0])]
+				for k in range(len(sp) - 1):
+					u = sp[k]
+					v = sp[k + 1]
+					edge_val = edge_values.get((u, v), 1)
+					arrow = "→ ↓" if edge_val < 0 else "→"
+					sp_parts.append(f"{arrow} {nodes.get(v, v)}")
+				print(f"  {' '.join(sp_parts)}")
+
+		print()
+		progress_data[skip_key][pair_key] = current_counter + 1
+		save_progress(save_path, progress_data)
+
+	print("Quiz finished.")
+	sys.exit(0)
+
+
+def run_relationship_guessing_game():
+	print("\n--- Relationship Guessing Game ---")
+	print("Guess if the 2 nodes connect Directly, Indirectly, or are Irrelevant. Enter 0 to stop.\n")
+
+	# Find leaf nodes if LEAF_ONLY is set
+	leaf_nodes = set()
+	for n in G.nodes():
+		if G.in_degree(n) == 0 or G.out_degree(n) == 0:
+			leaf_nodes.add(n)
+
+	# Categorize all unordered node pairs
+	all_node_list = list(G.nodes())
+	direct_pairs = []
+	indirect_pairs = []
+	irrelevant_pairs = []
+
+	max_cutoff = MAX_INDIRECTNESS + 1
+
+	for i in range(len(all_node_list)):
+		for j in range(i + 1, len(all_node_list)):
+			u = all_node_list[i]
+			v = all_node_list[j]
+
+			if LEAF_ONLY and (u not in leaf_nodes and v not in leaf_nodes):
+				continue
+
+			u_name = str(nodes.get(u, u)).lower()
+			v_name = str(nodes.get(v, v)).lower()
+			if u_name in BLOCK_STARTING_NODE and v_name in BLOCK_STARTING_NODE:
+				continue
+
+			# Check shortest path in both directions
+			has_u_to_v = nx.has_path(G, u, v)
+			has_v_to_u = nx.has_path(G, v, u)
+
+			len_u_v = nx.shortest_path_length(G, u, v) if has_u_to_v else float('inf')
+			len_v_u = nx.shortest_path_length(G, v, u) if has_v_to_u else float('inf')
+
+			if len_u_v == 1 or len_v_u == 1:
+				direct_pairs.append((u, v))
+			elif (len_u_v <= max_cutoff) or (len_v_u <= max_cutoff):
+				indirect_pairs.append((u, v))
+			elif not has_u_to_v and not has_v_to_u:
+				irrelevant_pairs.append((u, v))
+
+	if not direct_pairs and not indirect_pairs and not irrelevant_pairs:
+		print("No valid node pairs found matching your graph and filter settings.")
+		return
+
+	# Load progress
+	save_path = get_save_file_path(FILE_NAME)
+	progress_data = load_progress(save_path)
+	game2_key = "game2_relationship"
+	if game2_key not in progress_data:
+		progress_data[game2_key] = {}
+
+	def get_pair_key(u_node, v_node):
+		name1 = nodes.get(u_node, u_node)
+		name2 = nodes.get(v_node, v_node)
+		return ",".join(sorted([name1, name2]))
+
+	question_num = 0
+	while True:
+		question_num += 1
+
+		# Pick category based on CHANCE_IRRELEVANT and CHANCE_INDIRECT
+		rand_cat = random.random()
+		chosen_pool = None
+
+		if rand_cat < CHANCE_IRRELEVANT and irrelevant_pairs:
+			chosen_pool = irrelevant_pairs
+		else:
+			rand_ind = random.random()
+			if rand_ind < CHANCE_INDIRECT and indirect_pairs:
+				chosen_pool = indirect_pairs
+			elif direct_pairs:
+				chosen_pool = direct_pairs
+			elif indirect_pairs:
+				chosen_pool = indirect_pairs
+			elif irrelevant_pairs:
+				chosen_pool = irrelevant_pairs
+
+		if not chosen_pool:
+			# Fallback if preferred pools are empty
+			all_valid = direct_pairs + indirect_pairs + irrelevant_pairs
+			if not all_valid:
+				print("No pairs available.")
+				break
+			chosen_pool = all_valid
+
+		# Pick pair with lowest count in the chosen pool
+		chosen_pool.sort(key=lambda p: (
+			progress_data[game2_key].get(get_pair_key(p[0], p[1]), 0),
+			random.random()
+		))
+		u, v = chosen_pool[0]
+
+		# Randomize display order
+		if random.random() > 0.5:
+			u, v = v, u
+
+		u_name = nodes.get(u, u)
+		v_name = nodes.get(v, v)
+		pair_key = get_pair_key(u, v)
+		current_counter = progress_data[game2_key].get(pair_key, 0)
+
+		print(f"Question {question_num} (x{current_counter}): What is the relationship between '{u_name}' and '{v_name}'?")
+		print("  [Direct / Indirect / Irrelevant] (Press Enter to reveal answer, or 0 to quit): ", end='')
+
+		user_input = input().strip()
+		if user_input == '0':
+			print("Stopping the game.")
+			break
+
+		# Compute relationship details
+		has_u_v = nx.has_path(G, u, v)
+		has_v_u = nx.has_path(G, v, u)
+		paths_u_v = list(nx.all_shortest_paths(G, u, v)) if has_u_v else []
+		paths_v_u = list(nx.all_shortest_paths(G, v, u)) if has_v_u else []
+
+		len_u_v = len(paths_u_v[0]) - 1 if paths_u_v else float('inf')
+		len_v_u = len(paths_v_u[0]) - 1 if paths_v_u else float('inf')
+
+		is_direct = (len_u_v == 1 or len_v_u == 1)
+		is_indirect = not is_direct and (has_u_v or has_v_u)
+
+		print("Answer: ", end='')
+		if is_direct:
+			print("DIRECT CONNECTION")
+			if len_u_v == 1 and len_v_u == 1:
+				print(f"  • Bidirectional: {format_path_string([u, v])} AND {format_path_string([v, u])}")
+			elif len_u_v == 1:
+				print(f"  • Direct: {format_path_string([u, v])}")
+				if has_v_u:
+					print(f"  • Reverse is Indirect: {format_path_string(paths_v_u[0])}")
+			elif len_v_u == 1:
+				print(f"  • Direct: {format_path_string([v, u])}")
+				if has_u_v:
+					print(f"  • Reverse is Indirect: {format_path_string(paths_u_v[0])}")
+		elif is_indirect:
+			print("INDIRECT CONNECTION")
+			if has_u_v:
+				for p in paths_u_v:
+					print(f"  • {format_path_string(p)} ({len(p) - 2} intermediate node(s))")
+			if has_v_u:
+				for p in paths_v_u:
+					print(f"  • {format_path_string(p)} ({len(p) - 2} intermediate node(s))")
+		else:
+			print("IRRELEVANT (No connection in either direction)")
+
+		print()
+		progress_data[game2_key][pair_key] = current_counter + 1
+		save_progress(save_path, progress_data)
+
+	print("Quiz finished.")
+	sys.exit(0)
+
 
 if __name__ == '__main__':
 	if not os.path.exists(input_file):
 		create_input_file()
-	source_node, target_node, SHOW_ONLY_EDGES, SHOW_CONNECTIONS_LIST, CONNECTIONS_SKIPPED, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN, COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE = read_config_file(
-		input_file)
+	(source_node, target_node, SHOW_ONLY_EDGES, SHOW_CONNECTIONS_LIST,
+	 CONNECTIONS_SKIPPED, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN,
+	 COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE,
+	 CHANCE_IRRELEVANT, CHANCE_INDIRECT, MAX_INDIRECTNESS, LEAF_ONLY) = read_config_file(input_file)
 
 	input_graph_ml_file = FOLDER_PATH + FILE_NAME + '.graphml'
 	nodes, edges, edge_values = read_from_graph_xml(input_graph_ml_file)
@@ -600,7 +922,7 @@ if __name__ == '__main__':
 				source_node_exists = True
 
 		if not source_node_exists:
-			raise Exception(f"Cound not find source node {source_node}")
+			raise Exception(f"Could not find source node {source_node}")
 
 	if target_node:
 		for cycleNodeID in nodes:
@@ -609,163 +931,29 @@ if __name__ == '__main__':
 				target_node_id = cycleNodeID
 				target_node_exists = True
 		if not target_node_exists:
-			raise Exception(f"Cound not find target node {target_node}")
+			raise Exception(f"Could not find target node {target_node}")
 
 	G.add_edges_from(edges)
 
 	# --------------------------------------------------------------------------
-	# Connection Guessing Game Mode
+	# Game Selection Menu
 	# --------------------------------------------------------------------------
-	if SHOW_CONNECTIONS_LIST:
-		play_game = input("Do you want to run the connection guessing game? (y/n): ").strip().lower()
-		if play_game == 'y':
-			while True:
-				try:
-					skip_input = input("Enter the number of connections to skip (must be > 0): ").strip()
-					CONNECTIONS_SKIPPED = int(skip_input)
-					if CONNECTIONS_SKIPPED > 0:
-						break
-					else:
-						print("Please enter a positive number greater than 0.")
-				except ValueError:
-					print("Invalid input. Please enter a valid integer.")
+	print("\n" + "=" * 50)
+	print("Select Game Mode:")
+	print("  [1] Connection Guessing Game (Guess intermediate nodes)")
+	print("  [2] Relationship Guessing Game (Direct / Indirect / Irrelevant)")
+	print("  [0] No Game (Generate HTML / Graph output only)")
+	print("=" * 50)
+	game_choice = input("Enter choice (0-2): ").strip()
 
-			target_length = CONNECTIONS_SKIPPED + 1
-			all_paths = []
+	if game_choice == '1':
+		run_connection_guessing_game()
+	elif game_choice == '2':
+		run_relationship_guessing_game()
 
-			# Gather all simple paths of target length matching the skip condition
-			for source in G.nodes():
-				if str(nodes.get(source, source)).lower() in BLOCK_STARTING_NODE:
-					continue
-				stack = [(source, [source])]
-				while stack:
-					curr, path = stack.pop()
-					if len(path) - 1 == target_length:
-						all_paths.append(path)
-						continue
-					for neighbor in G.successors(curr):
-						if neighbor not in path:
-							stack.append((neighbor, path + [neighbor]))
-
-			if not all_paths:
-				print(f"No connections found with exactly {CONNECTIONS_SKIPPED} intermediate elements.")
-			else:
-				# Group paths by (source, target) to display alternate correct options
-				paths_by_pair = defaultdict(list)
-				for path in all_paths:
-					src = path[0]
-					tgt = path[-1]
-					intermediates = path[1:-1]
-					paths_by_pair[(src, tgt)].append(intermediates)
-
-				# Get all unique (source, target) pairs for the quiz
-				quiz_cases = list(paths_by_pair.keys())
-
-				# --- PROGRESS TRACKING LOGIC ---
-				save_path = get_save_file_path(FILE_NAME)
-				progress_data = load_progress(save_path)
-
-				# Use the number of skipped connections as the top-level key in the JSON
-				skip_key = str(CONNECTIONS_SKIPPED)
-				if skip_key not in progress_data:
-					progress_data[skip_key] = {}
-
-				# Helper function to get counter using node text instead of ID
-				def get_counter_by_node_text(case):
-					src_text = nodes.get(case[0], case[0])
-					tgt_text = nodes.get(case[1], case[1])
-					return progress_data[skip_key].get(f"{src_text},{tgt_text}", 0)
-
-				# Sort cases by (counter, random_value) using node text keys
-				quiz_cases.sort(key=lambda case: (
-					get_counter_by_node_text(case),
-					random.random()
-				))
-
-				print("Guess the element(s) in-between. Enter 0 to stop.\n")
-
-				# Iterate through the sorted list of cases
-				for i, (src, tgt) in enumerate(quiz_cases):
-					src_name = nodes.get(src, src)
-					tgt_name = nodes.get(tgt, tgt)
-
-					# Key generated using node text (names) instead of IDs
-					pair_key = f"{src_name},{tgt_name}"
-					current_counter = progress_data[skip_key].get(pair_key, 0)
-
-					correct_paths = paths_by_pair[(src, tgt)]
-
-					# Build the question string with correct arrows based on the first valid path
-					first_full_path = [src] + correct_paths[0] + [tgt]
-					q_parts = [src_name]
-					for k in range(len(first_full_path) - 1):
-						u = first_full_path[k]
-						v = first_full_path[k+1]
-						edge_val = edge_values.get((u, v), 1)
-						arrow = "→↓" if edge_val < 0 else "→"
-
-						if k < len(first_full_path) - 2:
-							q_parts.append(f"{arrow} [?]")
-						else:
-							q_parts.append(f"{arrow} {tgt_name}")
-
-					question_str = " ".join(q_parts)
-					print(f"Question {i + 1}/{len(quiz_cases)} (x{current_counter}): {question_str}", end=' ')
-
-					user_input = input().strip()
-					if user_input == '0':
-						print("Stopping the game.")
-						break  # Exit the loop gracefully
-
-					if len(correct_paths) == 1:
-						# Only one correct answer
-						inter_nodes = correct_paths[0]
-						ans_parts = [nodes.get(inter_nodes[0], inter_nodes[0])]
-						for k in range(len(inter_nodes) - 1):
-							u = inter_nodes[k]
-							v = inter_nodes[k+1]
-							edge_val = edge_values.get((u, v), 1)
-							arrow = "→ ↓" if edge_val < 0 else "→"
-							ans_parts.append(f"{arrow} {nodes.get(v, v)}")
-						print(f"Correct answer: {' '.join(ans_parts)}")
-					else:
-						# Multiple correct answers
-						print("Correct answer(s):")
-						for idx, inter_nodes in enumerate(correct_paths):
-							ans_parts = [nodes.get(inter_nodes[0], inter_nodes[0])]
-							for k in range(len(inter_nodes) - 1):
-								u = inter_nodes[k]
-								v = inter_nodes[k+1]
-								edge_val = edge_values.get((u, v), 1)
-								arrow = "→ ↓" if edge_val < 0 else "→"
-								ans_parts.append(f"{arrow} {nodes.get(v, v)}")
-							print(f"  Option {idx + 1}: {' '.join(ans_parts)}")
-
-					# Check for more direct connections (paths shorter than target_length)
-					shorter_paths = list(nx.all_simple_paths(G, source=src, target=tgt, cutoff=target_length - 1))
-					if shorter_paths:
-						print("More direct connection(s) also exist:")
-						# Sort by length so the shortest paths (e.g., direct edges) appear first
-						shorter_paths.sort(key=len)
-						for sp in shorter_paths:
-							sp_parts = [nodes.get(sp[0], sp[0])]
-							for k in range(len(sp) - 1):
-								u = sp[k]
-								v = sp[k+1]
-								edge_val = edge_values.get((u, v), 1)
-								arrow = "→ ↓" if edge_val < 0 else "→"
-								sp_parts.append(f"{arrow} {nodes.get(v, v)}")
-							print(f"  {' '.join(sp_parts)}")
-
-					print()
-
-					# Update and save progress using node text key
-					progress_data[skip_key][pair_key] = current_counter + 1
-					save_progress(save_path, progress_data)
-
-				print("Quiz complete! You have gone through all the questions.")
-				sys.exit(0)  # Exit the program after the quiz is finished or stopped
-
+	# --------------------------------------------------------------------------
+	# HTML / GraphML Output Generation
+	# --------------------------------------------------------------------------
 	html_content = ''
 
 	if SHOW_CONNECTIONS_LIST:
