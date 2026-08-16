@@ -330,7 +330,7 @@ def edge_value(node1, node2):
 	value = edge_values.get((node1, node2))
 	if value is not None:
 		return value
-	return 1  # raise Exception("Edge not found!")
+	return 1
 
 
 def rgb_print(text, r, g, b):
@@ -570,6 +570,10 @@ def read_config_file(p_input_file):
 	if chance_same > 1.0:
 		chance_same /= 100.0
 
+	chance_leaf = config.getfloat(SECTION, 'chance_leaf', fallback=0.05)
+	if chance_leaf > 1.0:
+		chance_leaf /= 100.0
+
 	max_cycle_length_html = config.getint(SECTION, 'max_cycle_length_html',
 										  fallback=config.getint(SECTION, 'max_cycle_length', fallback=0))
 	max_cycle_length_game = config.getint(SECTION, 'max_cycle_length_game', fallback=3)
@@ -581,7 +585,7 @@ def read_config_file(p_input_file):
 			connections_skipped, enable_non_cycle_printing, sort_by_len,
 			color_threshold, max_cycle_length_html, max_cycle_length_game,
 			folder_path, file_name, block_starting_node,
-			chance_irrelevant, chance_indirect, chance_same, max_indirectness,
+			chance_irrelevant, chance_indirect, chance_same, chance_leaf, max_indirectness,
 			max_indirectness_game, leaf_only)
 
 
@@ -706,6 +710,7 @@ BLOCK_STARTING_NODE=
 CHANCE_SAME=0.1
 CHANCE_IRRELEVANT=0.20
 CHANCE_INDIRECT=0.35
+CHANCE_LEAF=0.05
 MAX_INDIRECTNESS=1
 MAX_INDIRECTNESS_GAME=2
 LEAF_ONLY=False
@@ -726,7 +731,7 @@ def format_path_string(path):
 		u = path[k]
 		v = path[k + 1]
 		val = edge_values.get((u, v), 1)
-		arrow = "→↓" if val < 0 else "→"
+		arrow = "📉" if val < 0 else "📈"
 		parts.append(f"{arrow} {nodes.get(v, v)}")
 	return " ".join(parts)
 
@@ -806,7 +811,7 @@ def run_connection_guessing_game():
 			u = first_full_path[k]
 			v = first_full_path[k + 1]
 			edge_val = edge_values.get((u, v), 1)
-			arrow = "→↓" if edge_val < 0 else "→"
+			arrow = "📉" if edge_val < 0 else "📈"
 
 			if k < len(first_full_path) - 2:
 				q_parts.append(f"{arrow} [?]")
@@ -828,7 +833,7 @@ def run_connection_guessing_game():
 				u = inter_nodes[k]
 				v = inter_nodes[k + 1]
 				edge_val = edge_values.get((u, v), 1)
-				arrow = "→ ↓" if edge_val < 0 else "→"
+				arrow = "📉" if edge_val < 0 else "📈"
 				ans_parts.append(f"{arrow} {nodes.get(v, v)}")
 			print(f"Correct answer: {' '.join(ans_parts)}")
 		else:
@@ -839,7 +844,7 @@ def run_connection_guessing_game():
 					u = inter_nodes[k]
 					v = inter_nodes[k + 1]
 					edge_val = edge_values.get((u, v), 1)
-					arrow = "→ ↓" if edge_val < 0 else "→"
+					arrow = "📉" if edge_val < 0 else "📈"
 					ans_parts.append(f"{arrow} {nodes.get(v, v)}")
 				print(f"  Option {idx + 1}: {' '.join(ans_parts)}")
 
@@ -853,7 +858,7 @@ def run_connection_guessing_game():
 					u = sp[k]
 					v = sp[k + 1]
 					edge_val = edge_values.get((u, v), 1)
-					arrow = "→ ↓" if edge_val < 0 else "→"
+					arrow = "📉" if edge_val < 0 else "📈"
 					sp_parts.append(f"{arrow} {nodes.get(v, v)}")
 				print(f"  {' '.join(sp_parts)}")
 
@@ -867,14 +872,30 @@ def run_connection_guessing_game():
 
 def run_relationship_guessing_game():
 	print("\n--- Relationship Guessing Game ---")
-	print("Guess if the 2 nodes connect Directly, Indirectly, Share a Source/Destination, or are Irrelevant. Enter 0 to stop.")
-	print("[Direct / Indirect / Shared sources/destinations / Irrelevant] (Press Enter to reveal answer, or 0 to quit).\n")
+	print("Guess if the nodes connect Directly, Indirectly, Share a Source/Destination, Leaf (Source/Dest), or are Irrelevant. Enter 0 to stop.")
+	print("[Direct / Indirect / Shared sources/destinations / Leaf Source/Dest / Irrelevant] (Press Enter to reveal answer, or 0 to quit).\n")
 
-	# Find leaf nodes if LEAF_ONLY is set
-	leaf_nodes = set()
-	for n in G.nodes():
-		if G.in_degree(n) == 0 or G.out_degree(n) == 0:
-			leaf_nodes.add(n)
+	# Find direct leaf nodes
+	root_nodes = {n for n in G.nodes() if G.in_degree(n) == 0}
+	terminal_nodes = {n for n in G.nodes() if G.out_degree(n) == 0}
+	leaf_nodes = root_nodes.union(terminal_nodes)
+
+	# Precompute direct source-leaf and direct destination-leaf mappings
+	leaf_sources_map = defaultdict(list)
+	leaf_dests_map = defaultdict(list)
+
+	for target in G.nodes():
+		for pred in G.predecessors(target):
+			if pred in root_nodes:
+				leaf_sources_map[target].append(pred)
+
+	for source in G.nodes():
+		for succ in G.successors(source):
+			if succ in terminal_nodes:
+				leaf_dests_map[source].append(succ)
+
+	leaf_source_candidates = [n for n in leaf_sources_map.keys() if str(nodes.get(n, n)).lower() not in BLOCK_STARTING_NODE]
+	leaf_dest_candidates = [n for n in leaf_dests_map.keys() if str(nodes.get(n, n)).lower() not in BLOCK_STARTING_NODE]
 
 	# Categorize all unordered node pairs
 	all_node_list = list(G.nodes())
@@ -903,9 +924,6 @@ def run_relationship_guessing_game():
 			shared_dsts = [d for d in set(G.successors(u)).intersection(G.successors(v)) if d != u and d != v]
 			has_shared = bool(shared_srcs or shared_dsts)
 
-			if has_shared:
-				same_pairs.append((u, v))
-
 			# Check shortest path in both directions
 			has_u_to_v = nx.has_path(G, u, v)
 			has_v_to_u = nx.has_path(G, v, u)
@@ -917,11 +935,22 @@ def run_relationship_guessing_game():
 				direct_pairs.append((u, v))
 			elif (len_u_v <= max_cutoff) or (len_v_u <= max_cutoff):
 				indirect_pairs.append((u, v))
-			elif not has_u_to_v and not has_v_to_u and not has_shared:
+			elif has_shared:
+				same_pairs.append((u, v))
+			elif not has_u_to_v and not has_v_to_u:
 				irrelevant_pairs.append((u, v))
 
-	if not direct_pairs and not indirect_pairs and not irrelevant_pairs and not same_pairs:
-		print("No valid node pairs found matching your graph and filter settings.")
+	# Define question item pools
+	leaf_items = [('leaf_src', n) for n in leaf_source_candidates] + [('leaf_dst', n) for n in leaf_dest_candidates]
+	direct_items = [('direct', p) for p in direct_pairs]
+	indirect_items = [('indirect', p) for p in indirect_pairs]
+	same_items = [('same', p) for p in same_pairs]
+	irrelevant_items = [('irrelevant', p) for p in irrelevant_pairs]
+
+	all_relevant_items = leaf_items + direct_items + indirect_items + same_items
+
+	if not all_relevant_items and not irrelevant_items:
+		print("No valid questions found matching your graph and filter settings.")
 		return
 
 	# Load progress
@@ -936,175 +965,260 @@ def run_relationship_guessing_game():
 		name2 = nodes.get(v_node, v_node)
 		return ",".join(sorted([name1, name2]))
 
+	def get_item_key(item):
+		itype, data = item
+		if itype == 'leaf_src':
+			return f"leaf_src:{nodes.get(data, data)}"
+		elif itype == 'leaf_dst':
+			return f"leaf_dst:{nodes.get(data, data)}"
+		else:
+			return get_pair_key(data[0], data[1])
+
+	def get_item_count(item):
+		return progress_data[game2_key].get(get_item_key(item), 0)
+
+	# Configure base category weights
+	cat_weights = {
+		'leaf': CHANCE_LEAF,
+		'same': CHANCE_SAME,
+		'indirect': CHANCE_INDIRECT,
+		'irrelevant': CHANCE_IRRELEVANT,
+		'direct': max(0.05, 1.0 - (CHANCE_LEAF + CHANCE_SAME + CHANCE_INDIRECT + CHANCE_IRRELEVANT))
+	}
+
 	question_num = 0
 	while True:
 		question_num += 1
 
-		# Pick category based on CHANCE_SAME, CHANCE_IRRELEVANT, and CHANCE_INDIRECT
-		rand_val = random.random()
-		chosen_pool = None
+		# Determine minimum count among all relevant items
+		if all_relevant_items:
+			min_rel_count = min(get_item_count(it) for it in all_relevant_items)
+		else:
+			min_rel_count = 0
 
-		if rand_val < CHANCE_SAME and same_pairs:
-			chosen_pool = same_pairs
-		elif rand_val < (CHANCE_SAME + CHANCE_IRRELEVANT) and irrelevant_pairs:
-			chosen_pool = irrelevant_pairs
-		elif rand_val < (CHANCE_SAME + CHANCE_IRRELEVANT + CHANCE_INDIRECT) and indirect_pairs:
-			chosen_pool = indirect_pairs
-		elif direct_pairs:
-			chosen_pool = direct_pairs
-		elif same_pairs:
-			chosen_pool = same_pairs
-		elif indirect_pairs:
-			chosen_pool = indirect_pairs
-		elif irrelevant_pairs:
-			chosen_pool = irrelevant_pairs
+		# Filter available items per category matching lowest counter
+		eligible_by_cat = {}
 
-		if not chosen_pool:
-			# Fallback if preferred pools are empty
-			all_valid = direct_pairs + indirect_pairs + same_pairs + irrelevant_pairs
-			if not all_valid:
-				print("No pairs available.")
-				break
-			chosen_pool = all_valid
+		if leaf_items:
+			leaf_avail = [it for it in leaf_items if get_item_count(it) == min_rel_count]
+			if leaf_avail:
+				eligible_by_cat['leaf'] = leaf_avail
 
-		# Pick pair with lowest count in the chosen pool
-		chosen_pool.sort(key=lambda p: (
-			progress_data[game2_key].get(get_pair_key(p[0], p[1]), 0),
-			random.random()
-		))
-		u, v = chosen_pool[0]
+		if direct_items:
+			direct_avail = [it for it in direct_items if get_item_count(it) == min_rel_count]
+			if direct_avail:
+				eligible_by_cat['direct'] = direct_avail
 
-		# Randomize display order
-		if random.random() > 0.5:
-			u, v = v, u
+		if indirect_items:
+			indirect_avail = [it for it in indirect_items if get_item_count(it) == min_rel_count]
+			if indirect_avail:
+				eligible_by_cat['indirect'] = indirect_avail
 
-		u_name = nodes.get(u, u)
-		v_name = nodes.get(v, v)
-		pair_key = get_pair_key(u, v)
-		current_counter = progress_data[game2_key].get(pair_key, 0)
+		if same_items:
+			same_avail = [it for it in same_items if get_item_count(it) == min_rel_count]
+			if same_avail:
+				eligible_by_cat['same'] = same_avail
 
-		print(f"Question {question_num} (x{current_counter}): {u_name} [?] {v_name}", end=' ')
+		# Irrelevant items are isolated from min_rel_count so they don't block progression
+		if irrelevant_items:
+			min_irrel_count = min(get_item_count(it) for it in irrelevant_items)
+			irrel_avail = [it for it in irrelevant_items if get_item_count(it) == min_irrel_count]
+			if irrel_avail:
+				eligible_by_cat['irrelevant'] = irrel_avail
 
-		user_input = input().strip()
-		if user_input == '0':
-			print("Stopping the game.")
+		if not eligible_by_cat:
+			print("No questions available.")
 			break
 
-		# Compute relationship details
-		has_u_v = nx.has_path(G, u, v)
-		has_v_u = nx.has_path(G, v, u)
-		paths_u_v = list(nx.all_shortest_paths(G, u, v)) if has_u_v else []
-		paths_v_u = list(nx.all_shortest_paths(G, v, u)) if has_v_u else []
+		# Choose category using configured weights
+		active_cats = list(eligible_by_cat.keys())
+		active_weights = [max(cat_weights.get(c, 0.1), 0.001) for c in active_cats]
 
-		# Filter out paths exceeding MAX_INDIRECTNESS_GAME (intermediate nodes > MAX_INDIRECTNESS_GAME)
-		paths_u_v = [p for p in paths_u_v if (len(p) - 2) <= MAX_INDIRECTNESS_GAME]
-		paths_v_u = [p for p in paths_v_u if (len(p) - 2) <= MAX_INDIRECTNESS_GAME]
+		chosen_cat = random.choices(active_cats, weights=active_weights, k=1)[0]
+		chosen_item = random.choice(eligible_by_cat[chosen_cat])
 
-		has_disp_u_v = bool(paths_u_v)
-		has_disp_v_u = bool(paths_v_u)
+		itype, data = chosen_item
 
-		len_u_v = len(paths_u_v[0]) - 1 if paths_u_v else float('inf')
-		len_v_u = len(paths_v_u[0]) - 1 if paths_v_u else float('inf')
+		# Handle Leaf Source Question
+		if itype == 'leaf_src':
+			target_node = data
+			target_name = nodes.get(target_node, target_node)
+			leaf_key = f"leaf_src:{target_name}"
+			current_counter = progress_data[game2_key].get(leaf_key, 0)
 
-		is_direct = (len_u_v == 1 or len_v_u == 1)
-		is_indirect = not is_direct and (has_disp_u_v or has_disp_v_u)
+			print(f"Question {question_num} (x{current_counter}): [?] → {target_name}", end=' ')
+			user_input = input().strip()
+			if user_input == '0':
+				print("Stopping the game.")
+				break
 
-		# Find shared sources and shared destinations
-		shared_srcs = [s for s in set(G.predecessors(u)).intersection(G.predecessors(v)) if s != u and s != v]
-		shared_dsts = [d for d in set(G.successors(u)).intersection(G.successors(v)) if d != u and d != v]
+			found_leaves = sorted(leaf_sources_map[target_node], key=lambda x: str(nodes.get(x, x)).lower())
+			if len(found_leaves) == 1:
+				print(f"Answer: {format_path_string([found_leaves[0], target_node])}")
+			else:
+				print("Answer(s):")
+				for s in found_leaves:
+					print(f"  • {format_path_string([s, target_node])}")
 
-		shared_srcs.sort(key=lambda s: str(nodes.get(s, s)).lower())
-		shared_dsts.sort(key=lambda d: str(nodes.get(d, d)).lower())
+			print()
+			progress_data[game2_key][leaf_key] = current_counter + 1
+			save_progress(save_path, progress_data)
+			continue
 
-		# Collect all distinct connection options
-		connection_lines = []
-		if is_direct:
-			if len_u_v == 1 and len_v_u == 1:
-				connection_lines.append(f"Direct (⟳): {format_path_string([u, v])} ↔ {format_path_string([v, u])}")
-			elif len_u_v == 1:
-				connection_lines.append(f"Direct: {format_path_string([u, v])}")
-				if has_disp_v_u:
-					for p in paths_v_u:
-						connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p)}")
-			elif len_v_u == 1:
-				connection_lines.append(f"Direct: {format_path_string([v, u])}")
+		# Handle Leaf Destination Question
+		elif itype == 'leaf_dst':
+			source_node = data
+			source_name = nodes.get(source_node, source_node)
+			leaf_key = f"leaf_dst:{source_name}"
+			current_counter = progress_data[game2_key].get(leaf_key, 0)
+
+			print(f"Question {question_num} (x{current_counter}): {source_name} → [?]", end=' ')
+			user_input = input().strip()
+			if user_input == '0':
+				print("Stopping the game.")
+				break
+
+			found_leaves = sorted(leaf_dests_map[source_node], key=lambda x: str(nodes.get(x, x)).lower())
+			if len(found_leaves) == 1:
+				print(f"Answer: {format_path_string([source_node, found_leaves[0]])}")
+			else:
+				print("Answer(s):")
+				for d in found_leaves:
+					print(f"  • {format_path_string([source_node, d])}")
+
+			print()
+			progress_data[game2_key][leaf_key] = current_counter + 1
+			save_progress(save_path, progress_data)
+			continue
+
+		# Handle Pair Question
+		else:
+			u, v = data
+			if random.random() > 0.5:
+				u, v = v, u
+
+			u_name = nodes.get(u, u)
+			v_name = nodes.get(v, v)
+			pair_key = get_pair_key(u, v)
+			current_counter = progress_data[game2_key].get(pair_key, 0)
+
+			print(f"Question {question_num} (x{current_counter}): {u_name} [?] {v_name}", end=' ')
+
+			user_input = input().strip()
+			if user_input == '0':
+				print("Stopping the game.")
+				break
+
+			has_u_v = nx.has_path(G, u, v)
+			has_v_u = nx.has_path(G, v, u)
+			paths_u_v = list(nx.all_shortest_paths(G, u, v)) if has_u_v else []
+			paths_v_u = list(nx.all_shortest_paths(G, v, u)) if has_v_u else []
+
+			# Filter out paths exceeding MAX_INDIRECTNESS_GAME (intermediate nodes > MAX_INDIRECTNESS_GAME)
+			paths_u_v = [p for p in paths_u_v if (len(p) - 2) <= MAX_INDIRECTNESS_GAME]
+			paths_v_u = [p for p in paths_v_u if (len(p) - 2) <= MAX_INDIRECTNESS_GAME]
+
+			has_disp_u_v = bool(paths_u_v)
+			has_disp_v_u = bool(paths_v_u)
+
+			len_u_v = len(paths_u_v[0]) - 1 if paths_u_v else float('inf')
+			len_v_u = len(paths_v_u[0]) - 1 if paths_v_u else float('inf')
+
+			is_direct = (len_u_v == 1 or len_v_u == 1)
+			is_indirect = not is_direct and (has_disp_u_v or has_disp_v_u)
+
+			# Find shared sources and shared destinations
+			shared_srcs = [s for s in set(G.predecessors(u)).intersection(G.predecessors(v)) if s != u and s != v]
+			shared_dsts = [d for d in set(G.successors(u)).intersection(G.successors(v)) if d != u and d != v]
+
+			shared_srcs.sort(key=lambda s: str(nodes.get(s, s)).lower())
+			shared_dsts.sort(key=lambda d: str(nodes.get(d, d)).lower())
+
+			# Collect all distinct connection options
+			connection_lines = []
+			if is_direct:
+				if len_u_v == 1 and len_v_u == 1:
+					connection_lines.append(f"Direct (⟳): {format_path_string([u, v])} ↔ {format_path_string([v, u])}")
+				elif len_u_v == 1:
+					connection_lines.append(f"Direct: {format_path_string([u, v])}")
+					if has_disp_v_u:
+						for p in paths_v_u:
+							connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p)}")
+				elif len_v_u == 1:
+					connection_lines.append(f"Direct: {format_path_string([v, u])}")
+					if has_disp_u_v:
+						for p in paths_u_v:
+							connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p)}")
+			elif is_indirect:
 				if has_disp_u_v:
 					for p in paths_u_v:
-						connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p)}")
-		elif is_indirect:
-			if has_disp_u_v:
-				for p in paths_u_v:
-					connection_lines.append(f"Indirect ({len(p) - 2}): {format_path_string(p)}")
-			if has_disp_v_u:
-				for p in paths_v_u:
-					prefix = "Indirect ↩" if has_disp_u_v else "Indirect"
-					connection_lines.append(f"{prefix} ({len(p) - 2}): {format_path_string(p)}")
+						connection_lines.append(f"Indirect ({len(p) - 2}): {format_path_string(p)}")
+				if has_disp_v_u:
+					for p in paths_v_u:
+						prefix = "Indirect ↩" if has_disp_u_v else "Indirect"
+						connection_lines.append(f"{prefix} ({len(p) - 2}): {format_path_string(p)}")
 
-		for s in shared_srcs:
-			val_u = edge_values.get((s, u), 1)
-			val_v = edge_values.get((s, v), 1)
-			arr_u = "→↓" if val_u < 0 else "→"
-			arr_v = "→↓" if val_v < 0 else "→"
-			if arr_u == arr_v:
-				connection_lines.append(f"Shared Source: {nodes.get(s, s)} {arr_u} 🅰️&🅱️")
+			for s in shared_srcs:
+				val_u = edge_values.get((s, u), 1)
+				val_v = edge_values.get((s, v), 1)
+				arr_u = "📉" if val_u < 0 else "📈"
+				arr_v = "📉" if val_v < 0 else "📈"
+				if arr_u == arr_v:
+					connection_lines.append(f"Shared Source: {nodes.get(s, s)} {arr_u} 🅰️&🅱️")
+				else:
+					connection_lines.append(f"Shared Source: {nodes.get(s, s)} {arr_u} {nodes.get(u, u)} + {arr_v} {nodes.get(v, v)}")
+
+			for d in shared_dsts:
+				val_u = edge_values.get((u, d), 1)
+				val_v = edge_values.get((v, d), 1)
+				arr_u = "📉" if val_u < 0 else "📈"
+				arr_v = "📉" if val_v < 0 else "📈"
+				if arr_u == arr_v:
+					connection_lines.append(f"Shared Destination: 🅰️&🅱️ {arr_u} {nodes.get(d, d)}")
+				else:
+					connection_lines.append(f"Shared Destination: {nodes.get(u, u)} ({arr_u}) + {nodes.get(v, v)} ({arr_v}) → {nodes.get(d, d)}")
+
+			# Find feedback loops / cycles
+			if MAX_CYCLE_LENGTH_GAME >= 2:
+				paths_fwd = list(nx.all_simple_paths(G, source=u, target=v, cutoff=MAX_CYCLE_LENGTH_GAME - 1))
+				paths_bwd = list(nx.all_simple_paths(G, source=v, target=u, cutoff=MAX_CYCLE_LENGTH_GAME - 1))
+				seen_cycles = set()
+				pair_cycles = []
+
+				for p1 in paths_fwd:
+					mid1 = set(p1[1:-1])
+					for p2 in paths_bwd:
+						total_nodes = (len(p1) - 1) + (len(p2) - 1)
+						if total_nodes <= MAX_CYCLE_LENGTH_GAME and mid1.isdisjoint(p2[1:-1]):
+							full_cycle = p1[:-1] + p2
+							cycle_tuple = tuple(full_cycle[:-1])
+							min_i = cycle_tuple.index(min(cycle_tuple))
+							canonical = cycle_tuple[min_i:] + cycle_tuple[:min_i]
+							if canonical not in seen_cycles:
+								seen_cycles.add(canonical)
+								pair_cycles.append(full_cycle)
+
+				pair_cycles.sort(key=lambda c: (len(c), [str(nodes.get(n, n)) for n in c]))
+
+				for cyc in pair_cycles:
+					cycle_corr = 1
+					for k in range(len(cyc) - 1):
+						cycle_corr *= edge_values.get((cyc[k], cyc[k + 1]), 1)
+					polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
+					cyc_len = len(cyc) - 1
+					connection_lines.append(f"Cycle ({cyc_len}) {polarity_icon}: {format_path_string(cyc)}")
+
+			if not connection_lines:
+				print("Answer: IRRELEVANT")
+			elif len(connection_lines) == 1:
+				print(f"Answer: {connection_lines[0]}")
 			else:
-				connection_lines.append(f"Shared Source: {nodes.get(s, s)} {arr_u} {nodes.get(u, u)} + {arr_v} {nodes.get(v, v)}")
+				for line in connection_lines:
+					print(f"  • {line}")
 
-		for d in shared_dsts:
-			val_u = edge_values.get((u, d), 1)
-			val_v = edge_values.get((v, d), 1)
-			arr_u = "→↓" if val_u < 0 else "→"
-			arr_v = "→↓" if val_v < 0 else "→"
-			if arr_u == arr_v:
-				connection_lines.append(
-					f"Shared Destination: 🅰️&🅱️ {arr_u} {nodes.get(d, d)}")
-			else:
-				connection_lines.append(
-					f"Shared Destination: {nodes.get(u, u)} ({arr_u}) + {nodes.get(v, v)} ({arr_v}) → {nodes.get(d, d)}")
-
-		# Find and display feedback loops / cycles containing both u and v (<= MAX_CYCLE_LENGTH_GAME)
-		if MAX_CYCLE_LENGTH_GAME >= 2:
-			paths_fwd = list(nx.all_simple_paths(G, source=u, target=v, cutoff=MAX_CYCLE_LENGTH_GAME - 1))
-			paths_bwd = list(nx.all_simple_paths(G, source=v, target=u, cutoff=MAX_CYCLE_LENGTH_GAME - 1))
-			seen_cycles = set()
-			pair_cycles = []
-
-			for p1 in paths_fwd:
-				mid1 = set(p1[1:-1])
-				for p2 in paths_bwd:
-					total_nodes = (len(p1) - 1) + (len(p2) - 1)
-					if total_nodes <= MAX_CYCLE_LENGTH_GAME and mid1.isdisjoint(p2[1:-1]):
-						full_cycle = p1[:-1] + p2
-						cycle_tuple = tuple(full_cycle[:-1])
-						min_i = cycle_tuple.index(min(cycle_tuple))
-						canonical = cycle_tuple[min_i:] + cycle_tuple[:min_i]
-						if canonical not in seen_cycles:
-							seen_cycles.add(canonical)
-							pair_cycles.append(full_cycle)
-
-			pair_cycles.sort(key=lambda c: (len(c), [str(nodes.get(n, n)) for n in c]))
-
-			for cyc in pair_cycles:
-				cycle_corr = 1
-				for k in range(len(cyc) - 1):
-					cycle_corr *= edge_values.get((cyc[k], cyc[k + 1]), 1)
-				polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
-				cyc_len = len(cyc) - 1
-				connection_lines.append(f"Cycle ({cyc_len}) {polarity_icon}: {format_path_string(cyc)}")
-
-
-		# Print inline if single path or irrelevant; otherwise print list
-		if not connection_lines:
-			print("Answer: IRRELEVANT")
-		elif len(connection_lines) == 1:
-			print(f"Answer: {connection_lines[0]}")
-		else:
-			for line in connection_lines:
-				print(f"  • {line}")
-
-		print()
-		progress_data[game2_key][pair_key] = current_counter + 1
-		save_progress(save_path, progress_data)
+			print()
+			progress_data[game2_key][pair_key] = current_counter + 1
+			save_progress(save_path, progress_data)
 
 	print("Quiz finished.")
 	sys.exit(0)
@@ -1215,7 +1329,7 @@ if __name__ == '__main__':
 	 CONNECTIONS_SKIPPED, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN,
 	 COLOR_THRESHOLD, MAX_CYCLE_LENGTH_HTML, MAX_CYCLE_LENGTH_GAME,
 	 FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE,
-	 CHANCE_IRRELEVANT, CHANCE_INDIRECT, CHANCE_SAME, MAX_INDIRECTNESS,
+	 CHANCE_IRRELEVANT, CHANCE_INDIRECT, CHANCE_SAME, CHANCE_LEAF, MAX_INDIRECTNESS,
 	 MAX_INDIRECTNESS_GAME, LEAF_ONLY) = read_config_file(input_file)
 
 	# Determine if FILE_NAME is an absolute or full path (contains slashes)
