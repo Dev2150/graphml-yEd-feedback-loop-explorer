@@ -571,12 +571,14 @@ def read_config_file(p_input_file):
 		chance_same /= 100.0
 
 	max_indirectness = config.getint(SECTION, 'max_indirectness', fallback=3)
+	max_displayed_indirectness = config.getint(SECTION, 'max_displayed_indirectness', fallback=3)
 	leaf_only = config.getboolean(SECTION, 'leaf_only', fallback=False)
 
 	return (p_source_node, p_target_node, show_only_edges, show_connections_list,
 			connections_skipped, enable_non_cycle_printing, sort_by_len,
 			color_threshold, folder_path, file_name, block_starting_node,
-			chance_irrelevant, chance_indirect, chance_same, max_indirectness, leaf_only)
+			chance_irrelevant, chance_indirect, chance_same, max_indirectness,
+			max_displayed_indirectness, leaf_only)
 
 
 def show_edges(p_edges, p_html_content):
@@ -699,6 +701,7 @@ CHANCE_SAME=0.1
 CHANCE_IRRELEVANT=0.20
 CHANCE_INDIRECT=0.35
 MAX_INDIRECTNESS=1
+MAX_DISPLAYED_INDIRECTNESS=2
 LEAF_ONLY=False
 """
 	try:
@@ -987,11 +990,18 @@ def run_relationship_guessing_game():
 		paths_u_v = list(nx.all_shortest_paths(G, u, v)) if has_u_v else []
 		paths_v_u = list(nx.all_shortest_paths(G, v, u)) if has_v_u else []
 
+		# Filter out paths exceeding MAX_DISPLAYED_INDIRECTNESS (intermediate nodes > MAX_DISPLAYED_INDIRECTNESS)
+		paths_u_v = [p for p in paths_u_v if (len(p) - 2) <= MAX_DISPLAYED_INDIRECTNESS]
+		paths_v_u = [p for p in paths_v_u if (len(p) - 2) <= MAX_DISPLAYED_INDIRECTNESS]
+
+		has_disp_u_v = bool(paths_u_v)
+		has_disp_v_u = bool(paths_v_u)
+
 		len_u_v = len(paths_u_v[0]) - 1 if paths_u_v else float('inf')
 		len_v_u = len(paths_v_u[0]) - 1 if paths_v_u else float('inf')
 
 		is_direct = (len_u_v == 1 or len_v_u == 1)
-		is_indirect = not is_direct and (has_u_v or has_v_u)
+		is_indirect = not is_direct and (has_disp_u_v or has_disp_v_u)
 
 		# Find shared sources and shared destinations
 		shared_srcs = [s for s in set(G.predecessors(u)).intersection(G.predecessors(v)) if s != u and s != v]
@@ -1007,28 +1017,46 @@ def run_relationship_guessing_game():
 				connection_lines.append(f"Direct (⟳): {format_path_string([u, v])} ↔ {format_path_string([v, u])}")
 			elif len_u_v == 1:
 				connection_lines.append(f"Direct: {format_path_string([u, v])}")
-				if has_v_u:
+				if has_disp_v_u:
 					for p in paths_v_u:
 						connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p)}")
 			elif len_v_u == 1:
 				connection_lines.append(f"Direct: {format_path_string([v, u])}")
-				if has_u_v:
+				if has_disp_u_v:
 					for p in paths_u_v:
 						connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p)}")
 		elif is_indirect:
-			if has_u_v:
+			if has_disp_u_v:
 				for p in paths_u_v:
 					connection_lines.append(f"Indirect ({len(p) - 2}): {format_path_string(p)}")
-			if has_v_u:
+			if has_disp_v_u:
 				for p in paths_v_u:
-					prefix = "Indirect ↩" if has_u_v else "Indirect"
+					prefix = "Indirect ↩" if has_disp_u_v else "Indirect"
 					connection_lines.append(f"{prefix} ({len(p) - 2}): {format_path_string(p)}")
 
 		for s in shared_srcs:
-			connection_lines.append(f"Shared Source: {format_path_string([s, u])}, {format_path_string([s, v])}")
+			val_u = edge_values.get((s, u), 1)
+			val_v = edge_values.get((s, v), 1)
+			arr_u = "→↓" if val_u < 0 else "→"
+			arr_v = "→↓" if val_v < 0 else "→"
+			if arr_u == arr_v:
+				connection_lines.append(
+					f"Shared Source: {nodes.get(s, s)} {arr_u} {nodes.get(u, u)} + {nodes.get(v, v)}")
+			else:
+				connection_lines.append(
+					f"Shared Source: {nodes.get(s, s)} {arr_u} {nodes.get(u, u)} + {arr_v} {nodes.get(v, v)}")
 
 		for d in shared_dsts:
-			connection_lines.append(f"Shared Destination: {format_path_string([u, d])}, {format_path_string([v, d])}")
+			val_u = edge_values.get((u, d), 1)
+			val_v = edge_values.get((v, d), 1)
+			arr_u = "→↓" if val_u < 0 else "→"
+			arr_v = "→↓" if val_v < 0 else "→"
+			if arr_u == arr_v:
+				connection_lines.append(
+					f"Shared Destination: {nodes.get(u, u)} + {nodes.get(v, v)} {arr_u} {nodes.get(d, d)}")
+			else:
+				connection_lines.append(
+					f"Shared Destination: {nodes.get(u, u)} ({arr_u}) + {nodes.get(v, v)} ({arr_v}) → {nodes.get(d, d)}")
 
 		# Print inline if single path or irrelevant; otherwise print list
 		if not connection_lines:
@@ -1054,7 +1082,8 @@ if __name__ == '__main__':
 	(source_node, target_node, SHOW_ONLY_EDGES, SHOW_CONNECTIONS_LIST,
 	 CONNECTIONS_SKIPPED, ENABLE_NON_CYCLE_PRINTING, SORT_BY_LEN,
 	 COLOR_THRESHOLD, FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE,
-	 CHANCE_IRRELEVANT, CHANCE_INDIRECT, CHANCE_SAME, MAX_INDIRECTNESS, LEAF_ONLY) = read_config_file(input_file)
+	 CHANCE_IRRELEVANT, CHANCE_INDIRECT, CHANCE_SAME, MAX_INDIRECTNESS,
+	 MAX_DISPLAYED_INDIRECTNESS, LEAF_ONLY) = read_config_file(input_file)
 
 	# Determine if FILE_NAME is an absolute or full path (contains slashes)
 	if '/' in FILE_NAME or '\\' in FILE_NAME or os.path.isabs(FILE_NAME):
