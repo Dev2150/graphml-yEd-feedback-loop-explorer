@@ -7,7 +7,7 @@ from typing import List
 
 SECTION = 'SETTINGS'
 COUNTER_CONNECTION_TYPES = {'counter', 'counters', 'game', 'game-counters'}
-
+FAMILY_CONNECTION_TYPES = {'family', 'family-descendance', 'descendance', 'genealogy', 'tree', 'familytree', 'family-tree'}
 
 @dataclass
 class Config:
