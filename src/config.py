@@ -28,6 +28,7 @@ class Config:
 	max_indirectness_game: int = 2
 	leaf_only: bool = False
 	ignore_edge_colors: bool = False
+	connection_type: str = "correlation"
 
 
 def read_config_file(p_input_file: str) -> Config:
@@ -64,10 +65,11 @@ def read_config_file(p_input_file: str) -> Config:
 	max_indirectness = config.getint(SECTION, 'max_indirectness', fallback=3)
 	max_indirectness_game = config.getint(SECTION, 'max_indirectness_game', fallback=3)
 	leaf_only = config.getboolean(SECTION, 'leaf_only', fallback=False)
+	connection_type = config.get(SECTION, 'connection_type', fallback='correlation').strip().lower()
 	ignore_edge_colors = False
 
 	# Parse inline overrides appended after the filename with commas:
-	# FILE_NAME=My Graph, ignore_edge_colors=True, MAX_CYCLE_LENGTH_HTML=10
+	# FILE_NAME=My Graph, ignore_edge_colors=True, connection_type=family
 	if ',' in file_name_raw:
 		parts = file_name_raw.split(',')
 		file_name = parts[0].strip()
@@ -80,6 +82,8 @@ def read_config_file(p_input_file: str) -> Config:
 			try:
 				if key == 'ignore_edge_colors':
 					ignore_edge_colors = val.lower() in ('true', '1', 'yes')
+				elif key == 'connection_type':
+					connection_type = val.lower()
 				elif key == 'max_cycle_length_html':
 					max_cycle_length_html = int(val)
 				elif key == 'max_cycle_length_game':
@@ -117,7 +121,8 @@ def read_config_file(p_input_file: str) -> Config:
 		max_indirectness=max_indirectness,
 		max_indirectness_game=max_indirectness_game,
 		leaf_only=leaf_only,
-		ignore_edge_colors=ignore_edge_colors
+		ignore_edge_colors=ignore_edge_colors,
+		connection_type=connection_type
 	)
 
 
@@ -141,6 +146,7 @@ CHANCE_IRRELEVANT=0.20
 MAX_INDIRECTNESS=1
 MAX_INDIRECTNESS_GAME=2
 LEAF_ONLY=False
+CONNECTION_TYPE=correlation
 """
 	try:
 		os.makedirs(os.path.dirname(p_input_file), exist_ok=True)

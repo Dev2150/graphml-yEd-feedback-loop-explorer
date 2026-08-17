@@ -11,7 +11,7 @@ from src.progress_storage import get_save_file_path, load_progress, save_progres
 def run_relationship_guessing_game(ctx: GraphContext):
 	print("\n--- Relationship Guessing Game ---")
 	print("Guess if the nodes connect Directly, Indirectly, Share a Source/Destination, Leaf (Source/Dest), or are Irrelevant. Enter 0 to stop.")
-	print("[Direct / Indirect / Shared sources/destinations / Leaf Source/Dest / Irrelevant] (Press Enter to reveal answer, or 0 to quit).\n")
+	print("[Direct / Indirect / Shared sources/destinations / Leaf Source/Dest / Irrelevant] (Press Enter to reveal answer, or 0 to quit).")
 
 	g = ctx.graph
 	nodes = ctx.nodes
@@ -24,6 +24,19 @@ def run_relationship_guessing_game(ctx: GraphContext):
 	leaf_only = config.leaf_only
 	chance_irrelevant = config.chance_irrelevant
 	max_cycle_length_game = config.max_cycle_length_game
+
+	# Resolve label naming based on CONNECTION_TYPE
+	conn_type = getattr(config, 'connection_type', 'correlation').lower()
+	if conn_type in ('family', 'family-descendance', 'descendance', 'genealogy'):
+		text_shared_source = "Parents"
+		text_shared_dest = "Children"
+	elif conn_type in ('counter', 'counters', 'game', 'game-counters'):
+		text_shared_source = "Common threat"
+		text_shared_dest = "Common counter"
+	else:
+		# Default: correlation / system dynamics
+		text_shared_source = "Cofounder (Common cause)"
+		text_shared_dest = "Collider (Common effect)"
 
 	# Find direct leaf nodes
 	root_nodes = {n for n in g.nodes() if g.in_degree(n) == 0}
@@ -156,10 +169,10 @@ def run_relationship_guessing_game(ctx: GraphContext):
 		for cat_name, items in _category_config:
 			if not items:
 				continue
-			tier, at_min, total, pct = get_category_stats(items)
+			tier, answered, total, pct = get_category_stats(items)
 			if min_tier > tier:
 				min_tier = tier
-			print(f"  {cat_name}: {at_min}/{total} ({pct}%)")
+			print(f"  {cat_name:12}: {answered:3} / {total:3} ({pct:2}%) (Left: {total - answered:3})")
 		print(f"  Current tier: {min_tier}\n")
 
 	print_relationship_stats()
@@ -224,7 +237,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 				else:
 					active_weights.append(len(eligible_by_cat[c]) / total_rel_count)
 
-		print(f"DEBUG: {[x for pair in sorted(zip(active_cats, active_weights), key=lambda p: -p[1]) if pair[0] != 'irrelevant' for x in (pair[0], f'{100 * pair[1]:.2f}')]}")
+		# print(f"DEBUG: {[x for pair in sorted(zip(active_cats, active_weights), key=lambda p: -p[1]) if pair[0] != 'irrelevant' for x in (pair[0], f'{100 * pair[1]:.2f}')]}")
 
 		chosen_cat = random.choices(active_cats, weights=active_weights, k=1)[0]
 		chosen_item = random.choice(eligible_by_cat[chosen_cat])
@@ -364,9 +377,9 @@ def run_relationship_guessing_game(ctx: GraphContext):
 				arr_u = "📉" if val_u < 0 else "📈"
 				arr_v = "📉" if val_v < 0 else "📈"
 				if arr_u == arr_v:
-					connection_lines.append(f"Shared Source: {nodes.get(s, s)} {arr_u} 🅰️&🅱️")
+					connection_lines.append(f"{text_shared_source}: {nodes.get(s, s)} {arr_u}")
 				else:
-					connection_lines.append(f"Shared Source: {nodes.get(s, s)} {arr_u} {nodes.get(u, u)} + {arr_v} {nodes.get(v, v)}")
+					connection_lines.append(f"{text_shared_source}: {nodes.get(s, s)} {arr_u} {nodes.get(u, u)} + {arr_v} {nodes.get(v, v)}")
 
 			for d in shared_dsts:
 				val_u = edge_values.get((u, d), 1)
@@ -374,9 +387,9 @@ def run_relationship_guessing_game(ctx: GraphContext):
 				arr_u = "📉" if val_u < 0 else "📈"
 				arr_v = "📉" if val_v < 0 else "📈"
 				if arr_u == arr_v:
-					connection_lines.append(f"Shared Destination: 🅰️&🅱️ {arr_u} {nodes.get(d, d)}")
+					connection_lines.append(f"{text_shared_dest}: {arr_u} {nodes.get(d, d)}")
 				else:
-					connection_lines.append(f"Shared Destination: {nodes.get(u, u)} ({arr_u}) + {nodes.get(v, v)} ({arr_v}) → {nodes.get(d, d)}")
+					connection_lines.append(f"{text_shared_dest}: {nodes.get(u, u)} ({arr_u}) + {nodes.get(v, v)} ({arr_v}) → {nodes.get(d, d)}")
 
 			# Find feedback loops / cycles
 			if max_cycle_length_game >= 2:
