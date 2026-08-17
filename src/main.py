@@ -321,6 +321,8 @@ def read_from_graph_xml(p_input_file, p_color_threshold=48):
 
 
 def edge_value_string(p_edge_value, is_simple=False):
+	if IGNORE_EDGE_COLORS:
+		return ' → '
 	if not is_simple:
 		return ":--->:" if p_edge_value > 0 else ":--X->:"
 	return "→" if p_edge_value > 0 else "-X>"
@@ -551,7 +553,7 @@ def read_config_file(p_input_file):
 	color_threshold = config.getint(SECTION, 'color_threshold', fallback=48)
 
 	folder_path = config.get(SECTION, 'folder_path', fallback='').strip()
-	file_name = config.get(SECTION, 'file_name', fallback='').strip()
+	file_name_raw = config.get(SECTION, 'file_name', fallback='').strip()
 
 	block_starting_node_str = config.get(SECTION, 'block_starting_node', fallback='')
 	block_starting_node = [x.strip().lower() for x in block_starting_node_str.split(',') if
@@ -568,13 +570,47 @@ def read_config_file(p_input_file):
 	max_indirectness = config.getint(SECTION, 'max_indirectness', fallback=3)
 	max_indirectness_game = config.getint(SECTION, 'max_indirectness_game', fallback=3)
 	leaf_only = config.getboolean(SECTION, 'leaf_only', fallback=False)
+	ignore_edge_colors = False
+
+	# Parse inline overrides appended after the filename with commas:
+	# FILE_NAME=My Graph, ignore_edge_colors=True, MAX_CYCLE_LENGTH_HTML=10
+	if ',' in file_name_raw:
+		parts = file_name_raw.split(',')
+		file_name = parts[0].strip()
+		for override in parts[1:]:
+			if '=' not in override:
+				continue
+			key, _, val = override.strip().partition('=')
+			key = key.strip().lower()
+			val = val.strip()
+			try:
+				if key == 'ignore_edge_colors':
+					ignore_edge_colors = val.lower() in ('true', '1', 'yes')
+				elif key == 'max_cycle_length_html':
+					max_cycle_length_html = int(val)
+				elif key == 'max_cycle_length_game':
+					max_cycle_length_game = int(val)
+				elif key == 'max_indirectness':
+					max_indirectness = int(val)
+				elif key == 'max_indirectness_game':
+					max_indirectness_game = int(val)
+				elif key == 'chance_irrelevant':
+					chance_irrelevant = float(val)
+					if chance_irrelevant > 1.0:
+						chance_irrelevant /= 100.0
+				else:
+					print(f"Warning: unknown inline override '{key}' ignored.")
+			except ValueError:
+				print(f"Warning: could not parse inline override '{override.strip()}', skipping.")
+	else:
+		file_name = file_name_raw
 
 	return (p_source_node, p_target_node, show_only_edges, show_connections_list,
 			connections_skipped, enable_non_cycle_printing, sort_by_len,
 			color_threshold, max_cycle_length_html, max_cycle_length_game,
 			folder_path, file_name, block_starting_node,
 			chance_irrelevant, max_indirectness,
-			max_indirectness_game, leaf_only)
+			max_indirectness_game, leaf_only, ignore_edge_colors)
 
 
 def show_edges(p_edges, p_html_content):
@@ -1087,8 +1123,8 @@ def run_relationship_guessing_game():
 					active_weights.append(1.0)
 			else:
 				if 'irrelevant' in active_cats:
-					rem_prob = max(0.0, 1.0 - CHANCE_IRRELEVANT)
-					active_weights.append(rem_prob * (len(eligible_by_cat[c]) / total_rel_count))
+					chance_relevant = max(0.0, 1.0 - CHANCE_IRRELEVANT)
+					active_weights.append(chance_relevant * (len(eligible_by_cat[c]) / total_rel_count))
 				else:
 					active_weights.append(len(eligible_by_cat[c]) / total_rel_count)
 
@@ -1400,7 +1436,7 @@ if __name__ == '__main__':
 	 COLOR_THRESHOLD, MAX_CYCLE_LENGTH_HTML, MAX_CYCLE_LENGTH_GAME,
 	 FOLDER_PATH, FILE_NAME, BLOCK_STARTING_NODE,
 	 CHANCE_IRRELEVANT, MAX_INDIRECTNESS,
-	 MAX_INDIRECTNESS_GAME, LEAF_ONLY) = read_config_file(input_file)
+	 MAX_INDIRECTNESS_GAME, LEAF_ONLY, IGNORE_EDGE_COLORS) = read_config_file(input_file)
 
 	# Determine if FILE_NAME is an absolute or full path (contains slashes)
 	if '/' in FILE_NAME or '\\' in FILE_NAME or os.path.isabs(FILE_NAME):
@@ -1409,6 +1445,11 @@ if __name__ == '__main__':
 		input_graph_ml_file = FOLDER_PATH + FILE_NAME + ('' if FILE_NAME.endswith('.graphml') else '.graphml')
 
 	nodes, edges, edge_values = read_from_graph_xml(input_graph_ml_file, COLOR_THRESHOLD)
+
+	if IGNORE_EDGE_COLORS:
+		edge_values = {k: 1 for k in edge_values}
+		node_values = {k: 0 for k in node_values}
+		print("Note: edge colors ignored — all edge values set to +1.")
 
 	G = nx.DiGraph()
 	G.add_nodes_from(nodes.keys())
