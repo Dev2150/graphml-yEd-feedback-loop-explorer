@@ -74,7 +74,15 @@ def print_node(path, path_node_id, path_len, cycle_correlation, nodes_to_travers
 
 def print_nodes(all_paths, p_html_content, ctx: GraphContext, is_cycle=False):
 	is_printing_to_html = ctx.config.enable_non_cycle_printing or is_cycle
+	prev_len = None
+
 	for path_id, path in enumerate(all_paths):
+		# Insert a horizontal line whenever the cycle length increases (SORT_BY_LEN=True)
+		if is_cycle and ctx.config.sort_by_len:
+			if prev_len is not None and len(path) > prev_len:
+				p_html_content += '<hr style="border: 0; border-top: 1px solid #555555; margin: 15px 0;">'
+			prev_len = len(path)
+
 		cycle_correlation, nodes_to_traverse, path_len, hp = initialize_printing_nodes(path, is_cycle)
 		for path_node_id in range(nodes_to_traverse):
 			cycle_correlation, hp = print_node(path, path_node_id, path_len, cycle_correlation, nodes_to_traverse, hp,
@@ -200,7 +208,10 @@ def generate_html_and_graphml(ctx: GraphContext, output_folder: str, input_graph
 			cycles = [cycle for cycle in cycles if ctx.source_node_id in cycle]
 			cycles = [shift_to(cycle, ctx.source_node_id) for cycle in cycles]
 
+		# Sort alphabetically first
 		cycles = sort_alphabetically_by_joining_numerical_string_lists(cycles, ctx.nodes)
+
+		# If sort_by_len is True, perform stable sort by cycle length
 		if ctx.config.sort_by_len:
 			cycles = sorted(cycles, key=len)
 
