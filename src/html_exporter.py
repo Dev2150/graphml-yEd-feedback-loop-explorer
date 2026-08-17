@@ -74,7 +74,7 @@ def print_node(path, path_node_id, path_len, cycle_correlation, nodes_to_travers
 				if ctx.config.show_edge_labels:
 					edge_lbl = ctx.edge_labels.get((u, v), '')
 					if edge_lbl:
-						hp += f'<span style="color:#AAAAAA; font-style:italic;">({edge_lbl}) </span>'
+						hp += f'<br><span style="color:#AAAAAA; font-style:italic; margin-left:30px; display:inline-block;">({edge_lbl})</span><br>'
 	except (KeyError, UnicodeError):
 		pass
 	return cycle_correlation, hp
@@ -156,7 +156,7 @@ def show_edges(p_edges, p_html_content, ctx: GraphContext):
 			if ctx.config.show_edge_labels:
 				edge_lbl = ctx.edge_labels.get((e[0], e[1]), '')
 				if edge_lbl:
-					label_str = f' <span style="color:#AAAAAA; font-style:italic;">({edge_lbl})</span>'
+					label_str = f'<br><span style="color:#AAAAAA; font-style:italic; margin-left:30px; display:inline-block;">({edge_lbl})</span>'
 			src_prefix = "❤️ " if is_counter else ""
 			tgt_prefix = "❤️ " if is_counter else ""
 			p_html_content += f'<p><span style="color:#AAAAFF">{src_prefix}{ctx.nodes[e[0]]}</span> <span style="color:#000000">{edge_value_str}</span> <span style="color:#AAAAFF">{tgt_prefix}{ctx.nodes[e[1]]}</span>{label_str}</p>'
@@ -182,7 +182,7 @@ def show_connections_list(p_connections_skipped: int, p_html_content: str, ctx: 
 				if ctx.config.show_edge_labels:
 					edge_lbl = ctx.edge_labels.get((e[0], e[1]), '')
 					if edge_lbl:
-						label_str = f' <span style="color:#AAAAAA; font-style:italic;">({edge_lbl})</span>'
+						label_str = f'<br><span style="color:#AAAAAA; font-style:italic; margin-left:30px; display:inline-block;">({edge_lbl})</span>'
 				p_html_content += f'<p style="color:white;">{src_prefix}{source_name} → {tgt_prefix}{target_name}{label_str}</p>'
 				ctx.nodes_printed.add(e[0])
 				ctx.nodes_printed.add(e[1])
@@ -214,7 +214,7 @@ def show_connections_list(p_connections_skipped: int, p_html_content: str, ctx: 
 				if ctx.config.show_edge_labels:
 					edge_lbl = ctx.edge_labels.get((e[0], e[1]), '')
 					if edge_lbl:
-						label_str = f' <span style="color:#AAAAAA; font-style:italic;">({edge_lbl})</span>'
+						label_str = f'<br><span style="color:#AAAAAA; font-style:italic; margin-left:30px; display:inline-block;">({edge_lbl})</span>'
 				p_html_content += f'<p style="color:white;">{src_prefix}{source_name} → {tgt_prefix}{target_name}{label_str}</p>'
 				ctx.nodes_printed.add(e[0])
 				ctx.nodes_printed.add(e[1])

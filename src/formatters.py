@@ -14,7 +14,7 @@ def format_node_name(node_id: str, nodes_dict: dict, index: int = 0, is_counter:
 
 def get_edge_arrow(val: int, ignore_edge_colors: bool = False) -> str:
 	if ignore_edge_colors:
-		return "→"
+		return "📈"
 	return "📉" if val < 0 else "📈"
 
 
@@ -56,20 +56,20 @@ def format_path_string(path: list, nodes_dict: dict, edge_values_dict: dict, edg
 		return ""
 	parts = [format_node_name(path[0], nodes_dict, start_index, is_counter)]
 	is_direct = (len(path) == 2)
+	lbl_str = ""
 
 	for k in range(len(path) - 1):
 		u = path[k]
 		v = path[k + 1]
 		val = edge_values_dict.get((u, v), 1)
-		arrow = "→" if (ignore_edge_colors or is_counter) else get_edge_arrow(val)
-		lbl_str = ""
+		arrow = get_edge_arrow(val, ignore_edge_colors=(ignore_edge_colors or is_counter))
 		if is_direct and edge_labels_dict:
 			lbl = edge_labels_dict.get((u, v), "")
 			if lbl:
-				lbl_str = f" ({lbl})"
+				lbl_str = f"\n      ({lbl})"
 		v_formatted = format_node_name(v, nodes_dict, start_index + k + 1, is_counter)
-		parts.append(f"{arrow} {v_formatted}{lbl_str}")
-	return " ".join(parts)
+		parts.append(f"{arrow} {v_formatted}")
+	return " ".join(parts) + lbl_str
 
 
 def get_path_net_effect_arrow(path: list, edge_values_dict: dict) -> str:

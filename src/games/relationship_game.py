@@ -62,18 +62,18 @@ def run_relationship_guessing_game(ctx: GraphContext):
 	leaf_dests_map = defaultdict(list)
 
 	for target in g.nodes():
-		preds = list(g.predecessors(target))
-		if not preds:
+		predecessors = list(g.predecessors(target))
+		if not predecessors:
 			continue
-		if target in terminal_nodes or any(p in root_nodes for p in preds):
-			leaf_sources_map[target] = preds
+		if target in terminal_nodes or any(p in root_nodes for p in predecessors):
+			leaf_sources_map[target] = predecessors
 
 	for source in g.nodes():
-		succs = list(g.successors(source))
-		if not succs:
+		successors = list(g.successors(source))
+		if not successors:
 			continue
-		if source in root_nodes or any(s in terminal_nodes for s in succs):
-			leaf_dests_map[source] = succs
+		if source in root_nodes or any(s in terminal_nodes for s in successors):
+			leaf_dests_map[source] = successors
 
 	leaf_source_candidates = [n for n in leaf_sources_map.keys() if str(nodes.get(n, n)).lower() not in block_starting_node]
 	leaf_dest_candidates = [n for n in leaf_dests_map.keys() if str(nodes.get(n, n)).lower() not in block_starting_node]
@@ -306,7 +306,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 				u = full_path[k]
 				v = full_path[k + 1]
 				val = edge_values.get((u, v), 1)
-				arrow = "→" if (ignore_edge_colors or is_counter) else get_edge_arrow(val)
+				arrow = get_edge_arrow(val, ignore_edge_colors=(ignore_edge_colors or is_counter))
 				if (k + 1) == m:
 					node_text = f"{get_box_prefix(k + 1)} [?]" if is_counter else "[?]"
 				else:
@@ -382,7 +382,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 			current_counter = progress_data[game2_key].get(leaf_key, 0)
 
 			if is_counter:
-				print(f"Question {question_num}: 🟦 [?] → 🟥 {target_name}", end=' ')
+				print(f"Question {question_num}: 🟦 [?] 📈 🟥 {target_name}", end=' ')
 			else:
 				print(f"Question {question_num}: [?] → {target_name}", end=' ')
 
@@ -416,7 +416,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 			current_counter = progress_data[game2_key].get(leaf_key, 0)
 
 			if is_counter:
-				print(f"Question {question_num}: 🟦 {source_name} → 🟥 [?]", end=' ')
+				print(f"Question {question_num}: 🟦 {source_name} 📈 🟥 [?]", end=' ')
 			else:
 				print(f"Question {question_num}: {source_name} → [?]", end=' ')
 
@@ -499,8 +499,8 @@ def run_relationship_guessing_game(ctx: GraphContext):
 				for s in shared_srcs:
 					val_u = edge_values.get((s, u), 1)
 					val_v = edge_values.get((s, v), 1)
-					arr_u = "→" if ignore_edge_colors else get_edge_arrow(val_u)
-					arr_v = "→" if ignore_edge_colors else get_edge_arrow(val_v)
+					arr_u = get_edge_arrow(val_u)
+					arr_v = get_edge_arrow(val_v)
 					if arr_u == arr_v:
 						connection_lines.append(f"{text_shared_source}: {nodes.get(s, s)} {arr_u}")
 					else:
@@ -509,8 +509,8 @@ def run_relationship_guessing_game(ctx: GraphContext):
 				for d in shared_dsts:
 					val_u = edge_values.get((u, d), 1)
 					val_v = edge_values.get((v, d), 1)
-					arr_u = "→" if ignore_edge_colors else get_edge_arrow(val_u)
-					arr_v = "→" if ignore_edge_colors else get_edge_arrow(val_v)
+					arr_u = get_edge_arrow(val_u)
+					arr_v = get_edge_arrow(val_v)
 					if arr_u == arr_v:
 						connection_lines.append(f"{text_shared_dest}: {arr_u} {nodes.get(d, d)}")
 					else:
@@ -518,9 +518,17 @@ def run_relationship_guessing_game(ctx: GraphContext):
 
 			if is_direct:
 				if direct_u_v and direct_v_u:
-					p1_str = format_path_string([u, v], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-					p2_str = format_path_string([v, u], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-					connection_lines.append(f"Direct (⟳): {p1_str} ↔ {p2_str}")
+					p1_str = format_path_string([u, v], nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+					p2_str = format_path_string([v, u], nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+					lbl1 = edge_labels.get((u, v), '') if edge_labels else ''
+					lbl2 = edge_labels.get((v, u), '') if edge_labels else ''
+					lbl_lines = []
+					if lbl1:
+						lbl_lines.append(f"      ({nodes.get(u, u)} → {nodes.get(v, v)}: {lbl1})")
+					if lbl2:
+						lbl_lines.append(f"      ({nodes.get(v, v)} → {nodes.get(u, u)}: {lbl2})")
+					lbl_suffix = ("\n" + "\n".join(lbl_lines)) if lbl_lines else ""
+					connection_lines.append(f"Direct (⟳): {p1_str} ↔ {p2_str}{lbl_suffix}")
 				elif direct_u_v:
 					p_str = format_path_string([u, v], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 					connection_lines.append(f"Direct: {p_str}")
@@ -528,7 +536,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 						is_p_direct = len(p) == 2
 						prefix = "Direct ↩" if is_p_direct else f"Indirect ↩ ({len(p) - 2})"
 						formatted_p = format_path_string(p, nodes, edge_values, edge_labels if is_p_direct else None, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-						suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
+						suffix = "" if (is_counter or ignore_edge_colors or is_p_direct) else f" ({get_path_net_effect_arrow(p, edge_values)})"
 						connection_lines.append(f"{prefix}: {formatted_p}{suffix}")
 				elif direct_v_u:
 					p_str = format_path_string([v, u], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
@@ -537,7 +545,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 						is_p_direct = len(p) == 2
 						prefix = "Direct ↩" if is_p_direct else f"Indirect ↩ ({len(p) - 2})"
 						formatted_p = format_path_string(p, nodes, edge_values, edge_labels if is_p_direct else None, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-						suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
+						suffix = "" if (is_counter or ignore_edge_colors or is_p_direct) else f" ({get_path_net_effect_arrow(p, edge_values)})"
 						connection_lines.append(f"{prefix}: {formatted_p}{suffix}")
 
 				for p in indirect_u_v:

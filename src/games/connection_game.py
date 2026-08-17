@@ -113,7 +113,7 @@ def run_connection_guessing_game(ctx: GraphContext):
 			u = first_full_path[k]
 			v = first_full_path[k + 1]
 			val = edge_values.get((u, v), 1)
-			arrow = "→" if (ignore_edge_colors or is_counter) else get_edge_arrow(val)
+			arrow = get_edge_arrow(val, ignore_edge_colors=(ignore_edge_colors or is_counter))
 
 			if k < len(first_full_path) - 2:
 				node_text = f"{get_box_prefix(k + 1)} [?]" if is_counter else "[?]"
