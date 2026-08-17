@@ -3,7 +3,6 @@ import os
 import networkx as nx
 
 from games.relationship_game import run_relationship_guessing_game
-from games.connection_game import run_connection_guessing_game
 from html_exporter import generate_html_and_graphml
 from io_graphml import read_from_graph_xml
 from src.config import read_config_file, create_input_file, COUNTER_CONNECTION_TYPES
@@ -70,15 +69,12 @@ def main():
 	# Menu
 	print("=" * 50)
 	print("Select Game Mode:")
-	print("  [1] Connection Guessing Game (Guess intermediate nodes)")
-	print("  [2] Relationship Guessing Game (Direct / Indirect / Same / Irrelevant)")
+	print("  [1] Relationship Guessing Game (Direct / Indirect / Same / Irrelevant)")
 	print("  [0] Exit (HTML already generated)")
 	print("=" * 50)
-	choice = input("Enter choice (0-2): ").strip()
+	choice = input("Enter choice (0-1): ").strip()
 
 	if choice == '1':
-		run_connection_guessing_game(ctx)
-	elif choice == '2':
 		run_relationship_guessing_game(ctx)
 
 
