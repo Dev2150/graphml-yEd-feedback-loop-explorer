@@ -2,7 +2,7 @@ import os
 
 import networkx as nx
 
-from src.formatters import get_color_by_node_properties, edge_value, edge_value_string
+from src.formatters import get_color_by_node_properties, edge_value, edge_value_string, COUNTER_CONNECTION_TYPES, get_box_prefix
 from src.graph_utils import find_all_paths, remove_duplicate_subsequences, \
 	sort_alphabetically_by_joining_numerical_string_lists, find_bounded_cycles, shift_to, find_all_paths_for_graph_ml
 from src.io_graphml import remove_nodes_from_graphml
@@ -54,19 +54,27 @@ def print_node(path, path_node_id, path_len, cycle_correlation, nodes_to_travers
 		source_label = ctx.nodes.get(ctx.source_node_id, "").lower() if ctx.source_node_id else ""
 		target_label = ctx.nodes.get(ctx.target_node_id, "").lower() if ctx.target_node_id else ""
 		is_special_node = (target_label and target_label == node_name.lower()) or (source_label and source_label == node_name.lower())
+		is_counter = ctx.config.connection_type in COUNTER_CONNECTION_TYPES
 
 		if is_printing_to_html:
 			hp_text_style = ("background-color:black;" if is_special_node else "") + "color:" + get_color_by_node_properties(
 				cycle_correlation, convenience)
-			hp += '<span style="' + hp_text_style + '">' + node_name + '</span>'
+			box_prefix = f"{get_box_prefix(path_node_id)} " if is_counter else ""
+			hp += '<span style="' + hp_text_style + '">' + box_prefix + node_name + '</span>'
 
 		if path_node_id < nodes_to_traverse - 1:
-			edge_correlation = edge_value(path[path_node_id % path_len], path[(path_node_id + 1) % path_len], ctx.edge_values)
+			u = path[path_node_id % path_len]
+			v = path[(path_node_id + 1) % path_len]
+			edge_correlation = edge_value(u, v, ctx.edge_values)
 			cycle_correlation *= edge_correlation
 			if is_printing_to_html:
-				str_connector = edge_value_string(edge_correlation, ignore_edge_colors=ctx.config.ignore_edge_colors)
+				str_connector = edge_value_string(edge_correlation, ignore_edge_colors=ctx.config.ignore_edge_colors or is_counter)
 				hp_text_style = "color:" + ("#FFAAAA" if edge_correlation < 0 else "#CCCCCC")
 				hp += '<span style="' + hp_text_style + '">' + str_connector + ' </span>'
+				if ctx.config.show_edge_labels:
+					edge_lbl = ctx.edge_labels.get((u, v), '')
+					if edge_lbl:
+						hp += f'<span style="color:#AAAAAA; font-style:italic;">({edge_lbl}) </span>'
 	except (KeyError, UnicodeError):
 		pass
 	return cycle_correlation, hp
@@ -74,6 +82,7 @@ def print_node(path, path_node_id, path_len, cycle_correlation, nodes_to_travers
 
 def print_nodes(all_paths, p_html_content, ctx: GraphContext, is_cycle=False):
 	is_printing_to_html = ctx.config.enable_non_cycle_printing or is_cycle
+	is_counter = ctx.config.connection_type in COUNTER_CONNECTION_TYPES
 	prev_len = None
 
 	for path_id, path in enumerate(all_paths):
@@ -90,7 +99,7 @@ def print_nodes(all_paths, p_html_content, ctx: GraphContext, is_cycle=False):
 		hp += '</span>'
 
 		edge_correlation_str = ''
-		if is_cycle:
+		if is_cycle and not is_counter:
 			try:
 				color = get_color_by_node_properties(cycle_correlation, cycle_correlation * ctx.node_values.get(path[0], 0))
 			except KeyError:
@@ -138,11 +147,19 @@ def print_to_file(p_html_content: str, output_folder: str, ctx: GraphContext):
 
 def show_edges(p_edges, p_html_content, ctx: GraphContext):
 	p_html_content += '<br><h1 style="color:white;">Edges</h1>'
+	is_counter = ctx.config.connection_type in COUNTER_CONNECTION_TYPES
 	for e in p_edges:
 		try:
 			edge_value_int = ctx.edge_values.get((e[0], e[1]), 1)
-			edge_value_str = edge_value_string(edge_value_int, is_simple=True, ignore_edge_colors=ctx.config.ignore_edge_colors)
-			p_html_content += f'<p><span style="color:#AAAAFF">{ctx.nodes[e[0]]}</span> <span style="color:#000000">{edge_value_str}</span> <span style="color:#AAAAFF">{ctx.nodes[e[1]]}</span></p>'
+			edge_value_str = edge_value_string(edge_value_int, is_simple=True, ignore_edge_colors=ctx.config.ignore_edge_colors or is_counter)
+			label_str = ""
+			if ctx.config.show_edge_labels:
+				edge_lbl = ctx.edge_labels.get((e[0], e[1]), '')
+				if edge_lbl:
+					label_str = f' <span style="color:#AAAAAA; font-style:italic;">({edge_lbl})</span>'
+			src_prefix = "❤️ " if is_counter else ""
+			tgt_prefix = "❤️ " if is_counter else ""
+			p_html_content += f'<p><span style="color:#AAAAFF">{src_prefix}{ctx.nodes[e[0]]}</span> <span style="color:#000000">{edge_value_str}</span> <span style="color:#AAAAFF">{tgt_prefix}{ctx.nodes[e[1]]}</span>{label_str}</p>'
 		except KeyError as ke:
 			print(f"KeyError for edge {e}: {ke}")
 		except Exception as ex:
@@ -152,13 +169,21 @@ def show_edges(p_edges, p_html_content, ctx: GraphContext):
 
 def show_connections_list(p_connections_skipped: int, p_html_content: str, ctx: GraphContext):
 	p_html_content += '<br><h1 style="color:white;">Connection List</h1>'
+	is_counter = ctx.config.connection_type in COUNTER_CONNECTION_TYPES
+	src_prefix = "❤️ " if is_counter else ""
+	tgt_prefix = (f"{get_box_prefix(p_connections_skipped + 1)} ") if is_counter else ""
 
 	if p_connections_skipped <= 0:
 		for e in ctx.edges:
 			try:
 				source_name = ctx.nodes[e[0]]
 				target_name = ctx.nodes[e[1]]
-				p_html_content += f'<p style="color:white;">{source_name} → {target_name}</p>'
+				label_str = ""
+				if ctx.config.show_edge_labels:
+					edge_lbl = ctx.edge_labels.get((e[0], e[1]), '')
+					if edge_lbl:
+						label_str = f' <span style="color:#AAAAAA; font-style:italic;">({edge_lbl})</span>'
+				p_html_content += f'<p style="color:white;">{src_prefix}{source_name} → {tgt_prefix}{target_name}{label_str}</p>'
 				ctx.nodes_printed.add(e[0])
 				ctx.nodes_printed.add(e[1])
 			except KeyError as ke:
@@ -185,7 +210,12 @@ def show_connections_list(p_connections_skipped: int, p_html_content: str, ctx: 
 			try:
 				source_name = ctx.nodes[e[0]]
 				target_name = ctx.nodes[e[1]]
-				p_html_content += f'<p style="color:white;">{source_name} → {target_name}</p>'
+				label_str = ""
+				if ctx.config.show_edge_labels:
+					edge_lbl = ctx.edge_labels.get((e[0], e[1]), '')
+					if edge_lbl:
+						label_str = f' <span style="color:#AAAAAA; font-style:italic;">({edge_lbl})</span>'
+				p_html_content += f'<p style="color:white;">{src_prefix}{source_name} → {tgt_prefix}{target_name}{label_str}</p>'
 				ctx.nodes_printed.add(e[0])
 				ctx.nodes_printed.add(e[1])
 			except KeyError as ke:

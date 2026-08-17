@@ -6,7 +6,7 @@ from games.relationship_game import run_relationship_guessing_game
 from games.connection_game import run_connection_guessing_game
 from html_exporter import generate_html_and_graphml
 from io_graphml import read_from_graph_xml
-from src.config import read_config_file, create_input_file
+from src.config import read_config_file, create_input_file, COUNTER_CONNECTION_TYPES
 from src.models import GraphContext
 
 DEBUGGING = True
@@ -16,6 +16,7 @@ OUTPUT_FOLDER = 'output//'
 
 # Define the section name
 SECTION = 'SETTINGS'
+
 
 def main():
 	if not os.path.exists(INPUT_FILE):
@@ -30,9 +31,9 @@ def main():
 		input_graph_ml = config.folder_path + config.file_name + ('' if config.file_name.endswith('.graphml') else '.graphml')
 
 	# Parse GraphML
-	nodes, edges, edge_values, node_values = read_from_graph_xml(input_graph_ml, config.color_threshold)
+	nodes, edges, edge_values, node_values, edge_labels = read_from_graph_xml(input_graph_ml, config.color_threshold)
 
-	if config.ignore_edge_colors:
+	if config.ignore_edge_colors or config.connection_type in COUNTER_CONNECTION_TYPES:
 		edge_values = {k: 1 for k in edge_values}
 		node_values = {k: 0 for k in node_values}
 		print("Note: edge colors ignored — all edge values set to +1.")
@@ -59,7 +60,8 @@ def main():
 		edge_values=edge_values,
 		config=config,
 		source_node_id=src_id,
-		target_node_id=tgt_id
+		target_node_id=tgt_id,
+		edge_labels=edge_labels
 	)
 
 	# Always generate HTML & GraphML first

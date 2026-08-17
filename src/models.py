@@ -15,3 +15,4 @@ class GraphContext:
 	source_node_id: str = None
 	target_node_id: str = None
 	nodes_printed: Set[str] = field(default_factory=set)
+	edge_labels: Dict[Tuple[str, str], str] = field(default_factory=dict)

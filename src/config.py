@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 SECTION = 'SETTINGS'
+COUNTER_CONNECTION_TYPES = {'counter', 'counters', 'game', 'game-counters'}
 
 
 @dataclass
@@ -14,6 +15,7 @@ class Config:
 	target_node: str = ""
 	show_only_edges: bool = False
 	show_connections_list: bool = False
+	show_edge_labels: bool = False
 	connections_skipped: int = 0
 	enable_non_cycle_printing: bool = False
 	sort_by_len: bool = False
@@ -42,6 +44,7 @@ def read_config_file(p_input_file: str) -> Config:
 	# configparser has built-in methods for booleans and integers
 	show_only_edges = config.getboolean(SECTION, 'show_only_edges', fallback=False)
 	show_connections_list = config.getboolean(SECTION, 'show_connections_list', fallback=False)
+	show_edge_labels = config.getboolean(SECTION, 'show_edge_labels', fallback=False)
 	connections_skipped = config.getint(SECTION, 'connections_skipped', fallback=0)
 	enable_non_cycle_printing = config.getboolean(SECTION, 'enable_non_cycle_printing', fallback=False)
 	sort_by_len = config.getboolean(SECTION, 'sort_by_len', fallback=False)
@@ -66,7 +69,7 @@ def read_config_file(p_input_file: str) -> Config:
 	max_indirectness_game = config.getint(SECTION, 'max_indirectness_game', fallback=3)
 	leaf_only = config.getboolean(SECTION, 'leaf_only', fallback=False)
 	connection_type = config.get(SECTION, 'connection_type', fallback='correlation').strip().lower()
-	ignore_edge_colors = False
+	ignore_edge_colors = connection_type in COUNTER_CONNECTION_TYPES
 
 	# Parse inline overrides appended after the filename with commas:
 	# FILE_NAME=My Graph, ignore_edge_colors=True, connection_type=family
@@ -82,8 +85,12 @@ def read_config_file(p_input_file: str) -> Config:
 			try:
 				if key == 'ignore_edge_colors':
 					ignore_edge_colors = val.lower() in ('true', '1', 'yes')
+				elif key == 'show_edge_labels':
+					show_edge_labels = val.lower() in ('true', '1', 'yes')
 				elif key == 'connection_type':
 					connection_type = val.lower()
+					if connection_type in COUNTER_CONNECTION_TYPES:
+						ignore_edge_colors = True
 				elif key == 'max_cycle_length_html':
 					max_cycle_length_html = int(val)
 				elif key == 'max_cycle_length_game':
@@ -103,11 +110,15 @@ def read_config_file(p_input_file: str) -> Config:
 	else:
 		file_name = file_name_raw
 
+	if connection_type in COUNTER_CONNECTION_TYPES:
+		ignore_edge_colors = True
+
 	return Config(
 		source_node=p_source_node,
 		target_node=p_target_node,
 		show_only_edges=show_only_edges,
 		show_connections_list=show_connections_list,
+		show_edge_labels=show_edge_labels,
 		connections_skipped=connections_skipped,
 		enable_non_cycle_printing=enable_non_cycle_printing,
 		sort_by_len=sort_by_len,
@@ -133,6 +144,7 @@ SOURCE_NODE=
 TARGET_NODE=
 SHOW_ONLY_EDGES=False
 SHOW_CONNECTIONS_LIST=False
+SHOW_EDGE_LABELS=False
 CONNECTIONS_SKIPPED=0
 ENABLE_NON_CYCLE_PRINTING=True
 SORT_BY_LEN=False

@@ -33,6 +33,7 @@ def read_from_graph_xml(p_input_file: str, p_color_threshold: int = 48):
 	node_values = {}
 	edges = []
 	edge_values = {}
+	edge_labels = {}
 
 	all_nodes = {}
 	is_group = {}
@@ -148,6 +149,13 @@ def read_from_graph_xml(p_input_file: str, p_color_threshold: int = 48):
 			except Exception:
 				val = +1
 
+			# Edge label extraction
+			edge_label = ""
+			for sub in edge_elem.iter():
+				if get_local_tag(sub) == 'EdgeLabel' and sub.text and sub.text.strip():
+					edge_label = sub.text.strip().replace('\r\n', ' ').replace('\n', ' ')
+					break
+
 			# Edge arrowheads (handles standard, reversed, and bidirectional)
 			src_arrow = 'none'
 			tgt_arrow = 'standard'
@@ -177,6 +185,8 @@ def read_from_graph_xml(p_input_file: str, p_color_threshold: int = 48):
 								edges.append((s, t))
 								edge_set.add((s, t))
 							edge_values[(s, t)] = val
+							if edge_label:
+								edge_labels[(s, t)] = edge_label
 
 			if has_backward:
 				for s in src_leaves:
@@ -186,8 +196,10 @@ def read_from_graph_xml(p_input_file: str, p_color_threshold: int = 48):
 								edges.append((t, s))
 								edge_set.add((t, s))
 							edge_values[(t, s)] = val
+							if edge_label:
+								edge_labels[(t, s)] = edge_label
 
-	return nodes, edges, edge_values, node_values
+	return nodes, edges, edge_values, node_values, edge_labels
 
 
 def remove_nodes_from_graphml(p_input_file: str, p_output_file: str, p_nodes_to_keep: set):

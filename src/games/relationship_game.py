@@ -3,19 +3,30 @@ import sys
 from collections import defaultdict
 import networkx as nx
 
-from src.formatters import format_path_string, get_path_net_effect_arrow
+from src.formatters import (
+	format_path_string, get_path_net_effect_arrow, get_edge_arrow,
+	format_node_name, get_box_prefix, COUNTER_CONNECTION_TYPES
+)
+from src.graph_utils import find_bounded_cycles
 from src.models import GraphContext
 from src.progress_storage import get_save_file_path, load_progress, save_progress
 
 
+def get_canonical_cycle_tuple(cycle_nodes, nodes_dict):
+	n = len(cycle_nodes)
+	rotations = [cycle_nodes[i:] + cycle_nodes[:i] for i in range(n)]
+	return min(rotations, key=lambda rot: [nodes_dict.get(x, x).lower() for x in rot])
+
+
 def run_relationship_guessing_game(ctx: GraphContext):
 	print("\n--- Relationship Guessing Game ---")
-	print("Guess if the nodes connect Directly, Indirectly, Share a Source/Destination, Leaf (Source/Dest), or are Irrelevant. Enter 0 to stop.")
-	print("[Direct / Indirect / Shared sources/destinations / Leaf Source/Dest / Irrelevant] (Press Enter to reveal answer, or 0 to quit).")
+	print("Guess if the nodes connect Directly, Indirectly, Share a Source/Destination, Leaf (Source/Dest), Form a Cycle, or are Irrelevant. Enter 0 to stop.")
+	print("[Cycle / Direct / Indirect / Shared sources/destinations / Leaf Source/Dest / Irrelevant] (Press Enter to reveal answer, or 0 to quit).")
 
 	g = ctx.graph
 	nodes = ctx.nodes
 	edge_values = ctx.edge_values
+	edge_labels = ctx.edge_labels
 	config = ctx.config
 
 	block_starting_node = config.block_starting_node
@@ -27,38 +38,59 @@ def run_relationship_guessing_game(ctx: GraphContext):
 
 	# Resolve label naming based on CONNECTION_TYPE
 	conn_type = getattr(config, 'connection_type', 'correlation').lower()
+	is_counter = conn_type in COUNTER_CONNECTION_TYPES
+	ignore_edge_colors = config.ignore_edge_colors or is_counter
+
 	if conn_type in ('family', 'family-descendance', 'descendance', 'genealogy'):
 		text_shared_source = "Parents"
 		text_shared_dest = "Children"
-	elif conn_type in ('counter', 'counters', 'game', 'game-counters'):
+	elif is_counter:
 		text_shared_source = "Common threat"
 		text_shared_dest = "Common counter"
 	else:
 		# Default: correlation / system dynamics
-		text_shared_source = "Cofounder (Common cause)"
-		text_shared_dest = "Collider (Common effect)"
+		text_shared_source = "Cofounder"
+		text_shared_dest = "Collider"
 
-	# Find direct leaf nodes
+	# Find direct leaf nodes (roots: in-degree 0; terminals: out-degree 0)
 	root_nodes = {n for n in g.nodes() if g.in_degree(n) == 0}
 	terminal_nodes = {n for n in g.nodes() if g.out_degree(n) == 0}
 	leaf_nodes = root_nodes.union(terminal_nodes)
 
-	# Precompute direct source-leaf and direct destination-leaf mappings
+	# Precompute source and destination mappings for all relevant leaf connections
 	leaf_sources_map = defaultdict(list)
 	leaf_dests_map = defaultdict(list)
 
 	for target in g.nodes():
-		for pred in g.predecessors(target):
-			if pred in root_nodes:
-				leaf_sources_map[target].append(pred)
+		preds = list(g.predecessors(target))
+		if not preds:
+			continue
+		if target in terminal_nodes or any(p in root_nodes for p in preds):
+			leaf_sources_map[target] = preds
 
 	for source in g.nodes():
-		for succ in g.successors(source):
-			if succ in terminal_nodes:
-				leaf_dests_map[source].append(succ)
+		succs = list(g.successors(source))
+		if not succs:
+			continue
+		if source in root_nodes or any(s in terminal_nodes for s in succs):
+			leaf_dests_map[source] = succs
 
 	leaf_source_candidates = [n for n in leaf_sources_map.keys() if str(nodes.get(n, n)).lower() not in block_starting_node]
 	leaf_dest_candidates = [n for n in leaf_dests_map.keys() if str(nodes.get(n, n)).lower() not in block_starting_node]
+
+	# Find cycles for cycle questions
+	cycle_candidates = find_bounded_cycles(g, max_cycle_length_game) if max_cycle_length_game >= 2 else []
+	valid_cycles = []
+	seen_cycles = set()
+	for cyc in cycle_candidates:
+		if len(cyc) < 2 or len(cyc) > max_cycle_length_game:
+			continue
+		if all(str(nodes.get(n, n)).lower() in block_starting_node for n in cyc):
+			continue
+		canonical = tuple(get_canonical_cycle_tuple(cyc, nodes))
+		if canonical not in seen_cycles:
+			seen_cycles.add(canonical)
+			valid_cycles.append(list(canonical))
 
 	# Categorize all unordered node pairs
 	all_node_list = list(g.nodes())
@@ -104,13 +136,14 @@ def run_relationship_guessing_game(ctx: GraphContext):
 				irrelevant_pairs.append((u, v))
 
 	# Define question item pools
+	cycle_items = [('cycle', cyc) for cyc in valid_cycles]
 	leaf_items = [('leaf_src', n) for n in leaf_source_candidates] + [('leaf_dst', n) for n in leaf_dest_candidates]
 	direct_items = [('direct', p) for p in direct_pairs]
 	indirect_items = [('indirect', p) for p in indirect_pairs]
 	same_items = [('same', p) for p in same_pairs]
 	irrelevant_items = [('irrelevant', p) for p in irrelevant_pairs]
 
-	all_relevant_items = leaf_items + direct_items + indirect_items + same_items
+	all_relevant_items = cycle_items + leaf_items + direct_items + indirect_items + same_items
 
 	if not all_relevant_items and not irrelevant_items:
 		print("No valid questions found matching your graph and filter settings.")
@@ -134,6 +167,9 @@ def run_relationship_guessing_game(ctx: GraphContext):
 			return f"leaf_src:{nodes.get(data, data)}"
 		elif itype == 'leaf_dst':
 			return f"leaf_dst:{nodes.get(data, data)}"
+		elif itype == 'cycle':
+			canonical_names = [nodes.get(x, x) for x in data]
+			return "cycle:" + "->".join(canonical_names) + f"->{canonical_names[0]}"
 		else:
 			return get_pair_key(data[0], data[1])
 
@@ -141,6 +177,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 		return progress_data[game2_key].get(get_item_key(item), 0)
 
 	_category_config = [
+		('Cycle', cycle_items),
 		('Leaf', leaf_items),
 		('Direct', direct_items),
 		('Indirect', indirect_items),
@@ -172,7 +209,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 			tier, answered, total, pct = get_category_stats(items)
 			if min_tier > tier:
 				min_tier = tier
-			print(f"  {cat_name:12}: {answered:3} / {total:3} ({pct:2}%) (Left: {total - answered:3})")
+			print(f"  {cat_name:12}: {answered:3} / {total:3} ({pct:2}% + {tier}) (Left: {total - answered:3})")
 		print(f"  Current tier: {min_tier}\n")
 
 	print_relationship_stats()
@@ -186,6 +223,11 @@ def run_relationship_guessing_game(ctx: GraphContext):
 
 		# Filter available items per category matching lowest counter
 		eligible_by_cat = {}
+
+		if cycle_items:
+			cycle_avail = [it for it in cycle_items if get_item_count(it) == min_rel_count]
+			if cycle_avail:
+				eligible_by_cat['cycle'] = cycle_avail
 
 		if leaf_items:
 			leaf_avail = [it for it in leaf_items if get_item_count(it) == min_rel_count]
@@ -207,7 +249,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 			if same_avail:
 				eligible_by_cat['same'] = same_avail
 
-		# Irrelevant items are isolated from min_rel_count so they don't block progression
+		# Irrelevant items are isolated from min_rel_count
 		if irrelevant_items:
 			min_irrel_count = min(get_item_count(it) for it in irrelevant_items)
 			irrel_avail = [it for it in irrelevant_items if get_item_count(it) == min_irrel_count]
@@ -244,14 +286,106 @@ def run_relationship_guessing_game(ctx: GraphContext):
 
 		itype, data = chosen_item
 
-		# Handle Leaf Source Question
-		if itype == 'leaf_src':
+		# Handle Cycle Question
+		if itype == 'cycle':
+			cyc = data
+			rot_idx = random.randrange(len(cyc))
+			rotated_cyc = cyc[rot_idx:] + cyc[:rot_idx]
+			m = random.randint(1, len(rotated_cyc) - 1)
+
+			full_path = rotated_cyc + [rotated_cyc[0]]
+			chosen_middle = full_path[m]
+			pred_node = full_path[m - 1]
+			succ_node = full_path[m + 1]
+
+			edge_val_in = edge_values.get((pred_node, chosen_middle), 1)
+			edge_val_out = edge_values.get((chosen_middle, succ_node), 1)
+
+			q_parts = [format_node_name(full_path[0], nodes, 0, is_counter)]
+			for k in range(len(full_path) - 1):
+				u = full_path[k]
+				v = full_path[k + 1]
+				val = edge_values.get((u, v), 1)
+				arrow = "→" if (ignore_edge_colors or is_counter) else get_edge_arrow(val)
+				if (k + 1) == m:
+					node_text = f"{get_box_prefix(k + 1)} [?]" if is_counter else "[?]"
+				else:
+					node_text = format_node_name(v, nodes, k + 1, is_counter)
+				q_parts.append(f"{arrow} {node_text}")
+
+			question_str = " ".join(q_parts)
+			print(f"Question {question_num}: {question_str}", end=' ')
+
+			user_input = input().strip()
+			if user_input == '0':
+				print("Stopping the game.")
+				break
+
+			# Find all candidate nodes in graph that complete the same cycle question
+			known_nodes = set(rotated_cyc) - {chosen_middle}
+			candidate_paths = []
+			for cand in g.nodes():
+				if cand in known_nodes:
+					continue
+				if str(nodes.get(cand, cand)).lower() in block_starting_node:
+					continue
+				if g.has_edge(pred_node, cand) and g.has_edge(cand, succ_node):
+					val_in = edge_values.get((pred_node, cand), 1)
+					val_out = edge_values.get((cand, succ_node), 1)
+					if val_in == edge_val_in and val_out == edge_val_out:
+						cand_path = full_path[:m] + [cand] + full_path[m + 1:]
+						candidate_paths.append(cand_path)
+
+			candidate_paths.sort(key=lambda p: [str(nodes.get(n, n)).lower() for n in p])
+
+			if len(candidate_paths) <= 1:
+				formatted_cycle = format_path_string(full_path, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+				if is_counter or ignore_edge_colors:
+					print(f"Answer: {formatted_cycle}")
+				else:
+					cycle_corr = 1
+					for k in range(len(full_path) - 1):
+						cycle_corr *= edge_values.get((full_path[k], full_path[k + 1]), 1)
+					polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
+					loop_type = "Reinforcing" if cycle_corr > 0 else "Balancing"
+					print(f"Answer: {formatted_cycle} ({polarity_icon} {loop_type})")
+			else:
+				print("Answer(s):")
+				for cand_p in candidate_paths:
+					formatted_cycle = format_path_string(cand_p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+					if is_counter or ignore_edge_colors:
+						print(f"  • {formatted_cycle}")
+					else:
+						cycle_corr = 1
+						for k in range(len(cand_p) - 1):
+							cycle_corr *= edge_values.get((cand_p[k], cand_p[k + 1]), 1)
+						polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
+						loop_type = "Reinforcing" if cycle_corr > 0 else "Balancing"
+						print(f"  • {formatted_cycle} ({polarity_icon} {loop_type})")
+
+			print()
+			cycle_key = get_item_key(chosen_item)
+			current_counter = progress_data[game2_key].get(cycle_key, 0)
+			progress_data[game2_key][cycle_key] = current_counter + 1
+			save_progress(save_path, progress_data)
+			new_tiers = get_global_tiers()
+			if new_tiers != current_tiers:
+				current_tiers = new_tiers
+				print_relationship_stats()
+			continue
+
+		# Handle Leaf Source Question ([?] → Target)
+		elif itype == 'leaf_src':
 			target_node = data
 			target_name = nodes.get(target_node, target_node)
 			leaf_key = f"leaf_src:{target_name}"
 			current_counter = progress_data[game2_key].get(leaf_key, 0)
 
-			print(f"Question {question_num}: [?] → {target_name}", end=' ')
+			if is_counter:
+				print(f"Question {question_num}: 🟦 [?] → 🟥 {target_name}", end=' ')
+			else:
+				print(f"Question {question_num}: [?] → {target_name}", end=' ')
+
 			user_input = input().strip()
 			if user_input == '0':
 				print("Stopping the game.")
@@ -259,11 +393,11 @@ def run_relationship_guessing_game(ctx: GraphContext):
 
 			found_leaves = sorted(leaf_sources_map[target_node], key=lambda x: str(nodes.get(x, x)).lower())
 			if len(found_leaves) == 1:
-				print(f"Answer: {format_path_string([found_leaves[0], target_node], nodes, edge_values)}")
+				print(f"Answer: {format_path_string([found_leaves[0], target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 			else:
 				print("Answer(s):")
 				for s in found_leaves:
-					print(f"  • {format_path_string([s, target_node], nodes, edge_values)}")
+					print(f"  • {format_path_string([s, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 
 			print()
 			progress_data[game2_key][leaf_key] = current_counter + 1
@@ -274,14 +408,18 @@ def run_relationship_guessing_game(ctx: GraphContext):
 				print_relationship_stats()
 			continue
 
-		# Handle Leaf Destination Question
+		# Handle Leaf Destination Question (Source → [?])
 		elif itype == 'leaf_dst':
 			source_node = data
 			source_name = nodes.get(source_node, source_node)
 			leaf_key = f"leaf_dst:{source_name}"
 			current_counter = progress_data[game2_key].get(leaf_key, 0)
 
-			print(f"Question {question_num}: {source_name} → [?]", end=' ')
+			if is_counter:
+				print(f"Question {question_num}: 🟦 {source_name} → 🟥 [?]", end=' ')
+			else:
+				print(f"Question {question_num}: {source_name} → [?]", end=' ')
+
 			user_input = input().strip()
 			if user_input == '0':
 				print("Stopping the game.")
@@ -289,11 +427,11 @@ def run_relationship_guessing_game(ctx: GraphContext):
 
 			found_leaves = sorted(leaf_dests_map[source_node], key=lambda x: str(nodes.get(x, x)).lower())
 			if len(found_leaves) == 1:
-				print(f"Answer: {format_path_string([source_node, found_leaves[0]], nodes, edge_values)}")
+				print(f"Answer: {format_path_string([source_node, found_leaves[0]], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 			else:
 				print("Answer(s):")
 				for d in found_leaves:
-					print(f"  • {format_path_string([source_node, d], nodes, edge_values)}")
+					print(f"  • {format_path_string([source_node, d], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 
 			print()
 			progress_data[game2_key][leaf_key] = current_counter + 1
@@ -322,23 +460,22 @@ def run_relationship_guessing_game(ctx: GraphContext):
 				print("Stopping the game.")
 				break
 
-			has_u_v = nx.has_path(g, u, v)
-			has_v_u = nx.has_path(g, v, u)
-			paths_u_v = list(nx.all_shortest_paths(g, u, v)) if has_u_v else []
-			paths_v_u = list(nx.all_shortest_paths(g, v, u)) if has_v_u else []
+			# Fetch all simple paths within indirectness bounds
+			cutoff_distance = max_indirectness_game + 1
+			paths_u_v = list(nx.all_simple_paths(g, source=u, target=v, cutoff=cutoff_distance))
+			paths_v_u = list(nx.all_simple_paths(g, source=v, target=u, cutoff=cutoff_distance))
 
-			# Filter out paths exceeding MAX_INDIRECTNESS_GAME (intermediate nodes > MAX_INDIRECTNESS_GAME)
-			paths_u_v = [p for p in paths_u_v if (len(p) - 2) <= max_indirectness_game]
-			paths_v_u = [p for p in paths_v_u if (len(p) - 2) <= max_indirectness_game]
+			paths_u_v.sort(key=len)
+			paths_v_u.sort(key=len)
 
-			has_disp_u_v = bool(paths_u_v)
-			has_disp_v_u = bool(paths_v_u)
+			direct_u_v = [p for p in paths_u_v if len(p) == 2]
+			direct_v_u = [p for p in paths_v_u if len(p) == 2]
 
-			len_u_v = len(paths_u_v[0]) - 1 if paths_u_v else float('inf')
-			len_v_u = len(paths_v_u[0]) - 1 if paths_v_u else float('inf')
+			indirect_u_v = [p for p in paths_u_v if len(p) > 2]
+			indirect_v_u = [p for p in paths_v_u if len(p) > 2]
 
-			is_direct = (len_u_v == 1 or len_v_u == 1)
-			is_indirect = not is_direct and (has_disp_u_v or has_disp_v_u)
+			is_direct = bool(direct_u_v or direct_v_u)
+			is_indirect = not is_direct and bool(indirect_u_v or indirect_v_u)
 
 			# Find shared sources and shared destinations
 			shared_srcs = [s for s in set(g.predecessors(u)).intersection(g.predecessors(v)) if s != u and s != v]
@@ -349,53 +486,80 @@ def run_relationship_guessing_game(ctx: GraphContext):
 
 			# Collect all distinct connection options
 			connection_lines = []
+
+			if is_counter:
+				for s in shared_srcs:
+					s_name = nodes.get(s, s)
+					connection_lines.append(f"{text_shared_source}: 🟦 {s_name} → 🟥 {u_name} & 🟥 {v_name}")
+
+				for d in shared_dsts:
+					d_name = nodes.get(d, d)
+					connection_lines.append(f"{text_shared_dest}: 🟦 {u_name} & 🟦 {v_name} → 🟥 {d_name}")
+			else:
+				for s in shared_srcs:
+					val_u = edge_values.get((s, u), 1)
+					val_v = edge_values.get((s, v), 1)
+					arr_u = "→" if ignore_edge_colors else get_edge_arrow(val_u)
+					arr_v = "→" if ignore_edge_colors else get_edge_arrow(val_v)
+					if arr_u == arr_v:
+						connection_lines.append(f"{text_shared_source}: {nodes.get(s, s)} {arr_u}")
+					else:
+						connection_lines.append(f"{text_shared_source}: {nodes.get(s, s)} {arr_u} {nodes.get(u, u)} + {arr_v} {nodes.get(v, v)}")
+
+				for d in shared_dsts:
+					val_u = edge_values.get((u, d), 1)
+					val_v = edge_values.get((v, d), 1)
+					arr_u = "→" if ignore_edge_colors else get_edge_arrow(val_u)
+					arr_v = "→" if ignore_edge_colors else get_edge_arrow(val_v)
+					if arr_u == arr_v:
+						connection_lines.append(f"{text_shared_dest}: {arr_u} {nodes.get(d, d)}")
+					else:
+						connection_lines.append(f"{text_shared_dest}: {nodes.get(u, u)} ({arr_u}) + {nodes.get(v, v)} ({arr_v}) → {nodes.get(d, d)}")
+
 			if is_direct:
-				if len_u_v == 1 and len_v_u == 1:
-					connection_lines.append(f"Direct (⟳): {format_path_string([u, v], nodes, edge_values)} ↔ {format_path_string([v, u], nodes, edge_values)}")
-				elif len_u_v == 1:
-					connection_lines.append(f"Direct: {format_path_string([u, v], nodes, edge_values)}")
-					if has_disp_v_u:
-						for p in paths_v_u:
-							connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p, nodes, edge_values)} ({get_path_net_effect_arrow(p, edge_values)})")
-				elif len_v_u == 1:
-					connection_lines.append(f"Direct: {format_path_string([v, u], nodes, edge_values)}")
-					if has_disp_u_v:
-						for p in paths_u_v:
-							connection_lines.append(f"Indirect ↩ ({len(p) - 2}): {format_path_string(p, nodes, edge_values)} ({get_path_net_effect_arrow(p, edge_values)})")
-			elif is_indirect:
-				if has_disp_u_v:
-					for p in paths_u_v:
-						connection_lines.append(f"Indirect ({len(p) - 2}): {format_path_string(p, nodes, edge_values)} ({get_path_net_effect_arrow(p, edge_values)})")
-				if has_disp_v_u:
+				if direct_u_v and direct_v_u:
+					p1_str = format_path_string([u, v], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+					p2_str = format_path_string([v, u], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+					connection_lines.append(f"Direct (⟳): {p1_str} ↔ {p2_str}")
+				elif direct_u_v:
+					p_str = format_path_string([u, v], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+					connection_lines.append(f"Direct: {p_str}")
 					for p in paths_v_u:
-						prefix = "Indirect ↩" if has_disp_u_v else "Indirect"
-						connection_lines.append(f"{prefix} ({len(p) - 2}): {format_path_string(p, nodes, edge_values)} ({get_path_net_effect_arrow(p, edge_values)})")
+						is_p_direct = len(p) == 2
+						prefix = "Direct ↩" if is_p_direct else f"Indirect ↩ ({len(p) - 2})"
+						formatted_p = format_path_string(p, nodes, edge_values, edge_labels if is_p_direct else None, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+						suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
+						connection_lines.append(f"{prefix}: {formatted_p}{suffix}")
+				elif direct_v_u:
+					p_str = format_path_string([v, u], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+					connection_lines.append(f"Direct: {p_str}")
+					for p in paths_u_v:
+						is_p_direct = len(p) == 2
+						prefix = "Direct ↩" if is_p_direct else f"Indirect ↩ ({len(p) - 2})"
+						formatted_p = format_path_string(p, nodes, edge_values, edge_labels if is_p_direct else None, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+						suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
+						connection_lines.append(f"{prefix}: {formatted_p}{suffix}")
 
-			for s in shared_srcs:
-				val_u = edge_values.get((s, u), 1)
-				val_v = edge_values.get((s, v), 1)
-				arr_u = "📉" if val_u < 0 else "📈"
-				arr_v = "📉" if val_v < 0 else "📈"
-				if arr_u == arr_v:
-					connection_lines.append(f"{text_shared_source}: {nodes.get(s, s)} {arr_u}")
-				else:
-					connection_lines.append(f"{text_shared_source}: {nodes.get(s, s)} {arr_u} {nodes.get(u, u)} + {arr_v} {nodes.get(v, v)}")
-
-			for d in shared_dsts:
-				val_u = edge_values.get((u, d), 1)
-				val_v = edge_values.get((v, d), 1)
-				arr_u = "📉" if val_u < 0 else "📈"
-				arr_v = "📉" if val_v < 0 else "📈"
-				if arr_u == arr_v:
-					connection_lines.append(f"{text_shared_dest}: {arr_u} {nodes.get(d, d)}")
-				else:
-					connection_lines.append(f"{text_shared_dest}: {nodes.get(u, u)} ({arr_u}) + {nodes.get(v, v)} ({arr_v}) → {nodes.get(d, d)}")
+				for p in indirect_u_v:
+					formatted_p = format_path_string(p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+					suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
+					connection_lines.append(f"Indirect ({len(p) - 2}): {formatted_p}{suffix}")
+			elif is_indirect:
+				for p in indirect_u_v:
+					formatted_p = format_path_string(p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+					suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
+					connection_lines.append(f"Indirect ({len(p) - 2}): {formatted_p}{suffix}")
+				for p in indirect_v_u:
+					prefix = "Indirect ↩" if indirect_u_v else "Indirect"
+					formatted_p = format_path_string(p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+					suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
+					connection_lines.append(f"{prefix} ({len(p) - 2}): {formatted_p}{suffix}")
 
 			# Find feedback loops / cycles
 			if max_cycle_length_game >= 2:
 				paths_fwd = list(nx.all_simple_paths(g, source=u, target=v, cutoff=max_cycle_length_game - 1))
 				paths_bwd = list(nx.all_simple_paths(g, source=v, target=u, cutoff=max_cycle_length_game - 1))
-				seen_cycles = set()
+				seen_pair_cycles = set()
 				pair_cycles = []
 
 				for p1 in paths_fwd:
@@ -407,19 +571,23 @@ def run_relationship_guessing_game(ctx: GraphContext):
 							cycle_tuple = tuple(full_cycle[:-1])
 							min_i = cycle_tuple.index(min(cycle_tuple))
 							canonical = cycle_tuple[min_i:] + cycle_tuple[:min_i]
-							if canonical not in seen_cycles:
-								seen_cycles.add(canonical)
+							if canonical not in seen_pair_cycles:
+								seen_pair_cycles.add(canonical)
 								pair_cycles.append(full_cycle)
 
 				pair_cycles.sort(key=lambda c: (len(c), [str(nodes.get(n, n)) for n in c]))
 
 				for cyc in pair_cycles:
-					cycle_corr = 1
-					for k in range(len(cyc) - 1):
-						cycle_corr *= edge_values.get((cyc[k], cyc[k + 1]), 1)
-					polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
+					formatted_cyc = format_path_string(cyc, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 					cyc_len = len(cyc) - 1
-					connection_lines.append(f"Cycle ({cyc_len}) {polarity_icon}: {format_path_string(cyc, nodes, edge_values)}")
+					if is_counter or ignore_edge_colors:
+						connection_lines.append(f"Cycle ({cyc_len}): {formatted_cyc}")
+					else:
+						cycle_corr = 1
+						for k in range(len(cyc) - 1):
+							cycle_corr *= edge_values.get((cyc[k], cyc[k + 1]), 1)
+						polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
+						connection_lines.append(f"Cycle ({cyc_len}) {polarity_icon}: {formatted_cyc}")
 
 			if not connection_lines:
 				print("Answer: IRRELEVANT")

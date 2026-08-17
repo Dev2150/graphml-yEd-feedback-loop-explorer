@@ -4,6 +4,7 @@ from collections import defaultdict
 
 import networkx as nx
 
+from src.formatters import get_edge_arrow, format_path_string, format_node_name, get_box_prefix, COUNTER_CONNECTION_TYPES
 from src.models import GraphContext
 from src.progress_storage import get_save_file_path, load_progress, save_progress
 
@@ -12,8 +13,12 @@ def run_connection_guessing_game(ctx: GraphContext):
 	g = ctx.graph
 	nodes = ctx.nodes
 	edge_values = ctx.edge_values
+	edge_labels = ctx.edge_labels
 	config = ctx.config
 	block_starting_node = config.block_starting_node
+
+	is_counter = config.connection_type in COUNTER_CONNECTION_TYPES
+	ignore_edge_colors = config.ignore_edge_colors or is_counter
 
 	while True:
 		try:
@@ -102,17 +107,20 @@ def run_connection_guessing_game(ctx: GraphContext):
 		correct_paths = paths_by_pair[(src, tgt)]
 
 		first_full_path = [src] + correct_paths[0] + [tgt]
-		q_parts = [src_name]
+
+		q_parts = [format_node_name(src, nodes, 0, is_counter)]
 		for k in range(len(first_full_path) - 1):
 			u = first_full_path[k]
 			v = first_full_path[k + 1]
-			edge_val = edge_values.get((u, v), 1)
-			arrow = "📉" if edge_val < 0 else "📈"
+			val = edge_values.get((u, v), 1)
+			arrow = "→" if (ignore_edge_colors or is_counter) else get_edge_arrow(val)
 
 			if k < len(first_full_path) - 2:
-				q_parts.append(f"{arrow} [?]")
+				node_text = f"{get_box_prefix(k + 1)} [?]" if is_counter else "[?]"
+				q_parts.append(f"{arrow} {node_text}")
 			else:
-				q_parts.append(f"{arrow} {tgt_name}")
+				tgt_formatted = format_node_name(tgt, nodes, len(first_full_path) - 1, is_counter)
+				q_parts.append(f"{arrow} {tgt_formatted}")
 
 		question_str = " ".join(q_parts)
 		print(f"Question {i + 1}/{len(quiz_cases)}: {question_str}", end=' ')
@@ -124,39 +132,20 @@ def run_connection_guessing_game(ctx: GraphContext):
 
 		if len(correct_paths) == 1:
 			inter_nodes = correct_paths[0]
-			ans_parts = [nodes.get(inter_nodes[0], inter_nodes[0])]
-			for k in range(len(inter_nodes) - 1):
-				u = inter_nodes[k]
-				v = inter_nodes[k + 1]
-				edge_val = edge_values.get((u, v), 1)
-				arrow = "📉" if edge_val < 0 else "📈"
-				ans_parts.append(f"{arrow} {nodes.get(v, v)}")
-			print(f"Correct answer: {' '.join(ans_parts)}")
+			ans_str = format_path_string(inter_nodes, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter, start_index=1)
+			print(f"Correct answer: {ans_str}")
 		else:
 			print("Correct answer(s):")
 			for idx, inter_nodes in enumerate(correct_paths):
-				ans_parts = [nodes.get(inter_nodes[0], inter_nodes[0])]
-				for k in range(len(inter_nodes) - 1):
-					u = inter_nodes[k]
-					v = inter_nodes[k + 1]
-					edge_val = edge_values.get((u, v), 1)
-					arrow = "📉" if edge_val < 0 else "📈"
-					ans_parts.append(f"{arrow} {nodes.get(v, v)}")
-				print(f"  Option {idx + 1}: {' '.join(ans_parts)}")
+				ans_str = format_path_string(inter_nodes, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter, start_index=1)
+				print(f"  Option {idx + 1}: {ans_str}")
 
 		shorter_paths = list(nx.all_simple_paths(g, source=src, target=tgt, cutoff=target_length - 1))
 		if shorter_paths:
 			print("More direct connection(s) also exist:")
 			shorter_paths.sort(key=len)
 			for sp in shorter_paths:
-				sp_parts = [nodes.get(sp[0], sp[0])]
-				for k in range(len(sp) - 1):
-					u = sp[k]
-					v = sp[k + 1]
-					edge_val = edge_values.get((u, v), 1)
-					arrow = "📉" if edge_val < 0 else "📈"
-					sp_parts.append(f"{arrow} {nodes.get(v, v)}")
-				print(f"  {' '.join(sp_parts)}")
+				print(f"  {format_path_string(sp, nodes, edge_values, edge_labels if len(sp) == 2 else None, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 
 		print()
 		progress_data[skip_key][pair_key] = current_counter + 1

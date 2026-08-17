@@ -1,3 +1,23 @@
+COUNTER_CONNECTION_TYPES = {'counter', 'counters', 'game', 'game-counters'}
+
+
+def get_box_prefix(index: int) -> str:
+	return "🟦" if index % 2 == 0 else "🟥"
+
+
+def format_node_name(node_id: str, nodes_dict: dict, index: int = 0, is_counter: bool = False) -> str:
+	name = nodes_dict.get(node_id, str(node_id))
+	if is_counter:
+		return f"{get_box_prefix(index)} {name}"
+	return name
+
+
+def get_edge_arrow(val: int, ignore_edge_colors: bool = False) -> str:
+	if ignore_edge_colors:
+		return "→"
+	return "📉" if val < 0 else "📈"
+
+
 def edge_value_string(p_edge_value: int, is_simple: bool = False, ignore_edge_colors: bool = False) -> str:
 	if ignore_edge_colors:
 		return ' → ' if not is_simple else '→'
@@ -30,14 +50,25 @@ def get_color_by_node_properties(cycle_correlation: int, convenience: int) -> st
 	return "#FFFFFF" if cycle_correlation > 0 else "#777777"
 
 
-def format_path_string(path: list, nodes_dict: dict, edge_values_dict: dict) -> str:
-	parts = [nodes_dict.get(path[0], path[0])]
+def format_path_string(path: list, nodes_dict: dict, edge_values_dict: dict, edge_labels_dict: dict = None,
+					   ignore_edge_colors: bool = False, is_counter: bool = False, start_index: int = 0) -> str:
+	if not path:
+		return ""
+	parts = [format_node_name(path[0], nodes_dict, start_index, is_counter)]
+	is_direct = (len(path) == 2)
+
 	for k in range(len(path) - 1):
 		u = path[k]
 		v = path[k + 1]
 		val = edge_values_dict.get((u, v), 1)
-		arrow = "📉" if val < 0 else "📈"
-		parts.append(f"{arrow} {nodes_dict.get(v, v)}")
+		arrow = "→" if (ignore_edge_colors or is_counter) else get_edge_arrow(val)
+		lbl_str = ""
+		if is_direct and edge_labels_dict:
+			lbl = edge_labels_dict.get((u, v), "")
+			if lbl:
+				lbl_str = f" ({lbl})"
+		v_formatted = format_node_name(v, nodes_dict, start_index + k + 1, is_counter)
+		parts.append(f"{arrow} {v_formatted}{lbl_str}")
 	return " ".join(parts)
 
 
@@ -45,4 +76,4 @@ def get_path_net_effect_arrow(path: list, edge_values_dict: dict) -> str:
 	corr = 1
 	for k in range(len(path) - 1):
 		corr *= edge_values_dict.get((path[k], path[k + 1]), 1)
-	return "📉" if corr < 0 else "📈"
+	return get_edge_arrow(corr)
