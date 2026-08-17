@@ -13,25 +13,25 @@ Its main functions are:
   - Finds all simple paths between specified source and target nodes.
 - Analysis & Output:
   - Can identify whether the cycle is a positive feedback loop (**V**) or a negative feedback loop (**=**).
-    - If it is a positive feedback loop, whether it is a **V**irtuous cycle or a **V**icious cycle depends on the convenience of the target node
+	- If it is a positive feedback loop, whether it is a **V**irtuous cycle or a **V**icious cycle depends on the convenience of the target node
   - Generates an HTML file to visualize the found feedback loops, besides incoming & outgoing paths, using colors and symbols (:--->:, :--X->:) based on the nature of the node and edge.
 - Filtering: Reports on irrelevant nodes (those not part of any printed path or cycle) and generates a new, filtered GraphML file containing only the relevant nodes and edges.
 
 ## HTML Legend:
 
-| Color       | Node nature | Change |
+| Color	   | Node nature | Change |
 |-------------|-------------|--------|
-| White       | Neutral     | +      |
-| Gray        | Neutral     | -      |
-| Green       | Positive    | +      |
-| Pink        | Positive    | -      |
-| Red         | Negative    | +      |
-| Light green | Negative    | -      |
+| White	   | Neutral	 | +	  |
+| Gray		| Neutral	 | -	  |
+| Green	   | Positive	| +	  |
+| Pink		| Positive	| -	  |
+| Red		 | Negative	| +	  |
+| Light green | Negative	| -	  |
 
 | Edge | Correlation |
 |------|-------------|
-| ---> | +           |
-| -X-> | -           |
+| ---> | +		   |
+| -X-> | -		   |
 
 
 ## Example:
