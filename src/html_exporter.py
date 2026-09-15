@@ -1,4 +1,5 @@
 import os
+from collections import deque
 
 import networkx as nx
 
@@ -148,7 +149,11 @@ def print_to_file(p_html_content: str, output_folder: str, ctx: GraphContext):
 def show_edges(p_edges, p_html_content, ctx: GraphContext):
 	p_html_content += '<br><h1 style="color:white;">Edges</h1>'
 	is_counter = ctx.config.connection_type in COUNTER_CONNECTION_TYPES
-	for e in p_edges:
+	edges_to_show = list(p_edges)
+	if ctx.config.sort_connections_alphabetically:
+		edges_to_show.sort(key=lambda e: (ctx.nodes.get(e[0], '').lower(), ctx.nodes.get(e[1], '').lower()))
+
+	for e in edges_to_show:
 		try:
 			edge_value_int = ctx.edge_values.get((e[0], e[1]), 1)
 			edge_value_str = edge_value_string(edge_value_int, is_simple=True, ignore_edge_colors=ctx.config.ignore_edge_colors or is_counter)
@@ -173,40 +178,34 @@ def show_connections_list(p_connections_skipped: int, p_html_content: str, ctx: 
 	src_prefix = "❤️ " if is_counter else ""
 	tgt_prefix = (f"{get_box_prefix(p_connections_skipped + 1)} ") if is_counter else ""
 
+	# Gather connections preserving chronological discovery order
 	if p_connections_skipped <= 0:
-		for e in ctx.edges:
-			try:
-				source_name = ctx.nodes[e[0]]
-				target_name = ctx.nodes[e[1]]
-				label_str = ""
-				if ctx.config.show_edge_labels:
-					edge_lbl = ctx.edge_labels.get((e[0], e[1]), '')
-					if edge_lbl:
-						label_str = f'<br><span style="color:#AAAAAA; font-style:italic; margin-left:30px; display:inline-block;">({edge_lbl})</span>'
-				p_html_content += f'<p style="color:white;">{src_prefix}{source_name} → {tgt_prefix}{target_name}{label_str}</p>'
-				ctx.nodes_printed.add(e[0])
-				ctx.nodes_printed.add(e[1])
-			except KeyError as ke:
-				print(f"KeyError for edge {e}: {ke}")
-			except Exception as ex:
-				print(f"An error occurred for edge {e}: {ex}")
+		connections = list(ctx.edges)
 	else:
 		target_length = p_connections_skipped + 1
-		seen_connections = set()
+		seen_connections = {}
 
 		for source in ctx.graph.nodes():
-			stack = [(source, [source])]
-			while stack:
-				curr, path = stack.pop()
+			queue = deque([(source, [source])])
+			while queue:
+				curr, path = queue.popleft()
 				if len(path) - 1 == target_length:
-					seen_connections.add((path[0], path[-1]))
+					pair = (path[0], path[-1])
+					if pair not in seen_connections:
+						seen_connections[pair] = None
 					continue
 				for neighbor in ctx.graph.successors(curr):
 					if neighbor not in path:
-						stack.append((neighbor, path + [neighbor]))
+						queue.append((neighbor, path + [neighbor]))
 
-		sorted_connections = sorted(list(seen_connections), key=lambda x: (ctx.nodes.get(x[0], ''), ctx.nodes.get(x[1], '')))
-		for e in sorted_connections:
+		connections = list(seen_connections.keys())
+
+	# Sort alphabetically if requested, otherwise keep default chronological order
+	if ctx.config.sort_connections_alphabetically:
+		connections.sort(key=lambda x: (ctx.nodes.get(x[0], '').lower(), ctx.nodes.get(x[1], '').lower()))
+
+	# Render connections list
+	for e in connections:
 			try:
 				source_name = ctx.nodes[e[0]]
 				target_name = ctx.nodes[e[1]]

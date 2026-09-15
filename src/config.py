@@ -19,6 +19,7 @@ class Config:
 	connections_skipped: int = 0
 	enable_non_cycle_printing: bool = False
 	sort_by_len: bool = False
+	sort_connections_alphabetically: bool = False
 	color_threshold: int = 48
 	max_cycle_length_html: int = 5
 	max_cycle_length_game: int = 3
@@ -49,6 +50,12 @@ def read_config_file(p_input_file: str) -> Config:
 	enable_non_cycle_printing = config.getboolean(SECTION, 'enable_non_cycle_printing', fallback=False)
 	sort_by_len = config.getboolean(SECTION, 'sort_by_len', fallback=False)
 
+	# Connection sorting (supports boolean or string names like 'alphabetical' / 'default' / 'chronological')
+	raw_sort_conn = config.get(SECTION, 'sort_connections_alphabetically',
+	                           fallback=config.get(SECTION, 'connections_sort_order',
+	                                               fallback=config.get(SECTION, 'sort_connections', fallback='false'))).strip().lower()
+	sort_connections_alphabetically = raw_sort_conn in ('true', '1', 'yes', 'alphabetical', 'alphabetic', 'alpha')
+
 	color_threshold = config.getint(SECTION, 'color_threshold', fallback=48)
 	folder_path = config.get(SECTION, 'folder_path', fallback='').strip()
 	file_name_raw = config.get(SECTION, 'file_name', fallback='').strip()
@@ -72,7 +79,7 @@ def read_config_file(p_input_file: str) -> Config:
 	ignore_edge_colors = connection_type in COUNTER_CONNECTION_TYPES
 
 	# Parse inline overrides appended after the filename with commas:
-	# FILE_NAME=My Graph, ignore_edge_colors=True, connection_type=family
+	# FILE_NAME=My Graph, sort_connections_alphabetically=True, ignore_edge_colors=True
 	if ',' in file_name_raw:
 		parts = file_name_raw.split(',')
 		file_name = parts[0].strip()
@@ -87,6 +94,8 @@ def read_config_file(p_input_file: str) -> Config:
 					ignore_edge_colors = val.lower() in ('true', '1', 'yes')
 				elif key == 'show_edge_labels':
 					show_edge_labels = val.lower() in ('true', '1', 'yes')
+				elif key in ('sort_connections_alphabetically', 'sort_connections', 'connections_sort_order'):
+					sort_connections_alphabetically = val.lower() in ('true', '1', 'yes', 'alphabetical', 'alphabetic', 'alpha')
 				elif key == 'connection_type':
 					connection_type = val.lower()
 					if connection_type in COUNTER_CONNECTION_TYPES:
@@ -122,6 +131,7 @@ def read_config_file(p_input_file: str) -> Config:
 		connections_skipped=connections_skipped,
 		enable_non_cycle_printing=enable_non_cycle_printing,
 		sort_by_len=sort_by_len,
+		sort_connections_alphabetically=sort_connections_alphabetically,
 		color_threshold=color_threshold,
 		max_cycle_length_html=max_cycle_length_html,
 		max_cycle_length_game=max_cycle_length_game,
@@ -148,6 +158,7 @@ SHOW_EDGE_LABELS=False
 CONNECTIONS_SKIPPED=0
 ENABLE_NON_CYCLE_PRINTING=True
 SORT_BY_LEN=False
+SORT_CONNECTIONS_ALPHABETICALLY=False
 COLOR_THRESHOLD=48
 MAX_CYCLE_LENGTH_HTML=5
 MAX_CYCLE_LENGTH_GAME=3
