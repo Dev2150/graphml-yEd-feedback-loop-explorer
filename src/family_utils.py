@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Set, Tuple
 import networkx as nx
 
+from src.io_graphml import detect_gender
+
 FAMILY_CONNECTION_TYPES = {
 	'family', 'family-descendance', 'descendance', 'genealogy', 'tree', 'familytree', 'family-tree'
 }
@@ -22,6 +24,62 @@ SPOUSE_KEYWORDS = (
 	'spouse', 'wife', 'husband', 'married', 'partner', 'couple',
 	'casad', 'matrimoni', 'espos', 'm.'
 )
+
+
+def get_parent_term(gender: str) -> str:
+	return "Father" if gender == 'M' else "Mother" if gender == 'F' else "Parent"
+
+
+def get_child_term(gender: str) -> str:
+	return "Son" if gender == 'M' else "Daughter" if gender == 'F' else "Child"
+
+
+def get_grandparent_term(gender: str) -> str:
+	return "Grandfather" if gender == 'M' else "Grandmother" if gender == 'F' else "Grandparent"
+
+
+def get_grandchild_term(gender: str) -> str:
+	return "Grandson" if gender == 'M' else "Granddaughter" if gender == 'F' else "Grandchild"
+
+
+def get_great_grandparent_term(gender: str) -> str:
+	return "Great-Grandfather (Grand-grandfather)" if gender == 'M' else "Great-Grandmother (Grand-grandmother)" if gender == 'F' else "Great-Grandparent (Grand-grandparent)"
+
+
+def get_great_grandchild_term(gender: str) -> str:
+	return "Great-Grandson (Grand-grandson)" if gender == 'M' else "Great-Granddaughter (Grand-granddaughter)" if gender == 'F' else "Great-Grandchild (Grand-grandchild)"
+
+
+def get_great_great_grandparent_term(gender: str) -> str:
+	return "Great-Great-Grandfather (Grand-grand-grandfather)" if gender == 'M' else "Great-Great-Grandmother (Grand-grand-grandmother)" if gender == 'F' else "Great-Great-Grandparent (Grand-grand-grandparent)"
+
+
+def get_great_great_grandchild_term(gender: str) -> str:
+	return "Great-Great-Grandson (Grand-grand-grandson)" if gender == 'M' else "Great-Great-Granddaughter (Grand-grand-granddaughter)" if gender == 'F' else "Great-Great-Grandchild (Grand-grand-grandchild)"
+
+
+def get_sibling_term(gender: str) -> str:
+	return "Brother" if gender == 'M' else "Sister" if gender == 'F' else "Sibling"
+
+
+def get_uncle_aunt_term(gender: str) -> str:
+	return "Uncle" if gender == 'M' else "Aunt" if gender == 'F' else "Uncle/Aunt"
+
+
+def get_nephew_niece_term(gender: str) -> str:
+	return "Nephew" if gender == 'M' else "Niece" if gender == 'F' else "Nephew/Niece"
+
+
+def get_great_uncle_aunt_term(gender: str) -> str:
+	return "Great-Uncle (Grand-uncle)" if gender == 'M' else "Great-Aunt (Grand-aunt)" if gender == 'F' else "Great-Uncle/Aunt"
+
+
+def get_great_nephew_niece_term(gender: str) -> str:
+	return "Great-Nephew (Grand-nephew)" if gender == 'M' else "Great-Niece (Grand-niece)" if gender == 'F' else "Great-Nephew/Niece"
+
+
+def get_spouse_term(gender: str) -> str:
+	return "Husband" if gender == 'M' else "Wife" if gender == 'F' else "Spouse/Partner"
 
 
 def ordinal(n: int) -> str:
@@ -134,55 +192,114 @@ def format_lineage_path(path_u_to_a: List[str], path_a_to_v: List[str], nodes_di
 	return " ".join(parts)
 
 
-def classify_blood_relationship(d1: int, d2: int, u_name: str, v_name: str) -> Tuple[str, str, str]:
+def classify_blood_relationship(
+	d1: int, d2: int, u_name: str, v_name: str, g1: str, g2: str
+) -> Tuple[str, str, str]:
 	"""
 	d1 = distance from common ancestor down to u
 	d2 = distance from common ancestor down to v
-	Returns (category, title, detail_description)
+	g1 = gender of u ('M', 'F', 'U')
+	g2 = gender of v ('M', 'F', 'U')
 	"""
-	# Direct Lineage
+	# Direct Lineage: Parent / Child
 	if d1 == 0 and d2 == 1:
-		return 'parent_child', 'Parent / Child', f"{u_name} is Parent of {v_name}"
+		p_term = get_parent_term(g1)
+		c_term = get_child_term(g2)
+		return 'parent_child', f"{p_term} / {c_term}", f"{u_name} is {p_term} of {v_name} ({v_name} is {c_term})"
 	if d1 == 1 and d2 == 0:
-		return 'parent_child', 'Parent / Child', f"{u_name} is Child of {v_name}"
+		c_term = get_child_term(g1)
+		p_term = get_parent_term(g2)
+		return 'parent_child', f"{c_term} / {p_term}", f"{u_name} is {c_term} of {v_name} ({v_name} is {p_term})"
+
+	# Grandparent / Grandchild
 	if d1 == 0 and d2 == 2:
-		return 'grandparent', 'Grandparent / Grandchild', f"{u_name} is Grandparent of {v_name}"
+		gp_term = get_grandparent_term(g1)
+		gc_term = get_grandchild_term(g2)
+		return 'grandparent', f"{gp_term} / {gc_term}", f"{u_name} is {gp_term} of {v_name} ({v_name} is {gc_term})"
 	if d1 == 2 and d2 == 0:
-		return 'grandparent', 'Grandparent / Grandchild', f"{u_name} is Grandchild of {v_name}"
+		gc_term = get_grandchild_term(g1)
+		gp_term = get_grandparent_term(g2)
+		return 'grandparent', f"{gc_term} / {gp_term}", f"{u_name} is {gc_term} of {v_name} ({v_name} is {gp_term})"
+
+	# Great-Grandparent / Great-Grandchild
 	if d1 == 0 and d2 == 3:
-		return 'grandparent', 'Grand-grandparent / Grand-grandchild (Great-grandparent)', f"{u_name} is Grand-grandparent (Great-grandparent) of {v_name}"
+		ggp_term = get_great_grandparent_term(g1)
+		ggc_term = get_great_grandchild_term(g2)
+		return 'grandparent', f"{ggp_term} / {ggc_term}", f"{u_name} is {ggp_term} of {v_name} ({v_name} is {ggc_term})"
 	if d1 == 3 and d2 == 0:
-		return 'grandparent', 'Grand-grandparent / Grand-grandchild (Great-grandparent)', f"{u_name} is Grand-grandchild (Great-grandchild) of {v_name}"
+		ggc_term = get_great_grandchild_term(g1)
+		ggp_term = get_great_grandparent_term(g2)
+		return 'grandparent', f"{ggc_term} / {ggp_term}", f"{u_name} is {ggc_term} of {v_name} ({v_name} is {ggp_term})"
+
+	# Great-Great-Grandparent / Great-Great-Grandchild
 	if d1 == 0 and d2 == 4:
-		return 'grandparent', 'Grand-grand-grandparent / Grand-grand-grandchild (Great-great-grandparent)', f"{u_name} is Grand-grand-grandparent (Great-great-grandparent) of {v_name}"
+		gggp_term = get_great_great_grandparent_term(g1)
+		gggc_term = get_great_great_grandchild_term(g2)
+		return 'grandparent', f"{gggp_term} / {gggc_term}", f"{u_name} is {gggp_term} of {v_name} ({v_name} is {gggc_term})"
 	if d1 == 4 and d2 == 0:
-		return 'grandparent', 'Grand-grand-grandparent / Grand-grand-grandchild (Great-great-grandparent)', f"{u_name} is Grand-grand-grandchild (Great-great-grandchild) of {v_name}"
+		gggc_term = get_great_great_grandchild_term(g1)
+		gggp_term = get_great_great_grandparent_term(g2)
+		return 'grandparent', f"{gggc_term} / {gggp_term}", f"{u_name} is {gggc_term} of {v_name} ({v_name} is {gggp_term})"
+
 	if d1 == 0 and d2 >= 5:
 		k = d2 - 2
-		return 'grandparent', f"{k}-Great-grandparent / Grandchild", f"{u_name} is {k}-Great-grandparent of {v_name}"
+		gp_k = f"{k}-Great-Grandfather" if g1 == 'M' else f"{k}-Great-Grandmother" if g1 == 'F' else f"{k}-Great-Grandparent"
+		gc_k = f"{k}-Great-Grandson" if g2 == 'M' else f"{k}-Great-Granddaughter" if g2 == 'F' else f"{k}-Great-Grandchild"
+		return 'grandparent', f"{gp_k} / {gc_k}", f"{u_name} is {gp_k} of {v_name} ({v_name} is {gc_k})"
 	if d1 >= 5 and d2 == 0:
 		k = d1 - 2
-		return 'grandparent', f"{k}-Great-grandparent / Grandchild", f"{u_name} is {k}-Great-grandchild of {v_name}"
+		gc_k = f"{k}-Great-Grandson" if g1 == 'M' else f"{k}-Great-Granddaughter" if g1 == 'F' else f"{k}-Great-Grandchild"
+		gp_k = f"{k}-Great-Grandfather" if g2 == 'M' else f"{k}-Great-Grandmother" if g2 == 'F' else f"{k}-Great-Grandparent"
+		return 'grandparent', f"{gc_k} / {gp_k}", f"{u_name} is {gc_k} of {v_name} ({v_name} is {gp_k})"
 
 	# Siblings
 	if d1 == 1 and d2 == 1:
-		return 'sibling', 'Sibling', f"Sibling ({u_name} and {v_name} are Siblings)"
+		s1 = get_sibling_term(g1)
+		s2 = get_sibling_term(g2)
+		if g1 == 'M' and g2 == 'M':
+			title = "Brothers"
+			detail = f"Brothers ({u_name} and {v_name} are Brothers)"
+		elif g1 == 'F' and g2 == 'F':
+			title = "Sisters"
+			detail = f"Sisters ({u_name} and {v_name} are Sisters)"
+		elif s1 != s2:
+			title = f"{s1} / {s2}"
+			detail = f"{s1} / {s2} ({u_name} is {s1}, {v_name} is {s2})"
+		else:
+			title = "Siblings"
+			detail = f"Siblings ({u_name} and {v_name} are Siblings)"
+		return 'sibling', title, detail
 
 	# Uncles / Aunts & Nephews / Nieces
 	if d1 == 1 and d2 == 2:
-		return 'uncle_nephew', 'Uncle / Aunt & Nephew / Niece', f"{u_name} is Uncle/Aunt of {v_name}"
+		u_term = get_uncle_aunt_term(g1)
+		n_term = get_nephew_niece_term(g2)
+		return 'uncle_nephew', f"{u_term} / {n_term}", f"{u_name} is {u_term} of {v_name} ({v_name} is {n_term})"
 	if d1 == 2 and d2 == 1:
-		return 'uncle_nephew', 'Uncle / Aunt & Nephew / Niece', f"{u_name} is Nephew/Niece of {v_name}"
+		n_term = get_nephew_niece_term(g1)
+		u_term = get_uncle_aunt_term(g2)
+		return 'uncle_nephew', f"{n_term} / {u_term}", f"{u_name} is {n_term} of {v_name} ({v_name} is {u_term})"
+
+	# Great-Uncle / Great-Aunt & Great-Nephew / Great-Niece
 	if d1 == 1 and d2 == 3:
-		return 'uncle_nephew', 'Grand-uncle / Grand-aunt (Great-Uncle / Aunt)', f"{u_name} is Grand-uncle/aunt (Great-Uncle/Aunt) of {v_name}"
+		gu_term = get_great_uncle_aunt_term(g1)
+		gn_term = get_great_nephew_niece_term(g2)
+		return 'uncle_nephew', f"{gu_term} / {gn_term}", f"{u_name} is {gu_term} of {v_name} ({v_name} is {gn_term})"
 	if d1 == 3 and d2 == 1:
-		return 'uncle_nephew', 'Grand-uncle / Grand-aunt (Great-Uncle / Aunt)', f"{u_name} is Grand-nephew/niece (Great-Nephew/Niece) of {v_name}"
+		gn_term = get_great_nephew_niece_term(g1)
+		gu_term = get_great_uncle_aunt_term(g2)
+		return 'uncle_nephew', f"{gn_term} / {gu_term}", f"{u_name} is {gn_term} of {v_name} ({v_name} is {gu_term})"
+
 	if d1 == 1 and d2 >= 4:
 		k = d2 - 2
-		return 'uncle_nephew', f"{k}-Great-Uncle / Aunt", f"{u_name} is {k}-Great-Uncle/Aunt of {v_name}"
+		gu_k = f"{k}-Great-Uncle" if g1 == 'M' else f"{k}-Great-Aunt" if g1 == 'F' else f"{k}-Great-Uncle/Aunt"
+		gn_k = f"{k}-Great-Nephew" if g2 == 'M' else f"{k}-Great-Niece" if g2 == 'F' else f"{k}-Great-Nephew/Niece"
+		return 'uncle_nephew', f"{gu_k} / {gn_k}", f"{u_name} is {gu_k} of {v_name} ({v_name} is {gn_k})"
 	if d1 >= 4 and d2 == 1:
 		k = d1 - 2
-		return 'uncle_nephew', f"{k}-Great-Nephew / Niece", f"{u_name} is {k}-Great-Nephew/Niece of {v_name}"
+		gn_k = f"{k}-Great-Nephew" if g1 == 'M' else f"{k}-Great-Niece" if g1 == 'F' else f"{k}-Great-Nephew/Niece"
+		gu_k = f"{	k}-Great-Uncle" if g2 == 'M' else f"{k}-Great-Aunt" if g2 == 'F' else f"{k}-Great-Uncle/Aunt"
+		return 'uncle_nephew', f"{gn_k} / {gu_k}", f"{u_name} is {gn_k} of {v_name} ({v_name} is {gu_k})"
 
 	# Cousins (d1 >= 2 and d2 >= 2)
 	deg = min(d1, d2) - 1
@@ -193,13 +310,13 @@ def classify_blood_relationship(d1: int, d2: int, u_name: str, v_name: str) -> T
 	cat = 'first_cousin' if deg == 1 else 'second_third_cousin'
 	if rem == 0:
 		title = f"{ord_deg} degree cousin"
-		detail = f"{ord_deg} degree cousin"
+		detail = f"{ord_deg} degree cousin ({u_name} and {v_name} are {ord_deg} cousins)"
 	else:
 		title = f"{ord_deg} cousin{rem_str}"
 		if d1 < d2:
-			detail = f"{ord_deg} cousin{rem_str}"
+			detail = f"{ord_deg} cousin{rem_str} ({u_name} is {rem} gen. older than {v_name})"
 		else:
-			detail = f"{ord_deg} cousin{rem_str}"
+			detail = f"{ord_deg} cousin{rem_str} ({u_name} is {rem} gen. younger than {v_name})"
 
 	return cat, title, detail
 
@@ -208,6 +325,7 @@ def analyze_family_pair(
 	u: str,
 	v: str,
 	nodes_dict: Dict[str, str],
+	node_colors: Dict[str, str],
 	parents_map: Dict[str, List[str]],
 	children_map: Dict[str, List[str]],
 	spouses_map: Dict[str, Set[str]],
@@ -216,6 +334,9 @@ def analyze_family_pair(
 ) -> FamilyRelationshipResult:
 	u_name = nodes_dict.get(u, str(u))
 	v_name = nodes_dict.get(v, str(v))
+
+	g_u = detect_gender(node_colors.get(u, ''))
+	g_v = detect_gender(node_colors.get(v, ''))
 
 	anc_u = ancestor_paths[u]
 	anc_v = ancestor_paths[v]
@@ -235,7 +356,7 @@ def analyze_family_pair(
 		for a in mrcas:
 			d1 = dist_u[a]
 			d2 = dist_v[a]
-			cat, title, detail = classify_blood_relationship(d1, d2, u_name, v_name)
+			cat, title, detail = classify_blood_relationship(d1, d2, u_name, v_name, g_u, g_v)
 
 			# Generate Lineage examples
 			lineage_strs = []
@@ -266,10 +387,23 @@ def analyze_family_pair(
 
 	# Direct Spouse / Partner
 	if v in spouses_map.get(u, set()):
+		sp_u = get_spouse_term(g_u)
+		sp_v = get_spouse_term(g_v)
+		if g_u == 'M' and g_v == 'F':
+			sp_title = "Husband / Wife"
+		elif g_u == 'F' and g_v == 'M':
+			sp_title = "Wife / Husband"
+		elif g_u == 'M' and g_v == 'M':
+			sp_title = "Husband / Husband (Spouses)"
+		elif g_u == 'F' and g_v == 'F':
+			sp_title = "Wife / Wife (Spouses)"
+		else:
+			sp_title = "Spouse / Partner"
+
 		in_law_entries.append({
 			'category': 'in_law',
-			'title': 'Spouse / Partner',
-			'detail': f"Spouse / Partner ({u_name} ↔ {v_name})",
+			'title': sp_title,
+			'detail': f"{sp_title} ({u_name} and {v_name})",
 			'lineages': [f"{u_name} (Spouse) ↔ {v_name}"]
 		})
 
@@ -278,7 +412,6 @@ def analyze_family_pair(
 		if s_v == u:
 			continue
 		s_v_name = nodes_dict.get(s_v, str(s_v))
-		s_anc = ancestor_paths.get(s_v, {})
 		s_dist = ancestor_dist.get(s_v, {})
 		s_ca = set(dist_u.keys()).intersection(set(s_dist.keys()))
 		if s_ca:
@@ -287,54 +420,64 @@ def analyze_family_pair(
 				d1 = dist_u[a]
 				d2 = s_dist[a]
 				if d1 == 0 and d2 == 1:
+					p_in_law = "Father-in-law" if g_u == 'M' else "Mother-in-law" if g_u == 'F' else "Parent-in-law"
+					c_in_law = "Son-in-law" if g_v == 'M' else "Daughter-in-law" if g_v == 'F' else "Child-in-law"
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Parent-in-law / Child-in-law',
-						'detail': f"{u_name} is Father/Mother-in-law of {v_name}",
-						'lineages': [f"{u_name} → {s_v_name} (Spouse) ↔ {v_name}"]
+						'title': f"{p_in_law} / {c_in_law}",
+						'detail': f"{u_name} is {p_in_law} of {v_name} ({v_name} is {c_in_law})",
+						'lineages': [f"| {u_name} | → {s_v_name} (Spouse) ↔ {v_name}"]
 					})
 				elif d1 == 1 and d2 == 0:
 					if u not in children_map.get(v, []):
+						sc_term = "Step-son" if g_u == 'M' else "Step-daughter" if g_u == 'F' else "Step-child"
+						sp_term = "Step-father" if g_v == 'M' else "Step-mother" if g_v == 'F' else "Step-parent"
 						in_law_entries.append({
 							'category': 'in_law',
-							'title': 'Step-parent / Step-child',
-							'detail': f"{u_name} is Step-child of {v_name}",
-							'lineages': [f"{u_name} ← {s_v_name} (Spouse) ↔ {v_name}"]
+							'title': f"{sc_term} / {sp_term}",
+							'detail': f"{u_name} is {sc_term} of {v_name} ({v_name} is {sp_term})",
+							'lineages': [f"{u_name} ← | {s_v_name} (Spouse) ↔ {v_name} |"]
 						})
 				elif d1 == 1 and d2 == 1:
+					sib_in_law_u = "Brother-in-law" if g_u == 'M' else "Sister-in-law" if g_u == 'F' else "Sibling-in-law"
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Brother-in-law / Sister-in-law (Sibling-in-law)',
-						'detail': f"{u_name} is Sibling-in-law of {v_name} ({u_name} is sibling of {v_name}'s spouse {s_v_name})",
-						'lineages': [f"{u_name} ← {nodes_dict.get(a, '')} → {s_v_name} (Spouse) ↔ {v_name}"]
+						'title': f"{sib_in_law_u} (Sibling-in-law)",
+						'detail': f"{u_name} is {sib_in_law_u} of {v_name} ({u_name} is sibling of {v_name}'s spouse {s_v_name})",
+						'lineages': [f"{u_name} ← | {nodes_dict.get(a, '')} | → {s_v_name} (Spouse) ↔ {v_name}"]
 					})
 				elif d1 == 0 and d2 == 2:
+					gp_in_law = "Grandfather-in-law" if g_u == 'M' else "Grandmother-in-law" if g_u == 'F' else "Grandparent-in-law"
+					gc_in_law = "Grandson-in-law" if g_v == 'M' else "Granddaughter-in-law" if g_v == 'F' else "Grandchild-in-law"
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Grandparent-in-law / Grandchild-in-law',
-						'detail': f"{u_name} is Grandparent-in-law of {v_name} ({v_name} is Grandchild-in-law)",
-						'lineages': [f"{u_name} → ... → {s_v_name} (Spouse) ↔ {v_name}"]
+						'title': f"{gp_in_law} / {gc_in_law}",
+						'detail': f"{u_name} is {gp_in_law} of {v_name} ({v_name} is {gc_in_law})",
+						'lineages': [f"| {u_name} | → ... → {s_v_name} (Spouse) ↔ {v_name}"]
 					})
 				elif d1 == 0 and d2 == 3:
+					ggp_in_law = "Great-Grandfather-in-law (Grand-grandfather-in-law)" if g_u == 'M' else "Great-Grandmother-in-law (Grand-grandmother-in-law)" if g_u == 'F' else "Great-Grandparent-in-law"
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Grand-grandparent-in-law (Great-grandparent-in-law)',
-						'detail': f"{u_name} is Grand-grandparent-in-law of {v_name}",
-						'lineages': [f"{u_name} → ... → {s_v_name} (Spouse) ↔ {v_name}"]
+						'title': ggp_in_law,
+						'detail': f"{u_name} is {ggp_in_law} of {v_name}",
+						'lineages': [f"{u_name} → | ... | → {s_v_name} (Spouse) ↔ {v_name}"]
 					})
 				elif d1 == 1 and d2 == 2:
+					u_in_law = "Uncle-in-law" if g_u == 'M' else "Aunt-in-law" if g_u == 'F' else "Uncle/Aunt-in-law"
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Uncle-in-law / Aunt-in-law',
-						'detail': f"{u_name} is Uncle/Aunt-in-law of {v_name} ({u_name} is uncle/aunt of {v_name}'s spouse {s_v_name})",
-						'lineages': [f"{u_name} ← ... → {s_v_name} (Spouse) ↔ {v_name}"]
+						'title': u_in_law,
+						'detail': f"{u_name} is {u_in_law} of {v_name} ({u_name} is uncle/aunt of {v_name}'s spouse {s_v_name})",
+						'lineages': [f"{u_name} ← | ... | → {s_v_name} (Spouse) ↔ {v_name}"]
 					})
 				elif d1 == 2 and d2 == 1:
+					n_in_law = "Nephew-in-law" if g_u == 'M' else "Niece-in-law" if g_u == 'F' else "Nephew/Niece-in-law"
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Nephew-in-law / Niece-in-law',
-						'detail': f"{u_name} is Nephew/Niece-in-law of {v_name} ({u_name} is nephew/niece of {v_name}'s spouse {s_v_name})",
-						'lineages': [f"{u_name} ← ... → {s_v_name} (Spouse) ↔ {v_name}"]
+						'title': n_in_law,
+						'detail': f"{u_name} is {n_in_law} of {v_name} ({u_name} is nephew/niece of {v_name}'s spouse {s_v_name})",
+						'lineages': [f"{u_name} ← | ... | → {s_v_name} (Spouse) ↔ {v_name}"]
 					})
 				elif d1 >= 2 and d2 >= 2:
 					deg = min(d1, d2) - 1
@@ -345,7 +488,7 @@ def analyze_family_pair(
 						'category': 'in_law',
 						'title': f"{ord_deg} degree cousin-in-law",
 						'detail': f"{ord_deg} cousin-in-law{rem_str} ({u_name} is {ord_deg} cousin of {v_name}'s spouse {s_v_name})",
-						'lineages': [f"{u_name} ← ... → {s_v_name} (Spouse) ↔ {v_name}"]
+						'lineages': [f"{u_name} ← | ... | → {s_v_name} (Spouse) ↔ {v_name}"]
 					})
 
 	# v related to spouse(s) of u
@@ -353,7 +496,6 @@ def analyze_family_pair(
 		if s_u == v:
 			continue
 		s_u_name = nodes_dict.get(s_u, str(s_u))
-		s_anc = ancestor_paths.get(s_u, {})
 		s_dist = ancestor_dist.get(s_u, {})
 		s_ca = set(dist_v.keys()).intersection(set(s_dist.keys()))
 		if s_ca:
@@ -362,54 +504,65 @@ def analyze_family_pair(
 				d1 = dist_v[a]
 				d2 = s_dist[a]
 				if d1 == 0 and d2 == 1:
+					c_in_law = "Son-in-law" if g_u == 'M' else "Daughter-in-law" if g_u == 'F' else "Child-in-law"
+					p_in_law = "Father-in-law" if g_v == 'M' else "Mother-in-law" if g_v == 'F' else "Parent-in-law"
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Parent-in-law / Child-in-law',
-						'detail': f"{u_name} is Son/Daughter-in-law of {v_name}",
-						'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} ← {v_name}"]
+						'title': f"{c_in_law} / {p_in_law}",
+						'detail': f"{u_name} is {c_in_law} of {v_name} ({v_name} is {p_in_law})",
+						'lineages': [f" {u_name} (Spouse) ↔ {s_u_name} ← | {v_name} |"]
 					})
 				elif d1 == 1 and d2 == 0:
 					if v not in children_map.get(u, []):
+						sp_term = "Step-father" if g_u == 'M' else "Step-mother" if g_u == 'F' else "Step-parent"
+						sc_term = "Step-son" if g_v == 'M' else "Step-daughter" if g_v == 'F' else "Step-child"
 						in_law_entries.append({
 							'category': 'in_law',
-							'title': 'Step-parent / Step-child',
-							'detail': f"{u_name} is Step-parent of {v_name}",
-							'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} → {v_name}"]
+							'title': f"{sp_term} / {sc_term}",
+							'detail': f"{u_name} is {sp_term} of {v_name} ({v_name} is {sc_term})",
+							'lineages': [f" | {u_name} (Spouse) ↔ {s_u_name} | → {v_name}"]
 						})
 				elif d1 == 1 and d2 == 1:
+					sib_in_law_u = "Brother-in-law" if g_u == 'M' else "Sister-in-law" if g_u == 'F' else "Sibling-in-law"
+					sib_in_law_v = "Brother-in-law" if g_v == 'M' else "Sister-in-law" if g_v == 'F' else "Sibling-in-law"
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Brother-in-law / Sister-in-law (Sibling-in-law)',
-						'detail': f"{u_name} is Sibling-in-law of {v_name} ({v_name} is sibling of {u_name}'s spouse {s_u_name})",
-						'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} ← {nodes_dict.get(a, '')} → {v_name}"]
+						'title': f"{sib_in_law_u} (Sibling-in-law)",
+						'detail': f"{u_name} is {sib_in_law_u} of {v_name} ({v_name} is sibling of {u_name}'s spouse {s_u_name})",
+						'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} ← | {nodes_dict.get(a, '')} | → {v_name}"]
 					})
 				elif d1 == 0 and d2 == 2:
+					gc_in_law = "Grandson-in-law" if g_u == 'M' else "Granddaughter-in-law" if g_u == 'F' else "Grandchild-in-law"
+					gp_in_law = "Grandfather-in-law" if g_v == 'M' else "Grandmother-in-law" if g_v == 'F' else "Grandparent-in-law"
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Grandparent-in-law / Grandchild-in-law',
-						'detail': f"{u_name} is Grandchild-in-law of {v_name}",
-						'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} ← ... ← {v_name}"]
+						'title': f"{gc_in_law} / {gp_in_law}",
+						'detail': f"{u_name} is {gc_in_law} of {v_name} ({v_name} is {gp_in_law})",
+						'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} ← ... ← | {v_name} |"]
 					})
 				elif d1 == 0 and d2 == 3:
+					ggc_in_law = "Great-Grandson-in-law (Grand-grandson-in-law)" if g_u == 'M' else "Great-Granddaughter-in-law (Grand-granddaughter-in-law)" if g_u == 'F' else "Great-Grandchild-in-law"
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Grand-grandparent-in-law (Great-grandparent-in-law)',
-						'detail': f"{u_name} is Grand-grandchild-in-law of {v_name}",
-						'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} ← ... ← {v_name}"]
+						'title': ggc_in_law,
+						'detail': f"{u_name} is {ggc_in_law} of {v_name}",
+						'lineages': [f" {u_name} (Spouse) ↔ {s_u_name} ← ... ← | {v_name} |"]
 					})
 				elif d1 == 1 and d2 == 2:
+					n_in_law = "Nephew-in-law" if g_u == 'M' else "Niece-in-law" if g_u == 'F' else "Nephew/Niece-in-law"
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Nephew-in-law / Niece-in-law',
-						'detail': f"{u_name} is Nephew/Niece-in-law of {v_name} ({v_name} is uncle/aunt of {u_name}'s spouse {s_u_name})",
-						'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} ← ... → {v_name}"]
+						'title': n_in_law,
+						'detail': f"{u_name} is {n_in_law} of {v_name} ({v_name} is uncle/aunt of {u_name}'s spouse {s_u_name})",
+						'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} ← | ... | → {v_name}"]
 					})
 				elif d1 == 2 and d2 == 1:
+					u_in_law = "Uncle-in-law" if g_u == 'M' else "Aunt-in-law" if g_u == 'F' else "Uncle/Aunt-in-law"
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Uncle-in-law / Aunt-in-law',
-						'detail': f"{u_name} is Uncle/Aunt-in-law of {v_name} ({v_name} is nephew/niece of {u_name}'s spouse {s_u_name})",
-						'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} ← ... → {v_name}"]
+						'title': u_in_law,
+						'detail': f"{u_name} is {u_in_law} of {v_name} ({v_name} is nephew/niece of {u_name}'s spouse {s_u_name})",
+						'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} ← | ... | → {v_name}"]
 					})
 				elif d1 >= 2 and d2 >= 2:
 					deg = min(d1, d2) - 1
@@ -420,7 +573,7 @@ def analyze_family_pair(
 						'category': 'in_law',
 						'title': f"{ord_deg} degree cousin-in-law",
 						'detail': f"{ord_deg} cousin-in-law{rem_str} ({v_name} is {ord_deg} cousin of {u_name}'s spouse {s_u_name})",
-						'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} ← ... → {v_name}"]
+						'lineages': [f"{u_name} (Spouse) ↔ {s_u_name} ← | ... | → {v_name}"]
 					})
 
 	# Co-parents-in-law (children married)
@@ -433,7 +586,7 @@ def analyze_family_pair(
 					'category': 'in_law',
 					'title': 'Co-parents-in-law',
 					'detail': f"Co-parents-in-law ({u_name}'s child {c_u_name} is married to {v_name}'s child {c_v_name})",
-					'lineages': [f"{u_name} → {c_u_name} (Spouse) ↔ {c_v_name} ← {v_name}"]
+					'lineages': [f"| {u_name} | → {c_u_name} (Spouse) ↔ {c_v_name} ← | {v_name} |"]
 				})
 
 	# Step-siblings (parents married, no shared biological parents)
@@ -443,11 +596,22 @@ def analyze_family_pair(
 				if p_v in spouses_map.get(p_u, set()):
 					p_u_name = nodes_dict.get(p_u, str(p_u))
 					p_v_name = nodes_dict.get(p_v, str(p_v))
+					if g_u == 'M' and g_v == 'M':
+						st_title = "Step-brothers"
+					elif g_u == 'F' and g_v == 'F':
+						st_title = "Step-sisters"
+					elif g_u == 'M' and g_v == 'F':
+						st_title = "Step-brother / Step-sister"
+					elif g_u == 'F' and g_v == 'M':
+						st_title = "Step-sister / Step-brother"
+					else:
+						st_title = "Step-sibling"
+
 					in_law_entries.append({
 						'category': 'in_law',
-						'title': 'Step-sibling',
-						'detail': f"Step-sibling ({u_name}'s parent {p_u_name} is married to {v_name}'s parent {p_v_name})",
-						'lineages': [f"{u_name} ← {p_u_name} (Spouse) ↔ {p_v_name} → {v_name}"]
+						'title': st_title,
+						'detail': f"{st_title} ({u_name}'s parent {p_u_name} is married to {v_name}'s parent {p_v_name})",
+						'lineages': [f"{u_name} ← |{p_u_name} (Spouse) ↔ {p_v_name}| → {v_name}"]
 					})
 
 	# Merge and format results

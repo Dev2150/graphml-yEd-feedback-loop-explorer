@@ -7,7 +7,10 @@ from src.family_utils import (
 	FAMILY_CONNECTION_TYPES,
 	build_family_structures,
 	compute_all_ancestors,
-	analyze_family_pair
+	analyze_family_pair,
+	detect_gender,
+	get_parent_term,
+	get_child_term
 )
 from src.formatters import (
 	format_path_string, get_path_net_effect_arrow, get_edge_arrow,
@@ -33,6 +36,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 	nodes = ctx.nodes
 	edge_values = ctx.edge_values
 	edge_labels = ctx.edge_labels
+	node_colors = ctx.node_colors
 	config = ctx.config
 
 	block_starting_node = config.block_starting_node
@@ -130,7 +134,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 				if u_name in block_starting_node and v_name in block_starting_node:
 					continue
 
-				res = analyze_family_pair(u, v, nodes, parents_map, children_map, spouses_map, ancestor_paths, ancestor_dist)
+				res = analyze_family_pair(u, v, nodes, node_colors, parents_map, children_map, spouses_map, ancestor_paths, ancestor_dist)
 				family_results_cache[(u, v)] = res
 				family_results_cache[(v, u)] = res
 
@@ -454,7 +458,9 @@ def run_relationship_guessing_game(ctx: GraphContext):
 			if is_counter:
 				print(f"Question {question_num}: 🟦 [?] 📈 🟥 {target_name}", end=' ')
 			elif is_family:
-				print(f"Question {question_num}: [?] (Parent) → {target_name}", end=' ')
+				t_gender = detect_gender(node_colors.get(target_node, ''))
+				t_child_term = get_child_term(t_gender)
+				print(f"Question {question_num}: [?] (Parent) → {target_name} ({t_child_term})", end=' ')
 			else:
 				print(f"Question {question_num}: [?] → {target_name}", end=' ')
 
@@ -465,11 +471,22 @@ def run_relationship_guessing_game(ctx: GraphContext):
 
 			found_leaves = sorted(leaf_sources_map[target_node], key=lambda x: str(nodes.get(x, x)).lower())
 			if len(found_leaves) == 1:
-				print(f"Answer: {format_path_string([found_leaves[0], target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
+				p_nid = found_leaves[0]
+				p_name = nodes.get(p_nid, str(p_nid))
+				if is_family:
+					p_term = get_parent_term(detect_gender(node_colors.get(p_nid, '')))
+					print(f"Answer: {p_name} ({p_term}) → {target_name}")
+				else:
+					print(f"Answer: {format_path_string([p_nid, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 			else:
 				print("Answer(s):")
 				for s in found_leaves:
-					print(f"  • {format_path_string([s, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
+					s_name = nodes.get(s, str(s))
+					if is_family:
+						p_term = get_parent_term(detect_gender(node_colors.get(s, '')))
+						print(f"  • {s_name} ({p_term}) → {target_name}")
+					else:
+						print(f"  • {format_path_string([s, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 
 			print()
 			progress_data[game2_key][leaf_key] = current_counter + 1
@@ -490,7 +507,9 @@ def run_relationship_guessing_game(ctx: GraphContext):
 			if is_counter:
 				print(f"Question {question_num}: 🟦 {source_name} 📈 🟥 [?]", end=' ')
 			elif is_family:
-				print(f"Question {question_num}: {source_name} → [?] (Child)", end=' ')
+				s_gender = detect_gender(node_colors.get(source_node, ''))
+				s_parent_term = get_parent_term(s_gender)
+				print(f"Question {question_num}: {source_name} ({s_parent_term}) → [?] (Child)", end=' ')
 			else:
 				print(f"Question {question_num}: {source_name} → [?]", end=' ')
 
@@ -501,11 +520,22 @@ def run_relationship_guessing_game(ctx: GraphContext):
 
 			found_leaves = sorted(leaf_dests_map[source_node], key=lambda x: str(nodes.get(x, x)).lower())
 			if len(found_leaves) == 1:
-				print(f"Answer: {format_path_string([source_node, found_leaves[0]], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
+				c_nid = found_leaves[0]
+				c_name = nodes.get(c_nid, str(c_nid))
+				if is_family:
+					c_term = get_child_term(detect_gender(node_colors.get(c_nid, '')))
+					print(f"Answer: {source_name} → {c_name} ({c_term})")
+				else:
+					print(f"Answer: {format_path_string([source_node, c_nid], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 			else:
 				print("Answer(s):")
 				for d in found_leaves:
-					print(f"  • {format_path_string([source_node, d], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
+					d_name = nodes.get(d, str(d))
+					if is_family:
+						c_term = get_child_term(detect_gender(node_colors.get(d, '')))
+						print(f"  • {source_name} → {d_name} ({c_term})")
+					else:
+						print(f"  • {format_path_string([source_node, d], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 
 			print()
 			progress_data[game2_key][leaf_key] = current_counter + 1
@@ -538,7 +568,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 			if is_family:
 				fam_res = family_results_cache.get((u, v))
 				if not fam_res:
-					fam_res = analyze_family_pair(u, v, nodes, parents_map, children_map, spouses_map, ancestor_paths, ancestor_dist)
+					fam_res = analyze_family_pair(u, v, nodes, node_colors, parents_map, children_map, spouses_map, ancestor_paths, ancestor_dist)
 
 				if not fam_res.is_relevant:
 					print("Answer: IRRELEVANT (No blood or marriage relationship found)")

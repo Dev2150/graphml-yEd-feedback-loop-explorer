@@ -31,6 +31,7 @@ def read_from_graph_xml(p_input_file: str, p_color_threshold: int = 48):
 
 	nodes = {}
 	node_values = {}
+	node_colors = {}
 	edges = []
 	edge_values = {}
 	edge_labels = {}
@@ -76,6 +77,7 @@ def read_from_graph_xml(p_input_file: str, p_color_threshold: int = 48):
 		if not is_group.get(node_id, False):
 			node_name = None
 			node_val = 0
+			node_color = ""
 
 			for sub in node_elem.iter():
 				if get_local_tag(sub) == 'NodeLabel' and sub.text and sub.text.strip():
@@ -90,8 +92,10 @@ def read_from_graph_xml(p_input_file: str, p_color_threshold: int = 48):
 					attrib = sub.attrib
 					if attrib.get('hasColor') == 'false' or attrib.get('transparent') == 'true':
 						node_val = 0
+						node_color = ""
 					elif 'color' in attrib:
 						color = attrib['color']
+						node_color = color
 						if color.startswith('#'):
 							color = color[1:]
 						if color.upper() in ['FFCC00', '99CCFF', 'FFFF00', 'FFFFFF', 'F5F5F5']:
@@ -106,6 +110,7 @@ def read_from_graph_xml(p_input_file: str, p_color_threshold: int = 48):
 
 			nodes[node_id] = node_name
 			node_values[node_id] = node_val
+			node_colors[node_id] = node_color
 
 	def get_leaf_nodes(nid):
 		if not is_group.get(nid, False):
@@ -199,7 +204,7 @@ def read_from_graph_xml(p_input_file: str, p_color_threshold: int = 48):
 							if edge_label:
 								edge_labels[(t, s)] = edge_label
 
-	return nodes, edges, edge_values, node_values, edge_labels
+	return nodes, edges, edge_values, node_values, edge_labels, node_colors
 
 
 def remove_nodes_from_graphml(p_input_file: str, p_output_file: str, p_nodes_to_keep: set):
@@ -273,3 +278,54 @@ def remove_nodes_from_graphml(p_input_file: str, p_output_file: str, p_nodes_to_
 
 	with open(p_output_file, 'w', encoding='utf-8') as f:
 		f.write(content)
+
+
+def detect_gender(color: str) -> str:
+	"""
+	Detects gender from hex color code.
+	Returns:
+	  'M' for Male (Blue / Cyan hues)
+	  'F' for Female (Red / Pink / Magenta hues)
+	  'U' for Unknown / Neutral
+	"""
+	if not color:
+		return 'U'
+	c = color.strip()
+	if c.startswith('#'):
+		c = c[1:]
+	if len(c) != 6:
+		return 'U'
+
+	try:
+		r = int(c[0:2], 16)
+		g = int(c[2:4], 16)
+		b = int(c[4:6], 16)
+	except ValueError:
+		return 'U'
+
+	# Neutral / Gray / White / Black
+	if max(r, g, b) - min(r, g, b) < 18:
+		return 'U'
+
+	# Yellow
+	if r > 200 and g > 200 and b < 100:
+		return 'U'
+
+	# Female: Red / Pink / Rose / Magenta (e.g. #FF99CC, #FF0000, #FF6699, #FFCCCC)
+	if r > b + 15 and r > g + 15:
+		return 'F'
+	if r > 180 and b > 140 and r >= b + 10 and g < min(r, b) - 20:
+		return 'F'
+
+	# Male: Blue / Sky Blue / Cyan / Navy (e.g. #99CCFF, #0000FF, #3399FF, #66B2FF)
+	if b > r + 15:
+		return 'M'
+	if b > 180 and g > 140 and b >= r + 10:
+		return 'M'
+
+	if r > b + 25:
+		return 'F'
+	if b > r + 25:
+		return 'M'
+
+	return 'U'

@@ -30,7 +30,7 @@ def main():
 		input_graph_ml = config.folder_path + config.file_name + ('' if config.file_name.endswith('.graphml') else '.graphml')
 
 	# Parse GraphML
-	nodes, edges, edge_values, node_values, edge_labels = read_from_graph_xml(input_graph_ml, config.color_threshold)
+	nodes, edges, edge_values, node_values, edge_labels, node_colors = read_from_graph_xml(input_graph_ml, config.color_threshold)
 
 	if config.ignore_edge_colors or config.connection_type in COUNTER_CONNECTION_TYPES:
 		edge_values = {k: 1 for k in edge_values}
@@ -60,7 +60,8 @@ def main():
 		config=config,
 		source_node_id=src_id,
 		target_node_id=tgt_id,
-		edge_labels=edge_labels
+		edge_labels=edge_labels,
+		node_colors=node_colors
 	)
 
 	# Always generate HTML & GraphML first
