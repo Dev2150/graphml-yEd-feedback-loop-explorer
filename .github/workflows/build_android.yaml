@@ -1,0 +1,82 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space on Runner
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Install System Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ccache git libffi-dev libssl-dev libltdl-dev \
+            pkg-config zlib1g-dev autoconf automake libtool cmake zip unzip \
+            libncurses5-dev libncursesw5-dev
+
+      - name: Cache Buildozer global directory
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer
+          key: ${{ runner.os }}-buildozer-global-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-global-
+
+      - name: Cache .buildozer project directory
+        uses: actions/cache@v4
+        with:
+          path: .buildozer
+          key: ${{ runner.os }}-buildozer-local-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-local-
+
+      - name: Install Buildozer and Cython
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "buildozer==1.5.0" "cython<3.0.0"
+
+      - name: Build and Sign Release APK
+        run: |
+          # Create keystore file from the GitHub Secret to the root workspace
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > "$GITHUB_WORKSPACE/my-release-key.keystore"
+
+          # Export signing credentials
+          # pointing to the absolute path so Gradle can find it from any subfolder
+          export P4A_RELEASE_KEYSTORE="$GITHUB_WORKSPACE/my-release-key.keystore"
+          export P4A_RELEASE_KEYALIAS="${{ secrets.KEY_ALIAS }}"
+          export P4A_RELEASE_KEYSTORE_PASSWD="${{ secrets.KEYSTORE_PASSWORD }}"
+          export P4A_RELEASE_KEYALIAS_PASSWD="${{ secrets.KEY_PASSWORD }}"
+
+          # Build the permanently signed release APK with Buildozer
+          yes | buildozer -v android release
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: graphml-explorer-apk
+          path: bin/*.apk

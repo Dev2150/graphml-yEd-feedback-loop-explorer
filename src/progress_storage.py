@@ -5,6 +5,11 @@ MAX_RECENT_FILES = 50
 
 
 def get_app_data_dir() -> str:
+	override = os.environ.get('GRAPHML_EXPLORER_DATA_DIR')
+	if override:
+		os.makedirs(override, exist_ok=True)
+		return override
+
 	appdata = os.getenv('APPDATA')
 	if not appdata:
 		appdata = os.path.expanduser('~')
