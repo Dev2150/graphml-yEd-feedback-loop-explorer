@@ -24,30 +24,70 @@ from src.progress_storage import get_save_file_path, load_progress, save_progres
 class GameCancelledError(Exception):
 	pass
 
+
 def get_canonical_cycle_tuple(cycle_nodes, nodes_dict):
 	n = len(cycle_nodes)
 	rotations = [cycle_nodes[i:] + cycle_nodes[:i] for i in range(n)]
 	return min(rotations, key=lambda rot: [nodes_dict.get(x, str(x)).lower() for x in rot])
 
+# Add near top-level helpers (below GameCancelledError / get_canonical_cycle_tuple)
 
-def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_finish: bool = True):
-	_input = input_fn if input_fn is not None else input
-	print("\n--- Relationship Guessing Game ---")
-	print("Guess if the nodes connect Directly, Indirectly, Share a Source/Destination, Leaf (Source/Dest), Form a Cycle, or are Irrelevant. Enter 0 to stop.")
-	print("[Cycle / Direct / Indirect / Shared sources/destinations / Leaf Source/Dest / Irrelevant] (Press Enter to reveal answer, or 0 to quit).")
+def _get_pair_key(u_node, v_node, nodes_dict):
+	name1 = nodes_dict.get(u_node, str(u_node))
+	name2 = nodes_dict.get(v_node, str(v_node))
+	return ",".join(sorted([name1, name2]))
 
+
+def _get_item_key(item, nodes_dict):
+	itype, data = item
+	if itype == 'leaf_src':
+		return f"leaf_src:{nodes_dict.get(data, str(data))}"
+	elif itype == 'leaf_dst':
+		return f"leaf_dst:{nodes_dict.get(data, str(data))}"
+	elif itype == 'cycle':
+		canonical_names = [nodes_dict.get(x, str(x)) for x in data]
+		return "cycle:" + "->".join(canonical_names) + f"->{canonical_names[0]}"
+	else:
+		return _get_pair_key(data[0], data[1], nodes_dict)
+
+
+def build_stats_snapshot(nodes_dict: dict, category_config: list, game_progress: dict) -> dict:
+	rows = []
+	min_tier = sys.maxsize
+	for cat_name, items in category_config:
+		if not items:
+			continue
+		counts = [game_progress.get(_get_item_key(it, nodes_dict), 0) for it in items]
+		tier = min(counts)
+		total = len(counts)
+		answered = total - sum(1 for c in counts if c == tier)
+		pct = int(100 * answered / total) if total else 0
+		if min_tier > tier:
+			min_tier = tier
+		rows.append({
+			"category": cat_name,
+			"answered": answered,
+			"total": total,
+			"pct": pct,
+			"tier": tier,
+			"left": total - answered,
+		})
+	return {
+		"rows": rows,
+		"current_tier": min_tier if min_tier != sys.maxsize else 0,
+	}
+
+
+def prepare_relationship_game_data(ctx: GraphContext) -> dict:
 	g = ctx.graph
 	nodes = ctx.nodes
-	edge_values = ctx.edge_values
 	edge_labels = ctx.edge_labels
 	node_colors = ctx.node_colors
 	config = ctx.config
 
 	block_starting_node = config.block_starting_node
-	max_indirectness = config.max_indirectness
 	max_indirectness_game = config.max_indirectness_game
 	leaf_only = config.leaf_only
-	chance_irrelevant = config.chance_irrelevant
 	max_cycle_length_game = config.max_cycle_length_game
 
 	# Resolve connection mode
@@ -63,8 +103,8 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 		text_shared_source = "Common threat"
 		text_shared_dest = "Common counter"
 	else:
-		text_shared_source = "Cofounder"
-		text_shared_dest = "Collider"
+		text_shared_source = "Common cause (Confounder)"
+		text_shared_dest = "Common effect (Collider)"
 
 	# Find direct leaf nodes
 	root_nodes = {n for n in g.nodes() if g.in_degree(n) == 0}
@@ -108,8 +148,9 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 
 	# Categorize all unordered node pairs
 	all_node_list = list(g.nodes())
+	parents_map = children_map = spouses_map = ancestor_paths = ancestor_dist = None
+	family_results_cache = {}
 
-	# --- Categorization ---
 	if is_family:
 		parents_map, children_map, spouses_map = build_family_structures(g, edge_labels)
 		ancestor_paths, ancestor_dist = compute_all_ancestors(all_node_list, parents_map)
@@ -122,8 +163,6 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 		second_third_cousin_pairs = []
 		in_law_pairs = []
 		irrelevant_pairs = []
-
-		family_results_cache = {}
 
 		for i in range(len(all_node_list)):
 			for j in range(i + 1, len(all_node_list)):
@@ -177,7 +216,7 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 			second_third_cousin_items + in_law_items
 		)
 
-		_category_config = [
+		category_config = [
 			('Cycle', cycle_items),
 			('Leaf', leaf_items),
 			('Parent/Child', parent_child_items),
@@ -189,14 +228,13 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 			('In-Law', in_law_items),
 			('Irrelevant', irrelevant_items),
 		]
-
 	else:
 		# Standard Correlation / Counter Mode
 		direct_pairs = []
 		indirect_pairs = []
 		same_pairs = []
 		irrelevant_pairs = []
-		max_cutoff = max_indirectness + 1
+		max_cutoff = max_indirectness_game + 1
 
 		for i in range(len(all_node_list)):
 			for j in range(i + 1, len(all_node_list)):
@@ -232,7 +270,6 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 				elif not has_u_to_v and not has_v_to_u:
 					irrelevant_pairs.append((u, v))
 
-		# Define question item pools
 		cycle_items = [('cycle', cyc) for cyc in valid_cycles]
 		leaf_items = [('leaf_src', n) for n in leaf_source_candidates] + [('leaf_dst', n) for n in leaf_dest_candidates]
 		direct_items = [('direct', p) for p in direct_pairs]
@@ -242,7 +279,7 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 
 		all_relevant_items = cycle_items + leaf_items + direct_items + indirect_items + same_items
 
-		_category_config = [
+		category_config = [
 			('Cycle', cycle_items),
 			('Leaf', leaf_items),
 			('Direct', direct_items),
@@ -251,8 +288,83 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 			('Irrelevant', irrelevant_items),
 		]
 
+	return {
+		"is_counter": is_counter,
+		"is_family": is_family,
+		"ignore_edge_colors": ignore_edge_colors,
+		"text_shared_source": text_shared_source,
+		"text_shared_dest": text_shared_dest,
+		"leaf_sources_map": leaf_sources_map,
+		"leaf_dests_map": leaf_dests_map,
+		"parents_map": parents_map,
+		"children_map": children_map,
+		"spouses_map": spouses_map,
+		"ancestor_paths": ancestor_paths,
+		"ancestor_dist": ancestor_dist,
+		"family_results_cache": family_results_cache,
+		"all_relevant_items": all_relevant_items,
+		"irrelevant_items": irrelevant_items,
+		"category_config": category_config,
+	}
+
+
+def compute_relationship_stats(ctx: GraphContext, prepared_data: dict = None) -> dict:
+	if prepared_data is None:
+		prepared_data = prepare_relationship_game_data(ctx)
+	save_path = get_save_file_path(ctx.config.file_name)
+	progress_data = load_progress(save_path)
+	game_progress = progress_data.get("game2_relationship", {})
+	return build_stats_snapshot(ctx.nodes, prepared_data["category_config"], game_progress)
+
+
+def run_relationship_guessing_game(
+	ctx: GraphContext,
+	input_fn=None,
+	exit_on_finish: bool = True,
+	on_stats_update=None,
+	prepared_data: dict = None,
+):
+	_input = input_fn if input_fn is not None else input
+	print("\n--- Relationship Guessing Game ---")
+	print("Guess if the nodes connect Directly, Indirectly, Share a Source/Destination, Leaf (Source/Dest), Form a Cycle, or are Irrelevant. Enter 0 to stop.")
+	print("[Cycle / Direct / Indirect / Shared sources/destinations / Leaf Source/Dest / Irrelevant] (Press Enter to reveal answer, or 0 to quit).")
+
+	g = ctx.graph
+	nodes = ctx.nodes
+	edge_values = ctx.edge_values
+	edge_labels = ctx.edge_labels
+	node_colors = ctx.node_colors
+	config = ctx.config
+
+	block_starting_node = config.block_starting_node
+	max_indirectness_game = config.max_indirectness_game
+	chance_irrelevant = config.chance_irrelevant
+	max_cycle_length_game = config.max_cycle_length_game
+
+	if prepared_data is None:
+		prepared_data = prepare_relationship_game_data(ctx)
+
+	is_counter = prepared_data["is_counter"]
+	is_family = prepared_data["is_family"]
+	ignore_edge_colors = prepared_data["ignore_edge_colors"]
+	text_shared_source = prepared_data["text_shared_source"]
+	text_shared_dest = prepared_data["text_shared_dest"]
+	leaf_sources_map = prepared_data["leaf_sources_map"]
+	leaf_dests_map = prepared_data["leaf_dests_map"]
+	parents_map = prepared_data["parents_map"]
+	children_map = prepared_data["children_map"]
+	spouses_map = prepared_data["spouses_map"]
+	ancestor_paths = prepared_data["ancestor_paths"]
+	ancestor_dist = prepared_data["ancestor_dist"]
+	family_results_cache = prepared_data["family_results_cache"]
+	all_relevant_items = prepared_data["all_relevant_items"]
+	irrelevant_items = prepared_data["irrelevant_items"]
+	_category_config = prepared_data["category_config"]
+
 	if not all_relevant_items and not irrelevant_items:
 		print("No valid questions found matching your graph and filter settings.")
+		if on_stats_update is not None:
+			on_stats_update({"rows": [], "current_tier": 0})
 		return
 
 	# Load progress
@@ -262,55 +374,36 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 	if game2_key not in progress_data:
 		progress_data[game2_key] = {}
 
-	def get_pair_key(u_node, v_node):
-		name1 = nodes.get(u_node, str(u_node))
-		name2 = nodes.get(v_node, str(v_node))
-		return ",".join(sorted([name1, name2]))
-
-	def get_item_key(item):
-		itype, data = item
-		if itype == 'leaf_src':
-			return f"leaf_src:{nodes.get(data, str(data))}"
-		elif itype == 'leaf_dst':
-			return f"leaf_dst:{nodes.get(data, str(data))}"
-		elif itype == 'cycle':
-			canonical_names = [nodes.get(x, str(x)) for x in data]
-			return "cycle:" + "->".join(canonical_names) + f"->{canonical_names[0]}"
-		else:
-			return get_pair_key(data[0], data[1])
-
 	def get_item_count(item):
-		return progress_data[game2_key].get(get_item_key(item), 0)
-
-	def get_category_stats(items):
-		if not items:
-			return None
-		counts = [get_item_count(it) for it in items]
-		tier = min(counts)
-		total = len(counts)
-		questions_answered = total - sum(1 for c in counts if c == tier)
-		pct = int(100 * questions_answered / total) if total else 0
-		return tier, questions_answered, total, pct
+		return progress_data[game2_key].get(_get_item_key(item, nodes), 0)
 
 	def get_global_tiers():
 		rel_min = min((get_item_count(it) for it in all_relevant_items), default=0)
 		irr_min = min((get_item_count(it) for it in irrelevant_items), default=0)
 		return rel_min, irr_min
 
-	def print_relationship_stats():
+	def print_relationship_stats(stats: dict):
 		print("\n--- Category Progress ---")
-		min_tier = sys.maxsize
-		for cat_name, items in _category_config:
-			if not items:
-				continue
-			tier, answered, total, pct = get_category_stats(items)
-			if min_tier > tier:
-				min_tier = tier
-			print(f"  {cat_name:12}: {answered:3} / {total:3} ({pct:2}% + {tier}) (Left: {total - answered:3})")
-		print(f"  Current tier: {min_tier if min_tier != sys.maxsize else 0}\n")
+		for r in stats["rows"]:
+			print(
+				f"  {r['category']:12}: {r['answered']:3} / {r['total']:3} "
+				f"({r['pct']:2}% + {r['tier']}) (Left: {r['left']:3})"
+			)
+		print(f"  Current tier: {stats['current_tier']}\n")
 
-	print_relationship_stats()
+	def emit_stats(force_cli_print: bool = False):
+		nonlocal current_tiers
+		stats = build_stats_snapshot(nodes, _category_config, progress_data[game2_key])
+		if on_stats_update is not None:
+			on_stats_update(stats)
+		else:
+			new_tiers = get_global_tiers()
+			if force_cli_print or new_tiers != current_tiers:
+				current_tiers = new_tiers
+				print_relationship_stats(stats)
+
 	current_tiers = get_global_tiers()
+	emit_stats(force_cli_print=True)
 	question_num = 0
 
 	while True:
@@ -356,8 +449,6 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 					active_weights.append(chance_relevant * (len(eligible_by_cat[c]) / total_rel_count))
 				else:
 					active_weights.append(len(eligible_by_cat[c]) / total_rel_count)
-
-		# print(f"DEBUG: {[x for pair in sorted(zip(active_cats, active_weights), key=lambda p: -p[1]) if pair[0] != 'irrelevant' for x in (pair[0], f'{100 * pair[1]:.2f}')]}")
 
 		chosen_cat = random.choices(active_cats, weights=active_weights, k=1)[0]
 		chosen_item = random.choice(eligible_by_cat[chosen_cat])
@@ -442,14 +533,11 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 						print(f"  • {formatted_cycle} ({polarity_icon} {loop_type})")
 
 			print()
-			cycle_key = get_item_key(chosen_item)
+			cycle_key = _get_item_key(chosen_item, nodes)
 			current_counter = progress_data[game2_key].get(cycle_key, 0)
 			progress_data[game2_key][cycle_key] = current_counter + 1
 			save_progress(save_path, progress_data)
-			new_tiers = get_global_tiers()
-			if new_tiers != current_tiers:
-				current_tiers = new_tiers
-				print_relationship_stats()
+			emit_stats()
 			continue
 
 		# Handle Leaf Source Question ([?] → Target)
@@ -460,7 +548,7 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 			current_counter = progress_data[game2_key].get(leaf_key, 0)
 
 			if is_counter:
-				print(f"Question {question_num}: 🟦 [?] 📈 🟥 {target_name}", end=' ')
+				print(f"Question {question_num}: 🟦 [?] → 🟥 {target_name}", end=' ')
 			elif is_family:
 				t_gender = detect_gender(node_colors.get(target_node, ''))
 				t_child_term = get_child_term(t_gender)
@@ -495,10 +583,7 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 			print()
 			progress_data[game2_key][leaf_key] = current_counter + 1
 			save_progress(save_path, progress_data)
-			new_tiers = get_global_tiers()
-			if new_tiers != current_tiers:
-				current_tiers = new_tiers
-				print_relationship_stats()
+			emit_stats()
 			continue
 
 		# Handle Leaf Destination Question (Source → [?])
@@ -509,7 +594,7 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 			current_counter = progress_data[game2_key].get(leaf_key, 0)
 
 			if is_counter:
-				print(f"Question {question_num}: 🟦 {source_name} 📈 🟥 [?]", end=' ')
+				print(f"Question {question_num}: 🟦 {source_name} → 🟥 [?]", end=' ')
 			elif is_family:
 				s_gender = detect_gender(node_colors.get(source_node, ''))
 				s_parent_term = get_parent_term(s_gender)
@@ -544,10 +629,7 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 			print()
 			progress_data[game2_key][leaf_key] = current_counter + 1
 			save_progress(save_path, progress_data)
-			new_tiers = get_global_tiers()
-			if new_tiers != current_tiers:
-				current_tiers = new_tiers
-				print_relationship_stats()
+			emit_stats()
 			continue
 
 		# Handle Pair Question
@@ -558,8 +640,6 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 
 			u_name = nodes.get(u, str(u))
 			v_name = nodes.get(v, str(v))
-			pair_key = get_pair_key(u, v)
-			current_counter = progress_data[game2_key].get(pair_key, 0)
 
 			print(f"Question {question_num}: {u_name} [?] {v_name}", end=' ')
 
@@ -732,14 +812,11 @@ def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_fin
 						print(f"  • {line}")
 
 			print()
-			pair_key_to_save = get_item_key(chosen_item)
+			pair_key_to_save = _get_item_key(chosen_item, nodes)
 			current_counter = progress_data[game2_key].get(pair_key_to_save, 0)
 			progress_data[game2_key][pair_key_to_save] = current_counter + 1
 			save_progress(save_path, progress_data)
-			new_tiers = get_global_tiers()
-			if new_tiers != current_tiers:
-				current_tiers = new_tiers
-				print_relationship_stats()
+			emit_stats()
 
 	print("Quiz finished.")
 	if exit_on_finish:

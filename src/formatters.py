@@ -14,8 +14,8 @@ def format_node_name(node_id: str, nodes_dict: dict, index: int = 0, is_counter:
 
 def get_edge_arrow(val: int, ignore_edge_colors: bool = False) -> str:
 	if ignore_edge_colors:
-		return "📈"
-	return "📉" if val < 0 else "📈"
+		return "→"
+	return "↘" if val < 0 else "↗"
 
 
 def edge_value_string(p_edge_value: int, is_simple: bool = False, ignore_edge_colors: bool = False) -> str:

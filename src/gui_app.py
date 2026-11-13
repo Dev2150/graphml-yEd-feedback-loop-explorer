@@ -5,9 +5,9 @@ import re
 import subprocess
 import sys
 import threading
+import tkinter as tk
 import webbrowser
 from pathlib import Path
-import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 import networkx as nx
@@ -19,8 +19,8 @@ from src.config import (
 	read_config_file,
 	save_config_file,
 )
-from src.family_utils import FAMILY_CONNECTION_TYPES
-from src.games.relationship_game import GameCancelledError, run_relationship_guessing_game
+from src.games.relationship_game import GameCancelledError, run_relationship_guessing_game, \
+	prepare_relationship_game_data, compute_relationship_stats
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import read_from_graph_xml
 from src.models import GraphContext
@@ -32,6 +32,10 @@ from src.progress_storage import (
 
 ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
 
+
+def run_gui(input_file: str, output_folder: str):
+	app = GraphMLExplorerApp(input_file, output_folder)
+	app.mainloop()
 
 class ConsoleRedirector:
 	def __init__(self, msg_queue: queue.Queue):
@@ -279,6 +283,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self.last_html_path: str = ""
 		self.is_busy: bool = False
 		self.active_session: GameSession = None
+		self.prepared_game_data = None
 
 		self.output_queue: queue.Queue = queue.Queue()
 		self._orig_stdout = sys.stdout
@@ -346,6 +351,9 @@ class GraphMLExplorerApp(tk.Tk):
 		self.btn_open_folder = ttk.Button(toolbar, text="📁 Open HTML Folder", command=self.open_html_folder)
 		self.btn_open_folder.pack(side=tk.LEFT, padx=(0, 6))
 
+		self.btn_regen = ttk.Button(toolbar, text="🔄 Regenerate HTML", command=self.regenerate_html)
+		self.btn_regen.pack(side=tk.LEFT, padx=(0, 6))
+
 		self.btn_config = ttk.Button(toolbar, text="⚙ Config", command=self.open_config_dialog)
 		self.btn_config.pack(side=tk.RIGHT)
 
@@ -359,9 +367,12 @@ class GraphMLExplorerApp(tk.Tk):
 		self.lbl_status = ttk.Label(info_bar, text="Idle", foreground="#555555")
 		self.lbl_status.pack(side=tk.RIGHT)
 
-		# Main Console Textbox
-		console_frame = ttk.Frame(self, padding=(8, 0, 8, 6))
-		console_frame.pack(fill=tk.BOTH, expand=True)
+		# Main split area: Console (left) + Persistent Category Progress (right)
+		main_pane = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+		main_pane.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 6))
+
+		console_frame = ttk.Frame(main_pane)
+		main_pane.add(console_frame, weight=3)
 
 		self.console = tk.Text(
 			console_frame,
@@ -375,49 +386,74 @@ class GraphMLExplorerApp(tk.Tk):
 			padx=10,
 			pady=8,
 		)
+		self.console.tag_configure("arrow_up", foreground="#6BCB77")
+		self.console.tag_configure("arrow_down", foreground="#FF6B6B")
+
 		v_scroll = ttk.Scrollbar(console_frame, orient=tk.VERTICAL, command=self.console.yview)
 		self.console.configure(yscrollcommand=v_scroll.set)
 
 		self.console.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 		v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-		# Mark tracking where user terminal input begins
-		self.console.mark_set("input_start", "1.0")
-		self.console.mark_gravity("input_start", tk.LEFT)
+		# Persistent Category Progress panel
+		progress_frame = ttk.LabelFrame(self, text="Category Progress", padding=8)
+		progress_frame.pack(fill=tk.X, padx=8, pady=(0, 6))
 
-		# Console keyboard & edit protections
-		self.console.bind("<Return>", self._on_console_enter)
-		self.console.bind("<KP_Enter>", self._on_console_enter)
-		self.console.bind("<BackSpace>", self._on_console_backspace)
-		self.console.bind("<Delete>", self._on_console_delete)
-		self.console.bind("<Home>", self._on_console_home)
-		self.console.bind("<<Cut>>", self._on_console_cut)
-		self.console.bind("<<Paste>>", self._on_console_paste)
-		self.console.bind("<Key>", self._on_console_key)
+		tier_bar = ttk.Frame(progress_frame)
+		tier_bar.pack(fill=tk.X, pady=(0, 6))
 
-		# Bottom Navigation Bar
-		nav_bar = ttk.Frame(self, padding=(8, 0, 8, 8))
-		nav_bar.pack(fill=tk.X)
+		self.lbl_current_tier = ttk.Label(
+			tier_bar, text="Current tier: —", font=("Segoe UI", 9, "bold")
+		)
+		self.lbl_current_tier.pack(side=tk.LEFT)
 
-		self.btn_start_game = ttk.Button(nav_bar, text="▶ Start Game (1)", command=self.start_game)
+		self.lbl_total_progress = ttk.Label(
+			tier_bar, text="", foreground="#555555", font=("Segoe UI", 9)
+		)
+		self.lbl_total_progress.pack(side=tk.RIGHT)
+
+		table_frame = ttk.Frame(progress_frame)
+		table_frame.pack(fill=tk.X)
+
+		columns = ("category", "done", "total", "pct", "tier", "left")
+		self.progress_tree = ttk.Treeview(
+			table_frame,
+			columns=columns,
+			show="headings",
+			selectmode="none",
+			height=1,
+		)
+		self.progress_tree.heading("category", text="Category", anchor="w")
+		self.progress_tree.heading("done", text="Done", anchor="e")
+		self.progress_tree.heading("total", text="Total", anchor="e")
+		self.progress_tree.heading("pct", text="%", anchor="e")
+		self.progress_tree.heading("tier", text="Tier", anchor="e")
+		self.progress_tree.heading("left", text="Left", anchor="e")
+
+		self.progress_tree.column("category", anchor="w", width=180, minwidth=100, stretch=True)
+		self.progress_tree.column("done", anchor="e", width=80, minwidth=50, stretch=False)
+		self.progress_tree.column("total", anchor="e", width=80, minwidth=50, stretch=False)
+		self.progress_tree.column("pct", anchor="e", width=70, minwidth=45, stretch=False)
+		self.progress_tree.column("tier", anchor="e", width=70, minwidth=45, stretch=False)
+		self.progress_tree.column("left", anchor="e", width=80, minwidth=50, stretch=False)
+
+		self.progress_tree.pack(fill=tk.X)
+		self.progress_tree.tag_configure("complete", foreground="#1B7A34")
+
+		# Bottom game control bar
+		bottom_bar = ttk.Frame(self, padding=(8, 0, 8, 8))
+		bottom_bar.pack(fill=tk.X)
+
+		self.btn_start_game = ttk.Button(bottom_bar, text="▶ Start Game (1)", command=self.start_game)
 		self.btn_start_game.pack(side=tk.LEFT, padx=(0, 6))
 
-		self.btn_reveal = ttk.Button(
-			nav_bar, text="⏎ Reveal / Next (Enter)", command=self.send_reveal_next, state=tk.DISABLED
-		)
+		self.btn_reveal = ttk.Button(bottom_bar, text="⏭ Reveal / Next (Enter)", command=self.send_reveal_next)
 		self.btn_reveal.pack(side=tk.LEFT, padx=(0, 6))
 
-		self.btn_stop_game = ttk.Button(
-			nav_bar, text="⏹ Stop Game (0)", command=self.send_stop_game, state=tk.DISABLED
-		)
-		self.btn_stop_game.pack(side=tk.LEFT, padx=(0, 12))
+		self.btn_stop_game = ttk.Button(bottom_bar, text="⏹ Stop Game (0)", command=self.send_stop_game)
+		self.btn_stop_game.pack(side=tk.LEFT, padx=(0, 6))
 
-		self.btn_regen = ttk.Button(nav_bar, text="📄 Regenerate HTML", command=self.regenerate_html)
-		self.btn_regen.pack(side=tk.LEFT, padx=(0, 6))
-
-		self.btn_clear = ttk.Button(nav_bar, text="🧹 Clear Console", command=self.clear_console)
-		self.btn_clear.pack(side=tk.RIGHT)
-
+		ttk.Button(bottom_bar, text="🧹 Clear Console", command=self.clear_console).pack(side=tk.RIGHT)
 	def _bind_shortcuts(self):
 		self.bind("<Control-o>", lambda e: self.open_file_dialog())
 		self.bind("<Control-O>", lambda e: self.open_file_dialog())
@@ -548,6 +584,7 @@ class GraphMLExplorerApp(tk.Tk):
 			self.active_session = None
 
 	def load_graph_file(self, filepath: str):
+		self.prepared_game_data = None
 		self._cancel_active_game()
 		norm_path = os.path.abspath(filepath)
 		self.current_graph_path = norm_path
@@ -607,7 +644,9 @@ class GraphMLExplorerApp(tk.Tk):
 				)
 
 				html_path = generate_html_and_graphml(ctx, self.output_folder, norm_path)
-				self.output_queue.put(("loaded", (ctx, html_path, norm_path)))
+				prepared = prepare_relationship_game_data(ctx)
+				stats = compute_relationship_stats(ctx, prepared)
+				self.output_queue.put(("loaded", (ctx, html_path, norm_path, prepared, stats)))
 			except Exception as exc:
 				self.output_queue.put(("load_error", str(exc)))
 
@@ -695,6 +734,10 @@ class GraphMLExplorerApp(tk.Tk):
 		self._update_button_states()
 
 		ctx_ref = self.ctx
+		prepared_ref = self.prepared_game_data
+
+		def on_stats(stats_dict: dict):
+			self.output_queue.put(("stats", (session, stats_dict)))
 
 		def gui_input() -> str:
 			if session.cancel_event.is_set():
@@ -714,7 +757,13 @@ class GraphMLExplorerApp(tk.Tk):
 
 		def game_worker():
 			try:
-				run_relationship_guessing_game(ctx_ref, input_fn=gui_input, exit_on_finish=False)
+				run_relationship_guessing_game(
+					ctx_ref,
+					input_fn=gui_input,
+					exit_on_finish=False,
+					on_stats_update=on_stats,
+					prepared_data=prepared_ref,
+				)
 				self.output_queue.put(("game_finished", session))
 			except GameCancelledError:
 				pass
@@ -751,13 +800,36 @@ class GraphMLExplorerApp(tk.Tk):
 	def clear_console(self):
 		self.console.delete("1.0", tk.END)
 		self.console.mark_set("input_start", "end-1c")
+		self.console.mark_gravity("input_start", tk.LEFT)
+		self.console.bind("<Return>", self._on_console_enter)
+		self.console.bind("<KP_Enter>", self._on_console_enter)
+		self.console.bind("<BackSpace>", self._on_console_backspace)
+		self.console.bind("<Delete>", self._on_console_delete)
+		self.console.bind("<Home>", self._on_console_home)
+		self.console.bind("<<Cut>>", self._on_console_cut)
+		self.console.bind("<<Paste>>", self._on_console_paste)
+		self.console.bind("<Key>", self._on_console_key)
 		self.console.mark_set("insert", "end-1c")
 
 	def _append_console_text(self, text: str):
-		self.console.insert("end-1c", text)
-		self.console.mark_set("input_start", "end-1c")
-		self.console.mark_set("insert", "end-1c")
-		self.console.see("end-1c")
+			start_idx = self.console.index("end-1c")
+			self.console.insert("end-1c", text)
+			if "↗" in text or "↘" in text:
+				for ch, tag in (("↗", "arrow_up"), ("↘", "arrow_down")):
+					offset = 0
+					while True:
+						pos = text.find(ch, offset)
+						if pos == -1:
+							break
+						self.console.tag_add(
+							tag,
+							f"{start_idx} + {pos} chars",
+							f"{start_idx} + {pos + 1} chars",
+						)
+						offset = pos + 1
+			self.console.mark_set("input_start", "end-1c")
+			self.console.mark_set("insert", "end-1c")
+			self.console.see("end-1c")
 
 	def _on_console_enter(self, event=None):
 		if self.is_busy:
@@ -880,8 +952,9 @@ class GraphMLExplorerApp(tk.Tk):
 					self._append_console_text(payload)
 
 				elif kind == "loaded":
-					ctx, html_path, norm_path = payload
+					ctx, html_path, norm_path, prepared, stats = payload
 					self.ctx = ctx
+					self.prepared_game_data = prepared
 					self.last_html_path = html_path or ""
 					self.is_busy = False
 					conn_mode = ctx.config.connection_type
@@ -890,6 +963,7 @@ class GraphMLExplorerApp(tk.Tk):
 						text=f"{os.path.basename(norm_path)}  |  Nodes: {len(ctx.nodes)}  |  Edges: {len(ctx.edges)}  |  Mode: {conn_mode}"
 					)
 					self.lbl_status.configure(text="Ready")
+					self._update_progress_table(stats)
 					self._append_console_text(
 						"Ready! Press '1' + Enter in the console or click 'Start Game' to begin.\n"
 					)
@@ -904,6 +978,8 @@ class GraphMLExplorerApp(tk.Tk):
 
 				elif kind == "load_error":
 					self.is_busy = False
+					self.prepared_game_data = None
+					self._update_progress_table(None)
 					self.lbl_status.configure(text="Load Error")
 					self._append_console_text(f"\nERROR: {payload}\n")
 					self._update_button_states()
@@ -939,6 +1015,10 @@ class GraphMLExplorerApp(tk.Tk):
 						self.lbl_status.configure(text="Game Error")
 						self._append_console_text(f"\nGame Error: {err_msg}\n")
 						self._update_button_states()
+				elif kind == "stats":
+					session, stats_dict = payload
+					if session is self.active_session:
+						self._update_progress_table(stats_dict)
 
 		except queue.Empty:
 			pass
@@ -969,7 +1049,46 @@ class GraphMLExplorerApp(tk.Tk):
 		sys.stderr = self._orig_stderr
 		self.destroy()
 
+	def _update_progress_table(self, stats: dict):
+		if not stats or not stats.get("rows"):
+			for item_id in self.progress_tree.get_children():
+				self.progress_tree.delete(item_id)
+			self.progress_tree.configure(height=1)
+			self.lbl_current_tier.configure(text="Current tier: —")
+			self.lbl_total_progress.configure(text="")
+			return
 
-def run_gui(input_file: str, output_folder: str):
-	app = GraphMLExplorerApp(input_file, output_folder)
-	app.mainloop()
+		rows = stats["rows"]
+		self.progress_tree.configure(height=max(1, len(rows)))
+
+		current_tier = stats.get("current_tier", 0)
+		total_answered = sum(r["answered"] for r in rows)
+		total_items = sum(r["total"] for r in rows)
+		overall_pct = int(100 * total_answered / total_items) if total_items else 0
+
+		self.lbl_current_tier.configure(text=f"Current tier: {current_tier}")
+		self.lbl_total_progress.configure(text=f"{total_answered} / {total_items} ({overall_pct}%)")
+
+		existing_ids = self.progress_tree.get_children()
+		existing_cats = [self.progress_tree.item(iid, "values")[0] for iid in existing_ids]
+		new_cats = [r["category"] for r in rows]
+
+		if existing_cats == new_cats:
+			for iid, r in zip(existing_ids, rows):
+				tags = ("complete",) if r["left"] == 0 else ()
+				self.progress_tree.item(
+					iid,
+					values=(r["category"], r["answered"], r["total"], f"{r['pct']}%", r["tier"], r["left"]),
+					tags=tags,
+				)
+		else:
+			for iid in existing_ids:
+				self.progress_tree.delete(iid)
+			for r in rows:
+				tags = ("complete",) if r["left"] == 0 else ()
+				self.progress_tree.insert(
+					"",
+					tk.END,
+					values=(r["category"], r["answered"], r["total"], f"{r['pct']}%", r["tier"], r["left"]),
+					tags=tags,
+				)
