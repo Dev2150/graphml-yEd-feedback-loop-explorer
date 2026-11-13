@@ -21,13 +21,17 @@ from src.models import GraphContext
 from src.progress_storage import get_save_file_path, load_progress, save_progress
 
 
+class GameCancelledError(Exception):
+	pass
+
 def get_canonical_cycle_tuple(cycle_nodes, nodes_dict):
 	n = len(cycle_nodes)
 	rotations = [cycle_nodes[i:] + cycle_nodes[:i] for i in range(n)]
 	return min(rotations, key=lambda rot: [nodes_dict.get(x, str(x)).lower() for x in rot])
 
 
-def run_relationship_guessing_game(ctx: GraphContext):
+def run_relationship_guessing_game(ctx: GraphContext, input_fn=None, exit_on_finish: bool = True):
+	_input = input_fn if input_fn is not None else input
 	print("\n--- Relationship Guessing Game ---")
 	print("Guess if the nodes connect Directly, Indirectly, Share a Source/Destination, Leaf (Source/Dest), Form a Cycle, or are Irrelevant. Enter 0 to stop.")
 	print("[Cycle / Direct / Indirect / Shared sources/destinations / Leaf Source/Dest / Irrelevant] (Press Enter to reveal answer, or 0 to quit).")
@@ -390,7 +394,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 			question_str = " ".join(q_parts)
 			print(f"Question {question_num}: {question_str}", end=' ')
 
-			user_input = input().strip()
+			user_input = _input().strip()
 			if user_input == '0':
 				print("Stopping the game.")
 				break
@@ -464,7 +468,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 			else:
 				print(f"Question {question_num}: [?] → {target_name}", end=' ')
 
-			user_input = input().strip()
+			user_input = _input().strip()
 			if user_input == '0':
 				print("Stopping the game.")
 				break
@@ -513,7 +517,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 			else:
 				print(f"Question {question_num}: {source_name} → [?]", end=' ')
 
-			user_input = input().strip()
+			user_input = _input().strip()
 			if user_input == '0':
 				print("Stopping the game.")
 				break
@@ -559,7 +563,7 @@ def run_relationship_guessing_game(ctx: GraphContext):
 
 			print(f"Question {question_num}: {u_name} [?] {v_name}", end=' ')
 
-			user_input = input().strip()
+			user_input = _input().strip()
 			if user_input == '0':
 				print("Stopping the game.")
 				break
@@ -738,4 +742,5 @@ def run_relationship_guessing_game(ctx: GraphContext):
 				print_relationship_stats()
 
 	print("Quiz finished.")
-	sys.exit(0)
+	if exit_on_finish:
+		sys.exit(0)

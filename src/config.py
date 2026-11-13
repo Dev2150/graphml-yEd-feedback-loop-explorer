@@ -178,3 +178,36 @@ CONNECTION_TYPE=correlation
 		print("Default configuration file created successfully.")
 	except Exception as e:
 		print(f"Error creating default configuration file: {e}")
+
+
+def save_config_file(p_input_file: str, cfg: Config):
+	config = configparser.ConfigParser()
+	config.optionxform = str  # preserve uppercase keys
+	config[SECTION] = {
+		'SOURCE_NODE': cfg.source_node,
+		'TARGET_NODE': cfg.target_node,
+		'SHOW_ONLY_EDGES': str(cfg.show_only_edges),
+		'SHOW_CONNECTIONS_LIST': str(cfg.show_connections_list),
+		'SHOW_EDGE_LABELS': str(cfg.show_edge_labels),
+		'CONNECTIONS_SKIPPED': str(cfg.connections_skipped),
+		'ENABLE_NON_CYCLE_PRINTING': str(cfg.enable_non_cycle_printing),
+		'SORT_BY_LEN': str(cfg.sort_by_len),
+		'SORT_CONNECTIONS_ALPHABETICALLY': str(cfg.sort_connections_alphabetically),
+		'COLOR_THRESHOLD': str(cfg.color_threshold),
+		'MAX_CYCLE_LENGTH_HTML': str(cfg.max_cycle_length_html),
+		'MAX_CYCLE_LENGTH_GAME': str(cfg.max_cycle_length_game),
+		'FOLDER_PATH': cfg.folder_path,
+		'FILE_NAME': cfg.file_name,
+		'BLOCK_STARTING_NODE': ', '.join(cfg.block_starting_node),
+		'CHANCE_IRRELEVANT': str(cfg.chance_irrelevant),
+		'MAX_INDIRECTNESS': str(cfg.max_indirectness),
+		'MAX_INDIRECTNESS_GAME': str(cfg.max_indirectness_game),
+		'LEAF_ONLY': str(cfg.leaf_only),
+		'IGNORE_EDGE_COLORS': str(cfg.ignore_edge_colors),
+		'CONNECTION_TYPE': cfg.connection_type,
+	}
+	parent_dir = os.path.dirname(os.path.abspath(p_input_file))
+	if parent_dir:
+		os.makedirs(parent_dir, exist_ok=True)
+	with open(p_input_file, 'w', encoding='utf-8') as f:
+		config.write(f, space_around_delimiters=False)

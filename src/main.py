@@ -1,23 +1,30 @@
 import os
+import sys
 
 import networkx as nx
 
-from games.relationship_game import run_relationship_guessing_game
-from html_exporter import generate_html_and_graphml
-from io_graphml import read_from_graph_xml
-from src.config import read_config_file, create_input_file, COUNTER_CONNECTION_TYPES
+# Ensure project root is on sys.path so `from src.*` always works
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SRC_DIR)
+if ROOT_DIR not in sys.path:
+	sys.path.insert(0, ROOT_DIR)
+
+from src.config import COUNTER_CONNECTION_TYPES, create_input_file, read_config_file
+from src.games.relationship_game import run_relationship_guessing_game
+from src.gui_app import run_gui
+from src.html_exporter import generate_html_and_graphml
+from src.io_graphml import read_from_graph_xml
 from src.models import GraphContext
 
 DEBUGGING = True
 PREFIX = 'src//' if DEBUGGING else '_internal//src//'
-INPUT_FILE = PREFIX + 'input.txt'
-OUTPUT_FOLDER = 'output//'
+INPUT_FILE = os.path.join(ROOT_DIR, PREFIX, 'input.txt')
+if not os.path.exists(INPUT_FILE) and os.path.exists(os.path.join(SRC_DIR, 'input.txt')):
+	INPUT_FILE = os.path.join(SRC_DIR, 'input.txt')
+OUTPUT_FOLDER = os.path.join(ROOT_DIR, 'output')
 
-# Define the section name
-SECTION = 'SETTINGS'
 
-
-def main():
+def run_cli():
 	if not os.path.exists(INPUT_FILE):
 		create_input_file(INPUT_FILE)
 
@@ -77,6 +84,13 @@ def main():
 
 	if choice == '1':
 		run_relationship_guessing_game(ctx)
+
+
+def main():
+	if '--cli' in sys.argv:
+		run_cli()
+	else:
+		run_gui(INPUT_FILE, OUTPUT_FOLDER)
 
 
 if __name__ == '__main__':
