@@ -22,6 +22,7 @@ android.ndk = 25b
 android.archs = arm64-v8a,armeabi-v7a
 android.allow_backup = True
 android.release_artifact = apk
+p4a.branch = release-2024.01.21
 
 [buildozer]
 
