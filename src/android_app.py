@@ -5,6 +5,8 @@ import re
 import shutil
 import sys
 import threading
+from kivy.core.text import LabelBase
+from kivy.resources import resource_find
 
 # Ensure project root is on sys.path when running src/android_app.py directly
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -87,20 +89,31 @@ def _format_console_markup(text: str) -> str:
 
 
 class ConsoleRedirector:
-	def __init__(self, msg_queue: queue.Queue):
-		self.msg_queue = msg_queue
+    encoding = 'utf-8'
 
-	def write(self, text: str):
-		if text:
-			clean = ANSI_ESCAPE_RE.sub('', text)
-			self.msg_queue.put(('text', clean))
+    def __init__(self, msg_queue: queue.Queue, orig_stream=None):
+        self.msg_queue = msg_queue
+        self.orig_stream = orig_stream
 
-	def flush(self):
-		pass
+    def write(self, text: str):
+        if text:
+            if self.orig_stream is not None:
+                try:
+                    self.orig_stream.write(text)
+                except Exception:
+                    pass
+            clean = ANSI_ESCAPE_RE.sub('', text)
+            self.msg_queue.put(('text', clean))
 
-	def isatty(self) -> bool:
-		return False
+    def flush(self):
+        if self.orig_stream is not None:
+            try:
+                self.orig_stream.flush()
+            except Exception:
+                pass
 
+    def isatty(self) -> bool:
+        return False
 
 class GameSession:
 	def __init__(self):
@@ -970,6 +983,15 @@ class GraphMLAndroidApp(App):
 		popup = Popup(title=title, content=box, size_hint=(0.85, 0.42))
 		box.add_widget(Button(text='OK', size_hint_y=None, height=dp(42), on_release=lambda *_: popup.dismiss()))
 		self._open_tracked_popup(popup)
+
+
+def _resolve_console_font() -> str:
+	for candidate in ('data/fonts/DejaVuSans.ttf', 'DejaVuSans.ttf'):
+		font_path = resource_find(candidate)
+		if font_path and os.path.isfile(font_path):
+			LabelBase.register(name='DejaVuSans', fn_regular=font_path)
+			return 'DejaVuSans'
+	return 'Roboto'
 
 
 def run_android_app():
