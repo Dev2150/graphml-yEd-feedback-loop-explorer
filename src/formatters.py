@@ -57,12 +57,14 @@ def format_path_string(path: list, nodes_dict: dict, edge_values_dict: dict, edg
 	parts = [format_node_name(path[0], nodes_dict, start_index, is_counter)]
 	is_direct = (len(path) == 2)
 	lbl_str = ""
+	cum_val = 1
 
 	for k in range(len(path) - 1):
 		u = path[k]
 		v = path[k + 1]
 		val = edge_values_dict.get((u, v), 1)
-		arrow = get_edge_arrow(val, ignore_edge_colors=(ignore_edge_colors or is_counter))
+		cum_val *= val
+		arrow = get_edge_arrow(cum_val, ignore_edge_colors=(ignore_edge_colors or is_counter))
 		if is_direct and edge_labels_dict:
 			lbl = edge_labels_dict.get((u, v), "")
 			if lbl:

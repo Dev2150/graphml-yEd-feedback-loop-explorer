@@ -327,7 +327,7 @@ def run_relationship_guessing_game(
 	_input = input_fn if input_fn is not None else input
 	print("\n--- Relationship Guessing Game ---")
 	print("Guess if the nodes connect Directly, Indirectly, Share a Source/Destination, Leaf (Source/Dest), Form a Cycle, or are Irrelevant. Enter 0 to stop.")
-	print("[Cycle / Direct / Indirect / Shared sources/destinations / Leaf Source/Dest / Irrelevant] (Press Enter to reveal answer, or 0 to quit).")
+	print("[Cycle / Direct / Indirect / Shared sources/destinations / Leaf Source/Dest / Irrelevant] (Press Enter to reveal answer, or 0 to quit).\n")
 
 	g = ctx.graph
 	nodes = ctx.nodes
@@ -470,12 +470,14 @@ def run_relationship_guessing_game(
 			edge_val_in = edge_values.get((pred_node, chosen_middle), 1)
 			edge_val_out = edge_values.get((chosen_middle, succ_node), 1)
 
+			cum_val = 1
 			q_parts = [format_node_name(full_path[0], nodes, 0, is_counter)]
 			for k in range(len(full_path) - 1):
 				u = full_path[k]
 				v = full_path[k + 1]
 				val = edge_values.get((u, v), 1)
-				arrow = get_edge_arrow(val, ignore_edge_colors=ignore_edge_colors)
+				cum_val *= val
+				arrow = get_edge_arrow(cum_val, ignore_edge_colors=ignore_edge_colors)
 				if (k + 1) == m:
 					node_text = f"{get_box_prefix(k + 1)} [?]" if is_counter else "[?]"
 				else:
@@ -510,14 +512,14 @@ def run_relationship_guessing_game(
 			if len(candidate_paths) <= 1:
 				formatted_cycle = format_path_string(full_path, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 				if is_counter or ignore_edge_colors:
-					print(f"Answer: {formatted_cycle}")
+					print(f"{formatted_cycle}")
 				else:
 					cycle_corr = 1
 					for k in range(len(full_path) - 1):
 						cycle_corr *= edge_values.get((full_path[k], full_path[k + 1]), 1)
 					polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
 					loop_type = "Reinforcing" if cycle_corr > 0 else "Balancing"
-					print(f"Answer: {formatted_cycle} ({polarity_icon} {loop_type})")
+					print(f"{formatted_cycle} ({polarity_icon} {loop_type})")
 			else:
 				print("Answer(s):")
 				for cand_p in candidate_paths:
@@ -567,9 +569,9 @@ def run_relationship_guessing_game(
 				p_name = nodes.get(p_nid, str(p_nid))
 				if is_family:
 					p_term = get_parent_term(detect_gender(node_colors.get(p_nid, '')))
-					print(f"Answer: {p_name} ({p_term}) → {target_name}")
+					print(f"{p_name} ({p_term}) → {target_name}")
 				else:
-					print(f"Answer: {format_path_string([p_nid, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
+					print(f"{format_path_string([p_nid, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 			else:
 				print("Answer(s):")
 				for s in found_leaves:
@@ -613,11 +615,10 @@ def run_relationship_guessing_game(
 				c_name = nodes.get(c_nid, str(c_nid))
 				if is_family:
 					c_term = get_child_term(detect_gender(node_colors.get(c_nid, '')))
-					print(f"Answer: {source_name} → {c_name} ({c_term})")
+					print(f"{source_name} → {c_name} ({c_term})")
 				else:
-					print(f"Answer: {format_path_string([source_node, c_nid], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
+					print(f"{format_path_string([source_node, c_nid], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 			else:
-				print("Answer(s):")
 				for d in found_leaves:
 					d_name = nodes.get(d, str(d))
 					if is_family:
@@ -655,9 +656,9 @@ def run_relationship_guessing_game(
 					fam_res = analyze_family_pair(u, v, nodes, node_colors, parents_map, children_map, spouses_map, ancestor_paths, ancestor_dist)
 
 				if not fam_res.is_relevant:
-					print("Answer: IRRELEVANT (No blood or marriage relationship found)")
+					print("IRRELEVANT (No blood or marriage relationship found)")
 				else:
-					print(f"Answer: {fam_res.primary_title}")
+					print(f"{fam_res.primary_title}")
 					for d in fam_res.details:
 						print(f"  • {d}")
 					if fam_res.lineages:
@@ -804,9 +805,9 @@ def run_relationship_guessing_game(
 							connection_lines.append(f"Cycle ({cyc_len}) {polarity_icon}: {formatted_cyc}")
 
 				if not connection_lines:
-					print("Answer: IRRELEVANT")
+					print("IRRELEVANT")
 				elif len(connection_lines) == 1:
-					print(f"Answer: {connection_lines[0]}")
+					print(f"{connection_lines[0]}")
 				else:
 					for line in connection_lines:
 						print(f"  • {line}")

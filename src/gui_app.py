@@ -367,35 +367,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self.lbl_status = ttk.Label(info_bar, text="Idle", foreground="#555555")
 		self.lbl_status.pack(side=tk.RIGHT)
 
-		# Main split area: Console (left) + Persistent Category Progress (right)
-		main_pane = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
-		main_pane.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 6))
-
-		console_frame = ttk.Frame(main_pane)
-		main_pane.add(console_frame, weight=3)
-
-		self.console = tk.Text(
-			console_frame,
-			wrap=tk.WORD,
-			bg="#1E1F22",
-			fg="#E8EAED",
-			insertbackground="#FFFFFF",
-			selectbackground="#2F4F7F",
-			font=("Consolas", 10),
-			undo=False,
-			padx=10,
-			pady=8,
-		)
-		self.console.tag_configure("arrow_up", foreground="#6BCB77")
-		self.console.tag_configure("arrow_down", foreground="#FF6B6B")
-
-		v_scroll = ttk.Scrollbar(console_frame, orient=tk.VERTICAL, command=self.console.yview)
-		self.console.configure(yscrollcommand=v_scroll.set)
-
-		self.console.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-		v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-		# Persistent Category Progress panel
+		# Persistent Category Progress panel (above the console output)
 		progress_frame = ttk.LabelFrame(self, text="Category Progress", padding=8)
 		progress_frame.pack(fill=tk.X, padx=8, pady=(0, 6))
 
@@ -440,6 +412,35 @@ class GraphMLExplorerApp(tk.Tk):
 		self.progress_tree.pack(fill=tk.X)
 		self.progress_tree.tag_configure("complete", foreground="#1B7A34")
 
+		# Read-only Console Output Label area
+		console_frame = ttk.Frame(self)
+		console_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 6))
+
+		self.console = tk.Text(
+			console_frame,
+			wrap=tk.WORD,
+			bg="#1E1F22",
+			fg="#E8EAED",
+			selectbackground="#2F4F7F",
+			font=("Consolas", 10),
+			state=tk.DISABLED,
+			cursor="arrow",
+			takefocus=0,
+			highlightthickness=0,
+			relief=tk.FLAT,
+			undo=False,
+			padx=10,
+			pady=8,
+		)
+		self.console.tag_configure("arrow_up", foreground="#6BCB77")
+		self.console.tag_configure("arrow_down", foreground="#FF6B6B")
+
+		v_scroll = ttk.Scrollbar(console_frame, orient=tk.VERTICAL, command=self.console.yview)
+		self.console.configure(yscrollcommand=v_scroll.set)
+
+		self.console.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+		v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
 		# Bottom game control bar
 		bottom_bar = ttk.Frame(self, padding=(8, 0, 8, 8))
 		bottom_bar.pack(fill=tk.X)
@@ -454,6 +455,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self.btn_stop_game.pack(side=tk.LEFT, padx=(0, 6))
 
 		ttk.Button(bottom_bar, text="🧹 Clear Console", command=self.clear_console).pack(side=tk.RIGHT)
+
 	def _bind_shortcuts(self):
 		self.bind("<Control-o>", lambda e: self.open_file_dialog())
 		self.bind("<Control-O>", lambda e: self.open_file_dialog())
@@ -462,6 +464,10 @@ class GraphMLExplorerApp(tk.Tk):
 		self.bind("<Control-Shift-O>", lambda e: self.open_html_folder())
 		self.bind("<Control-comma>", lambda e: self.open_config_dialog())
 		self.bind("<F5>", lambda e: self.reload_current_file())
+		self.bind("<Return>", self._on_key_enter)
+		self.bind("<KP_Enter>", self._on_key_enter)
+		self.bind("1", self._on_key_start)
+		self.bind("0", self._on_key_stop)
 
 	# ------------------------------------------------------------------
 	# Startup & File Resolution
@@ -779,7 +785,7 @@ class GraphMLExplorerApp(tk.Tk):
 			self.active_session.waiting_for_input = False
 			self.active_session.input_queue.put("")
 			self._update_button_states()
-			self.console.focus_set()
+			self.focus_set()
 
 	def send_stop_game(self):
 		if self.active_session and self.active_session.waiting_for_input:
@@ -787,7 +793,7 @@ class GraphMLExplorerApp(tk.Tk):
 			self.active_session.waiting_for_input = False
 			self.active_session.input_queue.put("0")
 			self._update_button_states()
-			self.console.focus_set()
+			self.focus_set()
 		elif self.active_session:
 			self._cancel_active_game()
 			self._append_console_text("\nGame stopped.\n")
@@ -798,70 +804,29 @@ class GraphMLExplorerApp(tk.Tk):
 	# Terminal-like Console Widget Handling
 	# ------------------------------------------------------------------
 	def clear_console(self):
+		self.console.configure(state=tk.NORMAL)
 		self.console.delete("1.0", tk.END)
-		self.console.mark_set("input_start", "end-1c")
-		self.console.mark_gravity("input_start", tk.LEFT)
-		self.console.bind("<Return>", self._on_console_enter)
-		self.console.bind("<KP_Enter>", self._on_console_enter)
-		self.console.bind("<BackSpace>", self._on_console_backspace)
-		self.console.bind("<Delete>", self._on_console_delete)
-		self.console.bind("<Home>", self._on_console_home)
-		self.console.bind("<<Cut>>", self._on_console_cut)
-		self.console.bind("<<Paste>>", self._on_console_paste)
-		self.console.bind("<Key>", self._on_console_key)
-		self.console.mark_set("insert", "end-1c")
+		self.console.configure(state=tk.DISABLED)
 
 	def _append_console_text(self, text: str):
-			start_idx = self.console.index("end-1c")
-			self.console.insert("end-1c", text)
-			if "↗" in text or "↘" in text:
-				for ch, tag in (("↗", "arrow_up"), ("↘", "arrow_down")):
-					offset = 0
-					while True:
-						pos = text.find(ch, offset)
-						if pos == -1:
-							break
-						self.console.tag_add(
-							tag,
-							f"{start_idx} + {pos} chars",
-							f"{start_idx} + {pos + 1} chars",
-						)
-						offset = pos + 1
-			self.console.mark_set("input_start", "end-1c")
-			self.console.mark_set("insert", "end-1c")
-			self.console.see("end-1c")
-
-	def _on_console_enter(self, event=None):
-		if self.is_busy:
-			return "break"
-
-		user_text = self.console.get("input_start", "end-1c")
-		self.console.insert("end-1c", "\n")
-		self.console.mark_set("input_start", "end-1c")
-		self.console.mark_set("insert", "end-1c")
+		self.console.configure(state=tk.NORMAL)
+		start_idx = self.console.index("end-1c")
+		self.console.insert("end-1c", text)
+		if "↗" in text or "↘" in text:
+			for ch, tag in (("↗", "arrow_up"), ("↘", "arrow_down")):
+				offset = 0
+				while True:
+					pos = text.find(ch, offset)
+					if pos == -1:
+						break
+					self.console.tag_add(
+						tag,
+						f"{start_idx} + {pos} chars",
+						f"{start_idx} + {pos + 1} chars",
+					)
+					offset = pos + 1
+		self.console.configure(state=tk.DISABLED)
 		self.console.see("end-1c")
-
-		if self.active_session and self.active_session.waiting_for_input:
-			self.active_session.waiting_for_input = False
-			self.active_session.input_queue.put(user_text)
-			self._update_button_states()
-		elif not self.active_session:
-			cmd = user_text.strip().lower()
-			if cmd in ("1", "start", "play"):
-				self.start_game()
-			elif cmd in ("html", "regen"):
-				self.regenerate_html()
-			elif cmd == "0":
-				self._append_console_text("No game is currently running.\n")
-			elif cmd in ("help", "?"):
-				self._append_console_text(
-					"Commands: '1' = Start Relationship Game, 'html' = Regenerate HTML, or use the buttons.\n"
-				)
-			elif cmd:
-				self._append_console_text(
-					f"Unknown command '{user_text.strip()}'. Enter '1' to start the game or click a button.\n"
-				)
-		return "break"
 
 	def _on_console_backspace(self, event=None):
 		try:
@@ -964,9 +929,7 @@ class GraphMLExplorerApp(tk.Tk):
 					)
 					self.lbl_status.configure(text="Ready")
 					self._update_progress_table(stats)
-					self._append_console_text(
-						"Ready! Press '1' + Enter in the console or click 'Start Game' to begin.\n"
-					)
+					self._append_console_text("Ready! Press '1' or click 'Start Game' to begin.\n")
 					self._update_button_states()
 					self.console.focus_set()
 
@@ -1092,3 +1055,21 @@ class GraphMLExplorerApp(tk.Tk):
 					values=(r["category"], r["answered"], r["total"], f"{r['pct']}%", r["tier"], r["left"]),
 					tags=tags,
 				)
+
+	def _on_key_enter(self, event=None):
+		if self.active_session and self.active_session.waiting_for_input:
+			self.send_reveal_next()
+			return "break"
+		return None
+
+	def _on_key_start(self, event=None):
+		if not self.is_busy and self.ctx and self.active_session is None:
+			self.start_game()
+			return "break"
+		return None
+
+	def _on_key_stop(self, event=None):
+		if self.active_session is not None:
+			self.send_stop_game()
+			return "break"
+		return None
