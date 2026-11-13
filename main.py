@@ -20,10 +20,48 @@ def check_is_android() -> bool:
 		return False
 
 
+def _show_fatal_error_app(tb_text: str):
+	from kivy.app import App
+	from kivy.metrics import dp
+	from kivy.uix.boxlayout import BoxLayout
+	from kivy.uix.label import Label
+	from kivy.uix.scrollview import ScrollView
+
+	class CrashScreenApp(App):
+		def build(self):
+			root = BoxLayout(orientation='vertical', padding=dp(12), spacing=dp(8))
+			root.add_widget(Label(
+				text='Startup Error:',
+				size_hint_y=None,
+				height=dp(32),
+				bold=True,
+				color=(1, 0.4, 0.4, 1),
+			))
+			sv = ScrollView()
+			lbl = Label(
+				text=tb_text,
+				size_hint_y=None,
+				halign='left',
+				valign='top',
+				font_size=dp(12),
+			)
+			lbl.bind(width=lambda inst, w: setattr(inst, 'text_size', (w, None)))
+			lbl.bind(texture_size=lambda inst, ts: setattr(inst, 'height', ts[1] + dp(10)))
+			sv.add_widget(lbl)
+			root.add_widget(sv)
+			return root
+
+	CrashScreenApp().run()
+
+
 def main():
 	if check_is_android():
-		from src.android_app import run_android_app
-		run_android_app()
+		try:
+			from src.android_app import run_android_app
+			run_android_app()
+		except Exception:
+			import traceback
+			_show_fatal_error_app(traceback.format_exc())
 	else:
 		from src.main import main as desktop_main
 		desktop_main()

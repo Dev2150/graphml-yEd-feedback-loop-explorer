@@ -87,33 +87,47 @@ def _format_console_markup(text: str) -> str:
 	)
 	return safe
 
+def _resolve_console_font() -> str:
+	from kivy.core.text import LabelBase
+	from kivy.resources import resource_find
+
+	for candidate in ('data/fonts/DejaVuSans.ttf', 'DejaVuSans.ttf'):
+		font_path = resource_find(candidate)
+		if font_path and os.path.isfile(font_path):
+			try:
+				LabelBase.register(name='DejaVuSans', fn_regular=font_path)
+				return 'DejaVuSans'
+			except Exception:
+				pass
+	return 'Roboto'
+
 
 class ConsoleRedirector:
-    encoding = 'utf-8'
+	encoding = 'utf-8'
 
-    def __init__(self, msg_queue: queue.Queue, orig_stream=None):
-        self.msg_queue = msg_queue
-        self.orig_stream = orig_stream
+	def __init__(self, msg_queue: queue.Queue, orig_stream=None):
+		self.msg_queue = msg_queue
+		self.orig_stream = orig_stream
 
-    def write(self, text: str):
-        if text:
-            if self.orig_stream is not None:
-                try:
-                    self.orig_stream.write(text)
-                except Exception:
-                    pass
-            clean = ANSI_ESCAPE_RE.sub('', text)
-            self.msg_queue.put(('text', clean))
+	def write(self, text: str):
+		if text:
+			if self.orig_stream is not None:
+				try:
+					self.orig_stream.write(text)
+				except Exception:
+					pass
+			clean = ANSI_ESCAPE_RE.sub('', text)
+			self.msg_queue.put(('text', clean))
 
-    def flush(self):
-        if self.orig_stream is not None:
-            try:
-                self.orig_stream.flush()
-            except Exception:
-                pass
+	def flush(self):
+		if self.orig_stream is not None:
+			try:
+				self.orig_stream.flush()
+			except Exception:
+				pass
 
-    def isatty(self) -> bool:
-        return False
+	def isatty(self) -> bool:
+		return False
 
 class GameSession:
 	def __init__(self):
@@ -282,11 +296,13 @@ class GraphMLAndroidApp(App):
 		bottom_bar.add_widget(self.btn_clear)
 		root.add_widget(bottom_bar)
 
-		# Redirect stdout/stderr into UI queue
+		self.console_font = _resolve_console_font()
+
+		# Redirect stdout/stderr into UI queue (while still forwarding to logcat)
 		self._orig_stdout = sys.stdout
 		self._orig_stderr = sys.stderr
-		sys.stdout = ConsoleRedirector(self.output_queue)
-		sys.stderr = ConsoleRedirector(self.output_queue)
+		sys.stdout = ConsoleRedirector(self.output_queue, self._orig_stdout)
+		sys.stderr = ConsoleRedirector(self.output_queue, self._orig_stderr)
 
 		# Hook Android hardware back button (and Esc on desktop)
 		Window.bind(on_keyboard=self._handle_hardware_back)
@@ -366,37 +382,43 @@ class GraphMLAndroidApp(App):
 	# ------------------------------------------------------------------
 	# Startup & Path Resolution
 	# ------------------------------------------------------------------
+
 	def _startup(self):
-		if not os.path.exists(self.input_file):
-			create_input_file(self.input_file)
+		try:
+			if not os.path.exists(self.input_file):
+				create_input_file(self.input_file)
 
-		self.config_obj = read_config_file(self.input_file)
-		app_state = load_app_state()
-		last_file = app_state.get('last_file', '')
+			self.config_obj = read_config_file(self.input_file)
+			app_state = load_app_state()
+			last_file = app_state.get('last_file', '')
 
-		candidate = ''
-		if last_file and os.path.isfile(last_file):
-			candidate = last_file
-		else:
-			cfg_path = self._resolve_graph_path_from_config(self.config_obj)
-			if cfg_path and os.path.isfile(cfg_path):
-				candidate = os.path.abspath(cfg_path)
+			candidate = ''
+			if last_file and os.path.isfile(last_file):
+				candidate = last_file
+			else:
+				cfg_path = self._resolve_graph_path_from_config(self.config_obj)
+				if cfg_path and os.path.isfile(cfg_path):
+					candidate = os.path.abspath(cfg_path)
 
-		if candidate:
-			cfg_path = self._resolve_graph_path_from_config(self.config_obj)
-			same_as_cfg = (
-				cfg_path
-				and os.path.normcase(os.path.abspath(cfg_path)) == os.path.normcase(os.path.abspath(candidate))
-			)
-			if not same_as_cfg:
-				self.config_obj.folder_path = os.path.dirname(candidate) + os.sep
-				self.config_obj.file_name = os.path.basename(candidate)
-			self.load_graph_file(candidate)
-		else:
-			self._append_console_text(
-				'No GraphML file loaded yet.\n'
-				'Tap "Open" to select a .graphml file.\n'
-			)
+			if candidate:
+				cfg_path = self._resolve_graph_path_from_config(self.config_obj)
+				same_as_cfg = (
+					cfg_path
+					and os.path.normcase(os.path.abspath(cfg_path)) == os.path.normcase(os.path.abspath(candidate))
+				)
+				if not same_as_cfg:
+					self.config_obj.folder_path = os.path.dirname(candidate) + os.sep
+					self.config_obj.file_name = os.path.basename(candidate)
+				self.load_graph_file(candidate)
+			else:
+				self._append_console_text(
+					'No GraphML file loaded yet.\n'
+					'Tap "Open" to select a .graphml file.\n'
+				)
+				self._update_button_states()
+		except Exception:
+			import traceback
+			self._append_console_text(f'\nStartup Error:\n{traceback.format_exc()}\n')
 			self._update_button_states()
 
 	def _resolve_graph_path_from_config(self, cfg: Config) -> str:
@@ -820,7 +842,7 @@ class GraphMLAndroidApp(App):
 		lbl = Label(
 			text=_format_console_markup(line if line else ' '),
 			markup=True,
-			font_name='DejaVuSans',
+			font_name=getattr(self, 'console_font', 'Roboto'),
 			font_size=dp(13),
 			color=(0.91, 0.92, 0.93, 1),
 			size_hint_y=None,
@@ -983,16 +1005,6 @@ class GraphMLAndroidApp(App):
 		popup = Popup(title=title, content=box, size_hint=(0.85, 0.42))
 		box.add_widget(Button(text='OK', size_hint_y=None, height=dp(42), on_release=lambda *_: popup.dismiss()))
 		self._open_tracked_popup(popup)
-
-
-def _resolve_console_font() -> str:
-	for candidate in ('data/fonts/DejaVuSans.ttf', 'DejaVuSans.ttf'):
-		font_path = resource_find(candidate)
-		if font_path and os.path.isfile(font_path):
-			LabelBase.register(name='DejaVuSans', fn_regular=font_path)
-			return 'DejaVuSans'
-	return 'Roboto'
-
 
 def run_android_app():
 	GraphMLAndroidApp().run()
