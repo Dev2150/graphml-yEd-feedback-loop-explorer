@@ -12,7 +12,7 @@ version = 0.1
 
 requirements = python3,kivy==2.3.0,networkx==3.3,pyjnius
 
-orientation = all
+orientation = portrait, landscape, portrait-reverse, landscape-reverse
 fullscreen = 0
 
 android.permissions = READ_EXTERNAL_STORAGE
