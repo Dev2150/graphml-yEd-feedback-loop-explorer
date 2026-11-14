@@ -10,7 +10,7 @@ source.exclude_dirs = tests,bin,.git,.venv,venv,__pycache__,output,build,dist
 
 version = 0.1
 
-requirements = python3==3.11.9,kivy==2.3.1,networkx==3.3
+requirements = python3==3.11.9,kivy==2.3.1,filetype,networkx==3.3
 
 orientation = portrait, landscape, portrait-reverse, landscape-reverse
 fullscreen = 0
