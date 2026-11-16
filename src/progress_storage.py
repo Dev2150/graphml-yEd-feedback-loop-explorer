@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Any, Dict, Optional
 
 MAX_RECENT_FILES = 50
 
@@ -100,3 +101,63 @@ def clear_recent_files() -> dict:
 	state["recent_files"] = []
 	save_app_state(state)
 	return state
+
+
+# ------------------------------------------------------------------
+# Per-GraphML Configuration Storage
+# ------------------------------------------------------------------
+def get_graph_configs_path() -> str:
+	return os.path.join(get_app_data_dir(), 'graph_configs.json')
+
+
+def _graph_config_key(filepath: str) -> str:
+	return os.path.normcase(os.path.abspath(filepath))
+
+
+def load_all_graph_configs() -> Dict[str, Dict[str, Any]]:
+	cfg_path = get_graph_configs_path()
+	if os.path.exists(cfg_path):
+		try:
+			with open(cfg_path, 'r', encoding='utf-8') as f:
+				data = json.load(f)
+			if isinstance(data, dict):
+				return data
+		except Exception as e:
+			print(f"Error loading graph configs: {e}")
+	return {}
+
+
+def load_graph_config(filepath: str) -> Optional[Dict[str, Any]]:
+	if not filepath:
+		return None
+	all_cfgs = load_all_graph_configs()
+	entry = all_cfgs.get(_graph_config_key(filepath))
+	return entry if isinstance(entry, dict) else None
+
+
+def save_graph_config(filepath: str, config_dict: Dict[str, Any]):
+	if not filepath:
+		return
+	all_cfgs = load_all_graph_configs()
+	all_cfgs[_graph_config_key(filepath)] = config_dict
+	try:
+		with open(get_graph_configs_path(), 'w', encoding='utf-8') as f:
+			json.dump(all_cfgs, f, indent=4)
+	except Exception as e:
+		print(f"Error saving graph config: {e}")
+
+
+def delete_graph_config(filepath: str) -> bool:
+	if not filepath:
+		return False
+	all_cfgs = load_all_graph_configs()
+	key = _graph_config_key(filepath)
+	if key in all_cfgs:
+		del all_cfgs[key]
+		try:
+			with open(get_graph_configs_path(), 'w', encoding='utf-8') as f:
+				json.dump(all_cfgs, f, indent=4)
+			return True
+		except Exception as e:
+			print(f"Error deleting graph config: {e}")
+	return False

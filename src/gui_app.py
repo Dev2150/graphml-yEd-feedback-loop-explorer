@@ -15,19 +15,28 @@ import networkx as nx
 from src.config import (
 	Config,
 	COUNTER_CONNECTION_TYPES,
+	apply_graph_dict_to_config,
+	config_to_graph_dict,
 	create_input_file,
 	read_config_file,
 	save_config_file,
 )
-from src.games.relationship_game import GameCancelledError, run_relationship_guessing_game, \
-	prepare_relationship_game_data, compute_relationship_stats
+from src.games.relationship_game import (
+	GameCancelledError,
+	run_relationship_guessing_game,
+	prepare_relationship_game_data,
+	compute_relationship_stats,
+)
 from src.html_exporter import generate_html_and_graphml
-from src.io_graphml import read_from_graph_xml
+from src.io_graphml import list_graph_elements_and_groups, read_from_graph_xml
 from src.models import GraphContext
 from src.progress_storage import (
 	clear_recent_files,
+	delete_graph_config,
 	load_app_state,
+	load_graph_config,
 	record_recent_file,
+	save_graph_config,
 )
 
 ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
@@ -36,6 +45,7 @@ ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
 def run_gui(input_file: str, output_folder: str):
 	app = GraphMLExplorerApp(input_file, output_folder)
 	app.mainloop()
+
 
 class ConsoleRedirector:
 	def __init__(self, msg_queue: queue.Queue):
@@ -61,17 +71,109 @@ class GameSession:
 		self.waiting_for_input: bool = False
 
 
-class ConfigDialog(tk.Toplevel):
-	"""Configuration UI dialog — shown only when clicked or when configuration is needed."""
+class ExclusionPickerDialog(tk.Toplevel):
+	"""Searchable checklist to pick Groups and Elements from the current GraphML file."""
 
-	def __init__(self, parent, config: Config, input_file: str, on_apply_callback):
+	def __init__(self, parent, graph_path: str, current_excluded: list, on_confirm):
 		super().__init__(parent)
-		self.title("Configuration")
+		self.title(f"Exclude Elements / Groups — {os.path.basename(graph_path)}")
+		self.transient(parent)
+		self.grab_set()
+		self.geometry("460x560")
+		self.minsize(360, 380)
+
+		self.on_confirm = on_confirm
+		self.selected_lower = {x.strip().lower(): x.strip() for x in current_excluded if x.strip()}
+
+		groups, elements = list_graph_elements_and_groups(graph_path)
+		self.all_items = [("Group", g) for g in groups] + [("Node", e) for e in elements]
+		self.vars = {}
+		for kind, name in self.all_items:
+			self.vars[(kind, name)] = tk.BooleanVar(value=(name.lower() in self.selected_lower))
+
+		outer = ttk.Frame(self, padding=10)
+		outer.pack(fill=tk.BOTH, expand=True)
+
+		ttk.Label(
+			outer,
+			text="Check groups (excludes the group and everything inside) or individual nodes:",
+			wraplength=420,
+		).pack(anchor="w", pady=(0, 6))
+
+		search_bar = ttk.Frame(outer)
+		search_bar.pack(fill=tk.X, pady=(0, 6))
+		ttk.Label(search_bar, text="Filter:").pack(side=tk.LEFT, padx=(0, 6))
+		self.search_var = tk.StringVar()
+		self.search_var.trace_add("write", lambda *_: self._render_items())
+		ttk.Entry(search_bar, textvariable=self.search_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+		list_container = ttk.Frame(outer)
+		list_container.pack(fill=tk.BOTH, expand=True)
+
+		self.canvas = tk.Canvas(list_container, highlightthickness=0)
+		scrollbar = ttk.Scrollbar(list_container, orient=tk.VERTICAL, command=self.canvas.yview)
+		self.items_frame = ttk.Frame(self.canvas)
+		self.items_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+		self.canvas_win = self.canvas.create_window((0, 0), window=self.items_frame, anchor="nw")
+		self.canvas.configure(yscrollcommand=scrollbar.set)
+		self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self.canvas_win, width=e.width))
+
+		self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+		scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+		btn_bar = ttk.Frame(outer, padding=(0, 8, 0, 0))
+		btn_bar.pack(fill=tk.X)
+		ttk.Button(btn_bar, text="Uncheck All", command=self._uncheck_all).pack(side=tk.LEFT)
+		ttk.Button(btn_bar, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=(6, 0))
+		ttk.Button(btn_bar, text="OK", command=self._confirm).pack(side=tk.RIGHT)
+
+		self._render_items()
+
+	def _render_items(self):
+		for child in self.items_frame.winfo_children():
+			child.destroy()
+		q = self.search_var.get().strip().lower()
+		for kind, name in self.all_items:
+			if q and q not in name.lower() and q not in kind.lower():
+				continue
+			label = f"[{kind}]  {name}"
+			ttk.Checkbutton(self.items_frame, text=label, variable=self.vars[(kind, name)]).pack(anchor="w", pady=1)
+
+	def _uncheck_all(self):
+		for var in self.vars.values():
+			var.set(False)
+
+	def _confirm(self):
+		seen = set()
+		result = []
+		for (kind, name), var in self.vars.items():
+			if var.get() and name.lower() not in seen:
+				seen.add(name.lower())
+				result.append(name)
+		known_names_lower = {name.lower() for _, name in self.all_items}
+		for low, orig in self.selected_lower.items():
+			if low not in known_names_lower and low not in seen:
+				seen.add(low)
+				result.append(orig)
+		self.destroy()
+		self.on_confirm(result)
+
+
+class ConfigDialog(tk.Toplevel):
+	"""Configuration UI dialog — supports per-GraphML properties and global defaults."""
+
+	def __init__(self, parent, config: Config, input_file: str, on_apply_callback, current_graph_path: str = ""):
+		super().__init__(parent)
+		self.current_graph_path = current_graph_path
+		self.has_custom_config = bool(current_graph_path and load_graph_config(current_graph_path) is not None)
+
+		title_suffix = os.path.basename(current_graph_path) if current_graph_path else "Global Defaults"
+		self.title(f"Configuration — {title_suffix}")
 		self.transient(parent)
 		self.grab_set()
 		self.resizable(True, True)
-		self.geometry("600x850")
-		self.minsize(480, 420)
+		self.geometry("640x880")
+		self.minsize(500, 460)
 
 		self.parent_app = parent
 		self.orig_config = config
@@ -82,10 +184,17 @@ class ConfigDialog(tk.Toplevel):
 		self.protocol("WM_DELETE_WINDOW", self.destroy)
 
 	def _build_ui(self, cfg: Config):
+		if self.current_graph_path:
+			status_text = (
+				f"Editing properties for: {os.path.basename(self.current_graph_path)}  "
+				f"({'Custom per-file settings' if self.has_custom_config else 'Using global defaults'})"
+			)
+			banner = ttk.Label(self, text=status_text, padding=(12, 8, 12, 2), font=("Segoe UI", 9, "bold"))
+			banner.pack(fill=tk.X)
+
 		container = ttk.Frame(self, padding=10)
 		container.pack(fill=tk.BOTH, expand=True)
 
-		# Scrollable form area
 		canvas = tk.Canvas(container, highlightthickness=0)
 		scrollbar = ttk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
 		form_frame = ttk.Frame(canvas, padding=(4, 4, 12, 4))
@@ -102,6 +211,8 @@ class ConfigDialog(tk.Toplevel):
 		)
 
 		def _on_mousewheel(event):
+			if hasattr(self, "txt_excluded") and event.widget is self.txt_excluded:
+				return
 			if event.delta:
 				canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 			elif event.num == 4:
@@ -180,10 +291,23 @@ class ConfigDialog(tk.Toplevel):
 		add_entry("max_cycle_length_html", "Max Cycle Length (HTML):", cfg.max_cycle_length_html)
 		add_entry("max_indirectness", "Max Indirectness (HTML):", cfg.max_indirectness)
 
-		add_section("3. Node Filters")
+		add_section("3. Node & Group Filters")
 		add_entry("source_node", "Source Node (blank = all):", cfg.source_node)
 		add_entry("target_node", "Target Node (blank = all):", cfg.target_node)
 		add_entry("block_starting_node", "Block Starting Nodes (comma-sep):", ", ".join(cfg.block_starting_node))
+
+		ttk.Label(
+			form_frame,
+			text="Excluded Elements / Groups\n(one per line; groups exclude\nthemselves + all items inside):",
+		).grid(row=row, column=0, sticky="nw", pady=4, padx=(0, 8))
+		self.txt_excluded = tk.Text(form_frame, height=5, width=30, wrap=tk.NONE)
+		self.txt_excluded.insert("1.0", "\n".join(cfg.excluded_elements))
+		self.txt_excluded.grid(row=row, column=1, sticky="ew", pady=4)
+		if self.current_graph_path and os.path.isfile(self.current_graph_path):
+			ttk.Button(form_frame, text="Pick...", command=self._open_exclusion_picker).grid(
+				row=row, column=2, sticky="n", padx=(6, 0), pady=4
+			)
+		row += 1
 
 		add_section("4. Relationship Guessing Game")
 		add_entry("chance_irrelevant", "Chance Irrelevant (0.0 - 1.0):", cfg.chance_irrelevant)
@@ -191,17 +315,44 @@ class ConfigDialog(tk.Toplevel):
 		add_entry("max_indirectness_game", "Max Indirectness (Game):", cfg.max_indirectness_game)
 		add_check("leaf_only", "Leaf Nodes Only", cfg.leaf_only)
 
-		# Action buttons
 		btn_bar = ttk.Frame(self, padding=(10, 6, 10, 10))
 		btn_bar.pack(fill=tk.X)
 
 		ttk.Button(btn_bar, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=(6, 0))
-		ttk.Button(
-			btn_bar, text="Save to input.txt & Apply", command=lambda: self._apply(save_to_disk=True)
-		).pack(side=tk.RIGHT, padx=(6, 0))
-		ttk.Button(
-			btn_bar, text="Apply & Reload", command=lambda: self._apply(save_to_disk=False)
-		).pack(side=tk.RIGHT)
+		if self.current_graph_path:
+			ttk.Button(
+				btn_bar, text="Save for This GraphML & Apply", command=lambda: self._apply(mode="graph")
+			).pack(side=tk.RIGHT, padx=(6, 0))
+			ttk.Button(
+				btn_bar, text="Apply (Session Only)", command=lambda: self._apply(mode="session")
+			).pack(side=tk.RIGHT, padx=(6, 0))
+			ttk.Button(
+				btn_bar, text="Save Global (input.txt)", command=lambda: self._apply(mode="global")
+			).pack(side=tk.LEFT)
+			if self.has_custom_config:
+				ttk.Button(
+					btn_bar, text="Reset to Global Defaults", command=self._reset_to_defaults
+				).pack(side=tk.LEFT, padx=(6, 0))
+		else:
+			ttk.Button(
+				btn_bar, text="Save to input.txt & Apply", command=lambda: self._apply(mode="global")
+			).pack(side=tk.RIGHT, padx=(6, 0))
+			ttk.Button(
+				btn_bar, text="Apply & Reload", command=lambda: self._apply(mode="session")
+			).pack(side=tk.RIGHT)
+
+	def _open_exclusion_picker(self):
+		raw = self.txt_excluded.get("1.0", tk.END)
+		current = [line.strip() for line in raw.splitlines() if line.strip()]
+
+		def on_picked(new_list):
+			self.txt_excluded.delete("1.0", tk.END)
+			self.txt_excluded.insert("1.0", "\n".join(new_list))
+
+		try:
+			ExclusionPickerDialog(self, self.current_graph_path, current, on_picked)
+		except Exception as exc:
+			messagebox.showerror("Error", f"Could not inspect GraphML elements:\n{exc}", parent=self)
 
 	def _browse_graphml(self):
 		initial_dir = self.vars["folder_path"].get().strip() or os.getcwd()
@@ -240,6 +391,9 @@ class ConfigDialog(tk.Toplevel):
 		block_raw = self.vars["block_starting_node"].get().strip()
 		new_cfg.block_starting_node = [x.strip().lower() for x in block_raw.split(",") if x.strip()]
 
+		excl_raw = self.txt_excluded.get("1.0", tk.END)
+		new_cfg.excluded_elements = [line.strip() for line in excl_raw.splitlines() if line.strip()]
+
 		chance = float(self.vars["chance_irrelevant"].get().strip())
 		if chance > 1.0:
 			chance /= 100.0
@@ -249,22 +403,34 @@ class ConfigDialog(tk.Toplevel):
 		new_cfg.leaf_only = bool(self.vars["leaf_only"].get())
 		return new_cfg
 
-	def _apply(self, save_to_disk: bool):
+	def _reset_to_defaults(self):
+		if self.current_graph_path:
+			delete_graph_config(self.current_graph_path)
+		self.destroy()
+		self.on_apply_callback(None, mode="reset")
+
+	def _apply(self, mode: str):
 		try:
 			new_cfg = self._build_config_from_vars()
 		except ValueError as e:
 			messagebox.showerror("Invalid Configuration", f"Please check numeric fields:\n{e}", parent=self)
 			return
 
-		if save_to_disk:
+		if mode == "global":
 			try:
 				save_config_file(self.input_file, new_cfg)
 			except Exception as e:
 				messagebox.showerror("Save Error", f"Could not save configuration:\n{e}", parent=self)
 				return
+		elif mode == "graph" and self.current_graph_path:
+			try:
+				save_graph_config(self.current_graph_path, config_to_graph_dict(new_cfg))
+			except Exception as e:
+				messagebox.showerror("Save Error", f"Could not save per-GraphML configuration:\n{e}", parent=self)
+				return
 
 		self.destroy()
-		self.on_apply_callback(new_cfg)
+		self.on_apply_callback(new_cfg, mode=mode)
 
 
 class GraphMLExplorerApp(tk.Tk):
@@ -277,6 +443,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self.input_file = os.path.abspath(input_file)
 		self.output_folder = os.path.abspath(output_folder)
 
+		self.base_config: Config = Config()
 		self.config_obj: Config = Config()
 		self.ctx: GraphContext = None
 		self.current_graph_path: str = ""
@@ -302,7 +469,6 @@ class GraphMLExplorerApp(tk.Tk):
 	def _build_menu(self):
 		self.menubar = tk.Menu(self)
 
-		# File menu
 		file_menu = tk.Menu(self.menubar, tearoff=0)
 		file_menu.add_command(label="Open GraphML...", accelerator="Ctrl+O", command=self.open_file_dialog)
 
@@ -316,7 +482,6 @@ class GraphMLExplorerApp(tk.Tk):
 		file_menu.add_command(label="Exit", command=self._on_closing)
 		self.menubar.add_cascade(label="File", menu=file_menu)
 
-		# Tools menu
 		tools_menu = tk.Menu(self.menubar, tearoff=0)
 		tools_menu.add_command(label="Open Generated HTML", accelerator="Ctrl+H", command=self.open_generated_html)
 		tools_menu.add_command(label="Open HTML Output Folder", accelerator="Ctrl+Shift+O", command=self.open_html_folder)
@@ -324,7 +489,6 @@ class GraphMLExplorerApp(tk.Tk):
 		tools_menu.add_command(label="Configuration...", accelerator="Ctrl+,", command=self.open_config_dialog)
 		self.menubar.add_cascade(label="Tools", menu=tools_menu)
 
-		# Game menu
 		game_menu = tk.Menu(self.menubar, tearoff=0)
 		game_menu.add_command(label="Start / Restart Game", command=self.start_game)
 		game_menu.add_command(label="Reveal / Next", accelerator="Enter", command=self.send_reveal_next)
@@ -335,7 +499,6 @@ class GraphMLExplorerApp(tk.Tk):
 		self._refresh_recent_menu()
 
 	def _build_layout(self):
-		# Top toolbar
 		toolbar = ttk.Frame(self, padding=(8, 6))
 		toolbar.pack(fill=tk.X)
 
@@ -357,7 +520,6 @@ class GraphMLExplorerApp(tk.Tk):
 		self.btn_config = ttk.Button(toolbar, text="⚙ Config", command=self.open_config_dialog)
 		self.btn_config.pack(side=tk.RIGHT)
 
-		# Info / Status strip
 		info_bar = ttk.Frame(self, padding=(10, 2, 10, 4))
 		info_bar.pack(fill=tk.X)
 
@@ -367,7 +529,6 @@ class GraphMLExplorerApp(tk.Tk):
 		self.lbl_status = ttk.Label(info_bar, text="Idle", foreground="#555555")
 		self.lbl_status.pack(side=tk.RIGHT)
 
-		# Persistent Category Progress panel (above the console output)
 		progress_frame = ttk.LabelFrame(self, text="Category Progress", padding=8)
 		progress_frame.pack(fill=tk.X, padx=8, pady=(0, 6))
 
@@ -412,7 +573,6 @@ class GraphMLExplorerApp(tk.Tk):
 		self.progress_tree.pack(fill=tk.X)
 		self.progress_tree.tag_configure("complete", foreground="#1B7A34")
 
-		# Read-only Console Output Label area
 		console_frame = ttk.Frame(self)
 		console_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 6))
 
@@ -441,7 +601,6 @@ class GraphMLExplorerApp(tk.Tk):
 		self.console.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 		v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-		# Bottom game control bar
 		bottom_bar = ttk.Frame(self, padding=(8, 0, 8, 8))
 		bottom_bar.pack(fill=tk.X)
 
@@ -478,33 +637,20 @@ class GraphMLExplorerApp(tk.Tk):
 			create_input_file(self.input_file)
 			config_created = True
 
-		self.config_obj = read_config_file(self.input_file)
+		self.base_config = read_config_file(self.input_file)
+		self.config_obj = copy.deepcopy(self.base_config)
 		app_state = load_app_state()
 		last_file = app_state.get("last_file", "")
 
-		# Determine file to load: 1) last opened file, 2) input.txt configured file
 		candidate_path = ""
-		used_last_file = False
-
 		if last_file and os.path.isfile(last_file):
 			candidate_path = last_file
-			used_last_file = True
 		else:
-			cfg_path = self._resolve_graph_path_from_config(self.config_obj)
+			cfg_path = self._resolve_graph_path_from_config(self.base_config)
 			if cfg_path and os.path.isfile(cfg_path):
 				candidate_path = os.path.abspath(cfg_path)
 
 		if candidate_path:
-			if used_last_file:
-				# Preserve input.txt inline overrides if last_file matches input.txt's target
-				cfg_path = self._resolve_graph_path_from_config(self.config_obj)
-				same_as_cfg = (
-					cfg_path
-					and os.path.normcase(os.path.abspath(cfg_path)) == os.path.normcase(os.path.abspath(candidate_path))
-				)
-				if not same_as_cfg:
-					self.config_obj.folder_path = os.path.dirname(candidate_path) + os.sep
-					self.config_obj.file_name = os.path.basename(candidate_path)
 			self.load_graph_file(candidate_path)
 		else:
 			self._append_console_text(
@@ -512,7 +658,7 @@ class GraphMLExplorerApp(tk.Tk):
 				"Use 'Open File...' or configure your file in Settings.\n\n"
 			)
 			self._update_button_states()
-			if config_created or not self.config_obj.file_name:
+			if config_created or not self.base_config.file_name:
 				self.open_config_dialog()
 
 	def _resolve_graph_path_from_config(self, cfg: Config) -> str:
@@ -521,6 +667,18 @@ class GraphMLExplorerApp(tk.Tk):
 		if '/' in cfg.file_name or '\\' in cfg.file_name or os.path.isabs(cfg.file_name):
 			return cfg.file_name if cfg.file_name.endswith('.graphml') else cfg.file_name + '.graphml'
 		return os.path.join(cfg.folder_path, cfg.file_name + ('' if cfg.file_name.endswith('.graphml') else '.graphml'))
+
+	def _resolve_effective_config(self, filepath: str) -> Config:
+		norm_path = os.path.abspath(filepath)
+		effective = copy.deepcopy(self.base_config)
+		effective.folder_path = os.path.dirname(norm_path) + os.sep
+		effective.file_name = os.path.basename(norm_path)
+		saved_dict = load_graph_config(norm_path)
+		if saved_dict:
+			effective = apply_graph_dict_to_config(effective, saved_dict)
+			effective.folder_path = os.path.dirname(norm_path) + os.sep
+			effective.file_name = os.path.basename(norm_path)
+		return effective
 
 	# ------------------------------------------------------------------
 	# Recent Files Menu
@@ -572,8 +730,6 @@ class GraphMLExplorerApp(tk.Tk):
 		if not os.path.isfile(filepath):
 			messagebox.showerror("File Not Found", f"Could not find file:\n{filepath}", parent=self)
 			return
-		self.config_obj.folder_path = os.path.dirname(os.path.abspath(filepath)) + os.sep
-		self.config_obj.file_name = os.path.basename(filepath)
 		self.load_graph_file(filepath)
 
 	def reload_current_file(self):
@@ -589,11 +745,16 @@ class GraphMLExplorerApp(tk.Tk):
 			self.active_session.waiting_for_input = False
 			self.active_session = None
 
-	def load_graph_file(self, filepath: str):
+	def load_graph_file(self, filepath: str, override_config: Config = None):
 		self.prepared_game_data = None
 		self._cancel_active_game()
 		norm_path = os.path.abspath(filepath)
 		self.current_graph_path = norm_path
+		self.config_obj = (
+			copy.deepcopy(override_config)
+			if override_config is not None
+			else self._resolve_effective_config(norm_path)
+		)
 		self.is_busy = True
 		self.lbl_status.configure(text="Loading & generating HTML...")
 		self.lbl_file.configure(text=f"Loading: {os.path.basename(norm_path)}")
@@ -607,8 +768,14 @@ class GraphMLExplorerApp(tk.Tk):
 
 		def worker():
 			try:
+				if cfg_snapshot.excluded_elements:
+					print(
+						f"Excluding {len(cfg_snapshot.excluded_elements)} element/group rule(s): "
+						f"{', '.join(cfg_snapshot.excluded_elements)}"
+					)
+
 				nodes, edges, edge_values, node_values, edge_labels, node_colors = read_from_graph_xml(
-					norm_path, cfg_snapshot.color_threshold
+					norm_path, cfg_snapshot.color_threshold, cfg_snapshot.excluded_elements
 				)
 
 				if cfg_snapshot.ignore_edge_colors or cfg_snapshot.connection_type in COUNTER_CONNECTION_TYPES:
@@ -711,17 +878,32 @@ class GraphMLExplorerApp(tk.Tk):
 	# Configuration UI (only shown when requested or necessary)
 	# ------------------------------------------------------------------
 	def open_config_dialog(self):
-		def on_apply(new_cfg: Config):
+		def on_apply(new_cfg: Config, mode: str = "session"):
+			if mode == "reset":
+				if self.current_graph_path and os.path.isfile(self.current_graph_path):
+					self.load_graph_file(self.current_graph_path)
+				return
+
+			if mode == "global":
+				self.base_config = copy.deepcopy(new_cfg)
+
 			self.config_obj = new_cfg
 			target_path = self._resolve_graph_path_from_config(new_cfg)
 			if target_path and os.path.isfile(target_path):
-				self.load_graph_file(target_path)
+				same_file = (
+					self.current_graph_path
+					and os.path.normcase(os.path.abspath(target_path)) == os.path.normcase(os.path.abspath(self.current_graph_path))
+				)
+				if same_file:
+					self.load_graph_file(target_path, override_config=new_cfg)
+				else:
+					self.load_graph_file(target_path)
 			elif self.current_graph_path and os.path.isfile(self.current_graph_path):
-				self.load_graph_file(self.current_graph_path)
+				self.load_graph_file(self.current_graph_path, override_config=new_cfg)
 			else:
 				self._append_console_text(f"Configured file not found: {target_path}\n")
 
-		ConfigDialog(self, self.config_obj, self.input_file, on_apply)
+		ConfigDialog(self, self.config_obj, self.input_file, on_apply, current_graph_path=self.current_graph_path)
 
 	# ------------------------------------------------------------------
 	# Relationship Game Runner & Controls
@@ -882,8 +1064,7 @@ class GraphMLExplorerApp(tk.Tk):
 		return "break"
 
 	def _on_console_key(self, event):
-		# Allow shortcuts & navigation keys freely
-		if event.state & 0x4:  # Control pressed (e.g., Ctrl+C, Ctrl+A)
+		if event.state & 0x4:
 			return None
 		if event.keysym in (
 			"Left", "Right", "Up", "Down", "Prior", "Next", "Home", "End",
@@ -892,7 +1073,6 @@ class GraphMLExplorerApp(tk.Tk):
 		):
 			return None
 
-		# If typing printable character while cursor is in history, jump to active prompt
 		if event.char and ord(event.char) >= 32:
 			try:
 				if self.console.tag_ranges("sel") and self.console.compare("sel.first", "<", "input_start"):
@@ -946,7 +1126,6 @@ class GraphMLExplorerApp(tk.Tk):
 					self.lbl_status.configure(text="Load Error")
 					self._append_console_text(f"\nERROR: {payload}\n")
 					self._update_button_states()
-					# Open Configuration UI automatically since user intervention is needed
 					messagebox.showerror(
 						"Configuration / Load Error",
 						f"{payload}\n\nOpening Configuration so you can adjust settings.",

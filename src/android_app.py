@@ -28,6 +28,7 @@ if IS_DESKTOP:
 # I have to run this before `import networkx as nx` to prevent error `ModuleNotFoundError: No module named '_bz2'`
 import types
 
+
 def _ensure_optional_stdlib_stubs():
 	try:
 		import bz2  # noqa: F401
@@ -54,6 +55,7 @@ def _ensure_optional_stdlib_stubs():
 		lzma_stub.decompress = lambda *a, **kw: (_ for _ in ()).throw(NotImplementedError('lzma not available on Android'))
 		sys.modules['lzma'] = lzma_stub
 
+
 _ensure_optional_stdlib_stubs()
 
 import networkx as nx
@@ -79,6 +81,8 @@ from src.android_file_picker import (
 from src.config import (
 	COUNTER_CONNECTION_TYPES,
 	Config,
+	apply_graph_dict_to_config,
+	config_to_graph_dict,
 	create_input_file,
 	read_config_file,
 	save_config_file,
@@ -90,12 +94,15 @@ from src.games.relationship_game import (
 	run_relationship_guessing_game,
 )
 from src.html_exporter import generate_html_and_graphml
-from src.io_graphml import read_from_graph_xml
+from src.io_graphml import list_graph_elements_and_groups, read_from_graph_xml
 from src.models import GraphContext
 from src.progress_storage import (
 	clear_recent_files,
+	delete_graph_config,
 	load_app_state,
+	load_graph_config,
 	record_recent_file,
+	save_graph_config,
 )
 
 ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
@@ -118,10 +125,8 @@ def _format_console_markup(text: str) -> str:
 	)
 	return safe
 
-def _resolve_console_font() -> str:
-	from kivy.core.text import LabelBase
-	from kivy.resources import resource_find
 
+def _resolve_console_font() -> str:
 	for candidate in ('data/fonts/DejaVuSans.ttf', 'DejaVuSans.ttf'):
 		font_path = resource_find(candidate)
 		if font_path and os.path.isfile(font_path):
@@ -160,6 +165,7 @@ class ConsoleRedirector:
 	def isatty(self) -> bool:
 		return False
 
+
 class GameSession:
 	def __init__(self):
 		self.input_queue: queue.Queue = queue.Queue()
@@ -172,6 +178,7 @@ class GraphMLAndroidApp(App):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 		self.title = 'GraphML Feedback Loop Explorer'
+		self.base_config: Config = Config()
 		self.config_obj: Config = Config()
 		self.ctx: GraphContext = None
 		self.current_graph_path: str = ''
@@ -187,13 +194,7 @@ class GraphMLAndroidApp(App):
 	def build(self):
 		Window.clearcolor = (0.118, 0.122, 0.133, 1)  # #1E1F22
 
-		# Writable storage setup
-		if IS_DESKTOP:
-			# Keep desktop test data isolated in project_root/output_mobile_test or user_data_dir
-			data_dir = self.user_data_dir
-		else:
-			data_dir = self.user_data_dir
-
+		data_dir = self.user_data_dir
 		os.makedirs(data_dir, exist_ok=True)
 		os.environ['GRAPHML_EXPLORER_DATA_DIR'] = data_dir
 
@@ -342,7 +343,6 @@ class GraphMLAndroidApp(App):
 		Clock.schedule_once(lambda dt: self._startup(), 0.1)
 
 		if IS_DESKTOP:
-			# Lightweight Galaxy A15 simulator wrapper for desktop testing
 			sim_wrapper = BoxLayout(orientation='vertical')
 			sim_wrapper.add_widget(root)
 			nav_bar = BoxLayout(size_hint_y=None, height=dp(36), padding=(dp(8), dp(2)), spacing=dp(8))
@@ -413,13 +413,13 @@ class GraphMLAndroidApp(App):
 	# ------------------------------------------------------------------
 	# Startup & Path Resolution
 	# ------------------------------------------------------------------
-
 	def _startup(self):
 		try:
 			if not os.path.exists(self.input_file):
 				create_input_file(self.input_file)
 
-			self.config_obj = read_config_file(self.input_file)
+			self.base_config = read_config_file(self.input_file)
+			self.config_obj = copy.deepcopy(self.base_config)
 			app_state = load_app_state()
 			last_file = app_state.get('last_file', '')
 
@@ -427,19 +427,11 @@ class GraphMLAndroidApp(App):
 			if last_file and os.path.isfile(last_file):
 				candidate = last_file
 			else:
-				cfg_path = self._resolve_graph_path_from_config(self.config_obj)
+				cfg_path = self._resolve_graph_path_from_config(self.base_config)
 				if cfg_path and os.path.isfile(cfg_path):
 					candidate = os.path.abspath(cfg_path)
 
 			if candidate:
-				cfg_path = self._resolve_graph_path_from_config(self.config_obj)
-				same_as_cfg = (
-					cfg_path
-					and os.path.normcase(os.path.abspath(cfg_path)) == os.path.normcase(os.path.abspath(candidate))
-				)
-				if not same_as_cfg:
-					self.config_obj.folder_path = os.path.dirname(candidate) + os.sep
-					self.config_obj.file_name = os.path.basename(candidate)
 				self.load_graph_file(candidate)
 			else:
 				self._append_console_text(
@@ -458,6 +450,18 @@ class GraphMLAndroidApp(App):
 		if '/' in cfg.file_name or '\\' in cfg.file_name or os.path.isabs(cfg.file_name):
 			return cfg.file_name if cfg.file_name.endswith('.graphml') else cfg.file_name + '.graphml'
 		return os.path.join(cfg.folder_path, cfg.file_name + ('' if cfg.file_name.endswith('.graphml') else '.graphml'))
+
+	def _resolve_effective_config(self, filepath: str) -> Config:
+		norm_path = os.path.abspath(filepath)
+		effective = copy.deepcopy(self.base_config)
+		effective.folder_path = os.path.dirname(norm_path) + os.sep
+		effective.file_name = os.path.basename(norm_path)
+		saved_dict = load_graph_config(norm_path)
+		if saved_dict:
+			effective = apply_graph_dict_to_config(effective, saved_dict)
+			effective.folder_path = os.path.dirname(norm_path) + os.sep
+			effective.file_name = os.path.basename(norm_path)
+		return effective
 
 	# ------------------------------------------------------------------
 	# File Opening, Recent & HTML Menu
@@ -479,8 +483,6 @@ class GraphMLAndroidApp(App):
 		if not os.path.isfile(filepath):
 			self._show_message('File Not Found', f'Could not find file:\n{filepath}')
 			return
-		self.config_obj.folder_path = os.path.dirname(os.path.abspath(filepath)) + os.sep
-		self.config_obj.file_name = os.path.basename(filepath)
 		self.load_graph_file(filepath)
 
 	def reload_current_file(self):
@@ -569,11 +571,16 @@ class GraphMLAndroidApp(App):
 			self.active_session.waiting_for_input = False
 			self.active_session = None
 
-	def load_graph_file(self, filepath: str):
+	def load_graph_file(self, filepath: str, override_config: Config = None):
 		self.prepared_game_data = None
 		self._cancel_active_game()
 		norm_path = os.path.abspath(filepath)
 		self.current_graph_path = norm_path
+		self.config_obj = (
+			copy.deepcopy(override_config)
+			if override_config is not None
+			else self._resolve_effective_config(norm_path)
+		)
 		self.is_busy = True
 		self.lbl_status.text = 'Loading...'
 		self.lbl_file.text = f'Loading: {os.path.basename(norm_path)}'
@@ -585,8 +592,14 @@ class GraphMLAndroidApp(App):
 
 		def worker():
 			try:
+				if cfg_snapshot.excluded_elements:
+					print(
+						f"Excluding {len(cfg_snapshot.excluded_elements)} element/group rule(s): "
+						f"{', '.join(cfg_snapshot.excluded_elements)}"
+					)
+
 				nodes, edges, edge_values, node_values, edge_labels, node_colors = read_from_graph_xml(
-					norm_path, cfg_snapshot.color_threshold
+					norm_path, cfg_snapshot.color_threshold, cfg_snapshot.excluded_elements
 				)
 
 				if cfg_snapshot.ignore_edge_colors or cfg_snapshot.connection_type in COUNTER_CONNECTION_TYPES:
@@ -658,11 +671,105 @@ class GraphMLAndroidApp(App):
 		threading.Thread(target=worker, daemon=True).start()
 
 	# ------------------------------------------------------------------
-	# Configuration Popup
+	# Configuration Popup & Exclusion Picker
 	# ------------------------------------------------------------------
+	def _open_exclusion_picker(self, ti_excluded: TextInput):
+		if not self.current_graph_path or not os.path.isfile(self.current_graph_path):
+			self._show_message('No Graph Loaded', 'Load a GraphML file first to pick elements or groups.')
+			return
+
+		try:
+			groups, elements = list_graph_elements_and_groups(self.current_graph_path)
+		except Exception as exc:
+			self._show_message('Inspect Error', f'Could not read GraphML elements:\n{exc}')
+			return
+
+		all_items = [('Group', g) for g in groups] + [('Node', e) for e in elements]
+		current_lower = {line.strip().lower(): line.strip() for line in ti_excluded.text.splitlines() if line.strip()}
+		selected_map = {}
+
+		content = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(8))
+		search_ti = TextInput(hint_text='Filter groups / nodes...', multiline=False, size_hint_y=None, height=dp(38))
+		content.add_widget(search_ti)
+
+		sv = ScrollView()
+		lst = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(2))
+		lst.bind(minimum_height=lst.setter('height'))
+		sv.add_widget(lst)
+		content.add_widget(sv)
+
+		for kind, name in all_items:
+			selected_map[(kind, name)] = (name.lower() in current_lower)
+
+		def _render_rows(*_):
+			lst.clear_widgets()
+			q = search_ti.text.strip().lower()
+			for kind, name in all_items:
+				if q and q not in name.lower() and q not in kind.lower():
+					continue
+				row_box = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(6))
+				cb = CheckBox(active=selected_map[(kind, name)], size_hint_x=None, width=dp(36))
+				cb.bind(active=lambda _inst, val, k=(kind, name): selected_map.__setitem__(k, bool(val)))
+				lbl = Label(
+					text=f'[{kind}] {name}',
+					halign='left',
+					valign='middle',
+					font_size=dp(13),
+				)
+				lbl.bind(size=lambda inst, v: setattr(inst, 'text_size', v))
+				row_box.add_widget(cb)
+				row_box.add_widget(lbl)
+				lst.add_widget(row_box)
+
+		search_ti.bind(text=_render_rows)
+		_render_rows()
+
+		popup = Popup(title='Pick Excluded Groups / Nodes', content=content, size_hint=(0.94, 0.86))
+
+		def _confirm(*_):
+			seen = set()
+			result = []
+			for (kind, name), is_checked in selected_map.items():
+				if is_checked and name.lower() not in seen:
+					seen.add(name.lower())
+					result.append(name)
+			known_lower = {name.lower() for _, name in all_items}
+			for low, orig in current_lower.items():
+				if low not in known_lower and low not in seen:
+					seen.add(low)
+					result.append(orig)
+			ti_excluded.text = '\n'.join(result)
+			popup.dismiss()
+
+		def _clear_all(*_):
+			for k in selected_map:
+				selected_map[k] = False
+			_render_rows()
+
+		btn_row = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(6))
+		btn_row.add_widget(Button(text='Clear All', on_release=_clear_all))
+		btn_row.add_widget(Button(text='Apply Selection', on_release=_confirm))
+		btn_row.add_widget(Button(text='Cancel', on_release=lambda *_: popup.dismiss()))
+		content.add_widget(btn_row)
+		self._open_tracked_popup(popup)
+
 	def open_config_dialog(self):
 		cfg = self.config_obj
+		has_file = bool(self.current_graph_path and os.path.isfile(self.current_graph_path))
+		has_custom = bool(has_file and load_graph_config(self.current_graph_path) is not None)
+
 		outer = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(8))
+		if has_file:
+			status_lbl = Label(
+				text=f"{os.path.basename(self.current_graph_path)} ({'Custom per-file' if has_custom else 'Global defaults'})",
+				size_hint_y=None,
+				height=dp(24),
+				font_size=dp(12),
+				bold=True,
+				color=(0.75, 0.85, 1.0, 1),
+			)
+			outer.add_widget(status_lbl)
+
 		scroll = ScrollView()
 		form = GridLayout(cols=2, size_hint_y=None, spacing=dp(6), padding=dp(4))
 		form.bind(minimum_height=form.setter('height'))
@@ -708,6 +815,24 @@ class GraphMLAndroidApp(App):
 		add_text('source_node', 'Source Node', cfg.source_node)
 		add_text('target_node', 'Target Node', cfg.target_node)
 		add_text('block_starting_node', 'Block Starting Nodes', ', '.join(cfg.block_starting_node))
+
+		excl_left = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(96), spacing=dp(4))
+		excl_lbl = Label(text='Excluded Elements\n/ Groups (1/line)', halign='left', valign='top', font_size=dp(12))
+		excl_lbl.bind(size=lambda inst, v: setattr(inst, 'text_size', v))
+		excl_left.add_widget(excl_lbl)
+		ti_excluded = TextInput(text='\n'.join(cfg.excluded_elements), multiline=True, size_hint_y=None, height=dp(96))
+		fields['excluded_elements'] = ti_excluded
+		if has_file:
+			excl_left.add_widget(Button(
+				text='Pick...',
+				size_hint_y=None,
+				height=dp(32),
+				font_size=dp(12),
+				on_release=lambda *_: self._open_exclusion_picker(ti_excluded),
+			))
+		form.add_widget(excl_left)
+		form.add_widget(ti_excluded)
+
 		add_text('chance_irrelevant', 'Chance Irrelevant', str(cfg.chance_irrelevant))
 		add_text('max_cycle_length_game', 'Max Cycle Len (Game)', str(cfg.max_cycle_length_game))
 		add_text('max_indirectness_game', 'Max Indirectness (Game)', str(cfg.max_indirectness_game))
@@ -716,9 +841,10 @@ class GraphMLAndroidApp(App):
 		scroll.add_widget(form)
 		outer.add_widget(scroll)
 
-		popup = Popup(title='Configuration', content=outer, size_hint=(0.94, 0.88))
+		popup_title = f'Config — {os.path.basename(self.current_graph_path)}' if has_file else 'Configuration'
+		popup = Popup(title=popup_title, content=outer, size_hint=(0.95, 0.90))
 
-		def _apply(save_disk: bool):
+		def _apply(mode: str):
 			try:
 				new_cfg = copy.deepcopy(self.config_obj)
 				new_cfg.connection_type = fields['connection_type'].text.strip().lower() or 'correlation'
@@ -739,6 +865,9 @@ class GraphMLAndroidApp(App):
 				new_cfg.target_node = fields['target_node'].text.strip().lower()
 				block_raw = fields['block_starting_node'].text.strip()
 				new_cfg.block_starting_node = [x.strip().lower() for x in block_raw.split(',') if x.strip()]
+				new_cfg.excluded_elements = [
+					line.strip() for line in fields['excluded_elements'].text.splitlines() if line.strip()
+				]
 				chance = float(fields['chance_irrelevant'].text.strip())
 				if chance > 1.0:
 					chance /= 100.0
@@ -750,23 +879,47 @@ class GraphMLAndroidApp(App):
 				self._show_message('Invalid Value', f'Check numeric fields:\n{exc}')
 				return
 
-			if save_disk:
+			if mode == 'global':
 				try:
 					save_config_file(self.input_file, new_cfg)
+					self.base_config = copy.deepcopy(new_cfg)
+				except Exception as exc:
+					self._show_message('Save Error', str(exc))
+					return
+			elif mode == 'graph' and has_file:
+				try:
+					save_graph_config(self.current_graph_path, config_to_graph_dict(new_cfg))
 				except Exception as exc:
 					self._show_message('Save Error', str(exc))
 					return
 
 			self.config_obj = new_cfg
 			popup.dismiss()
-			if self.current_graph_path and os.path.isfile(self.current_graph_path):
+			if has_file:
+				self.load_graph_file(self.current_graph_path, override_config=new_cfg)
+
+		def _reset_default(*_):
+			if has_file:
+				delete_graph_config(self.current_graph_path)
+				popup.dismiss()
 				self.load_graph_file(self.current_graph_path)
 
 		btn_bar = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
-		btn_bar.add_widget(Button(text='Apply', on_release=lambda *_: _apply(False)))
-		btn_bar.add_widget(Button(text='Save & Apply', on_release=lambda *_: _apply(True)))
-		btn_bar.add_widget(Button(text='Cancel', on_release=lambda *_: popup.dismiss()))
+		btn_bar.add_widget(Button(text='Apply', font_size=dp(12), on_release=lambda *_: _apply('session')))
+		if has_file:
+			btn_bar.add_widget(Button(text='Save GraphML', font_size=dp(12), on_release=lambda *_: _apply('graph')))
+		else:
+			btn_bar.add_widget(Button(text='Save & Apply', font_size=dp(12), on_release=lambda *_: _apply('global')))
+		btn_bar.add_widget(Button(text='Cancel', font_size=dp(12), on_release=lambda *_: popup.dismiss()))
 		outer.add_widget(btn_bar)
+
+		if has_file:
+			btn_bar2 = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(6))
+			btn_bar2.add_widget(Button(text='Save as Global Default', font_size=dp(11), on_release=lambda *_: _apply('global')))
+			if has_custom:
+				btn_bar2.add_widget(Button(text='Reset to Default', font_size=dp(11), on_release=_reset_default))
+			outer.add_widget(btn_bar2)
+
 		self._open_tracked_popup(popup)
 
 	# ------------------------------------------------------------------
@@ -859,7 +1012,6 @@ class GraphMLAndroidApp(App):
 			for line in lines:
 				self._add_console_line(line)
 		elif len(self._pending_line_buf) > 0:
-			# Update or create trailing line for prompts ending without newline (e.g. "Question 1: ... ")
 			self._flush_partial_line()
 
 	def _flush_partial_line(self):
@@ -1036,6 +1188,7 @@ class GraphMLAndroidApp(App):
 		popup = Popup(title=title, content=box, size_hint=(0.85, 0.42))
 		box.add_widget(Button(text='OK', size_hint_y=None, height=dp(42), on_release=lambda *_: popup.dismiss()))
 		self._open_tracked_popup(popup)
+
 
 def run_android_app():
 	GraphMLAndroidApp().run()
