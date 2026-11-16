@@ -25,6 +25,37 @@ if IS_DESKTOP:
 	KivyConfig.set('graphics', 'height', '878')
 	KivyConfig.set('graphics', 'resizable', '1')
 
+# I have to run this before `import networkx as nx` to prevent error `ModuleNotFoundError: No module named '_bz2'`
+import types
+
+def _ensure_optional_stdlib_stubs():
+	try:
+		import bz2  # noqa: F401
+	except ImportError:
+		bz2_stub = types.ModuleType('bz2')
+		bz2_stub.BZ2File = type('BZ2File', (), {})
+		bz2_stub.BZ2Compressor = type('BZ2Compressor', (), {})
+		bz2_stub.BZ2Decompressor = type('BZ2Decompressor', (), {})
+		bz2_stub.open = lambda *a, **kw: (_ for _ in ()).throw(NotImplementedError('bz2 not available on Android'))
+		bz2_stub.compress = lambda *a, **kw: (_ for _ in ()).throw(NotImplementedError('bz2 not available on Android'))
+		bz2_stub.decompress = lambda *a, **kw: (_ for _ in ()).throw(NotImplementedError('bz2 not available on Android'))
+		sys.modules['bz2'] = bz2_stub
+
+	try:
+		import lzma  # noqa: F401
+	except ImportError:
+		lzma_stub = types.ModuleType('lzma')
+		lzma_stub.LZMAError = type('LZMAError', (Exception,), {})
+		lzma_stub.LZMAFile = type('LZMAFile', (), {})
+		lzma_stub.LZMACompressor = type('LZMACompressor', (), {})
+		lzma_stub.LZMADecompressor = type('LZMADecompressor', (), {})
+		lzma_stub.open = lambda *a, **kw: (_ for _ in ()).throw(NotImplementedError('lzma not available on Android'))
+		lzma_stub.compress = lambda *a, **kw: (_ for _ in ()).throw(NotImplementedError('lzma not available on Android'))
+		lzma_stub.decompress = lambda *a, **kw: (_ for _ in ()).throw(NotImplementedError('lzma not available on Android'))
+		sys.modules['lzma'] = lzma_stub
+
+_ensure_optional_stdlib_stubs()
+
 import networkx as nx
 from kivy.app import App
 from kivy.clock import Clock
