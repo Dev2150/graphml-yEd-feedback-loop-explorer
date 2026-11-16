@@ -33,8 +33,8 @@ def open_graphml_with_system_picker(
 	Intent = autoclass('android.content.Intent')
 	Activity = autoclass('android.app.Activity')
 	OpenableColumns = autoclass('android.provider.OpenableColumns')
-	Array = autoclass('java.lang.reflect.Array')
-	Byte = autoclass('java.lang.Byte')
+	Channels = autoclass('java.nio.channels.Channels')
+	ByteBuffer = autoclass('java.nio.ByteBuffer')
 	FileOutputStream = autoclass('java.io.FileOutputStream')
 
 	mActivity = PythonActivity.mActivity
@@ -79,16 +79,18 @@ def open_graphml_with_system_picker(
 				return
 
 			out = FileOutputStream(dest_path)
-			buf = Array.newInstance(Byte.TYPE, 16384)
+			in_channel = Channels.newChannel(inp)
+			out_channel = out.getChannel()
+			buf = ByteBuffer.allocateDirect(16384)
 			try:
-				while True:
-					n = inp.read(buf)
-					if n == -1:
-						break
-					out.write(buf, 0, n)
+				while in_channel.read(buf) != -1:
+					buf.flip()
+					while buf.hasRemaining():
+						out_channel.write(buf)
+					buf.clear()
 			finally:
-				inp.close()
-				out.close()
+				in_channel.close()
+				out_channel.close()
 
 			Clock.schedule_once(lambda dt, p=dest_path: callback(p, None), 0)
 		except Exception as exc:
@@ -123,8 +125,8 @@ def export_file_with_system_picker(
 	PythonActivity = autoclass('org.kivy.android.PythonActivity')
 	Intent = autoclass('android.content.Intent')
 	Activity = autoclass('android.app.Activity')
-	Array = autoclass('java.lang.reflect.Array')
-	Byte = autoclass('java.lang.Byte')
+	Channels = autoclass('java.nio.channels.Channels')
+	ByteBuffer = autoclass('java.nio.ByteBuffer')
 	FileInputStream = autoclass('java.io.FileInputStream')
 
 	mActivity = PythonActivity.mActivity
@@ -142,17 +144,23 @@ def export_file_with_system_picker(
 			uri = intent_data.getData()
 			resolver = mActivity.getContentResolver()
 			out = resolver.openOutputStream(uri)
+			if out is None:
+				Clock.schedule_once(lambda dt: callback(False, "Could not open destination file stream."), 0)
+				return
+
 			inp = FileInputStream(source_path)
-			buf = Array.newInstance(Byte.TYPE, 16384)
+			in_channel = inp.getChannel()
+			out_channel = Channels.newChannel(out)
+			buf = ByteBuffer.allocateDirect(16384)
 			try:
-				while True:
-					n = inp.read(buf)
-					if n == -1:
-						break
-					out.write(buf, 0, n)
+				while in_channel.read(buf) != -1:
+					buf.flip()
+					while buf.hasRemaining():
+						out_channel.write(buf)
+					buf.clear()
 			finally:
-				inp.close()
-				out.close()
+				in_channel.close()
+				out_channel.close()
 
 			Clock.schedule_once(lambda dt: callback(True, None), 0)
 		except Exception as exc:
