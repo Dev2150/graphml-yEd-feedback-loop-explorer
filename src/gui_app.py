@@ -15,8 +15,8 @@ import networkx as nx
 from src.config import (
 	Config,
 	COUNTER_CONNECTION_TYPES,
-	apply_graph_dict_to_config,
-	config_to_graph_dict,
+	GRAPH_SETTING_KEYS,
+	build_effective_config,
 	create_input_file,
 	read_config_file,
 	save_config_file,
@@ -160,58 +160,93 @@ class ExclusionPickerDialog(tk.Toplevel):
 
 
 class ConfigDialog(tk.Toplevel):
-	"""Configuration UI dialog — supports per-GraphML properties and global defaults."""
+	"""Configuration UI dialog — separates App Settings, Global Defaults, and per-setting Local Overrides."""
 
-	def __init__(self, parent, config: Config, input_file: str, on_apply_callback, current_graph_path: str = ""):
+	def __init__(
+		self,
+		parent,
+		base_config: Config,
+		local_overrides: dict,
+		input_file: str,
+		on_apply_callback,
+		current_graph_path: str = "",
+		on_open_file_callback=None,
+	):
 		super().__init__(parent)
 		self.current_graph_path = current_graph_path
-		self.has_custom_config = bool(current_graph_path and load_graph_config(current_graph_path) is not None)
+		self.has_file = bool(current_graph_path and os.path.isfile(current_graph_path))
+		self.base_config = copy.deepcopy(base_config)
+		self.local_overrides = copy.deepcopy(local_overrides or {})
+		self.input_file = input_file
+		self.on_apply_callback = on_apply_callback
+		self.on_open_file_callback = on_open_file_callback
 
-		title_suffix = os.path.basename(current_graph_path) if current_graph_path else "Global Defaults"
+		title_suffix = os.path.basename(current_graph_path) if self.has_file else "Global & App Settings"
 		self.title(f"Configuration — {title_suffix}")
 		self.transient(parent)
 		self.grab_set()
 		self.resizable(True, True)
-		self.geometry("640x880")
-		self.minsize(500, 460)
+		self.geometry("920x740")
+		self.minsize(720, 480)
 
-		self.parent_app = parent
-		self.orig_config = config
-		self.input_file = input_file
-		self.on_apply_callback = on_apply_callback
+		self.app_vars = {}
+		self.global_vars = {}
+		self.local_enabled_vars = {}
+		self.local_vars = {}
+		self.local_widgets = {}
 
-		self._build_ui(config)
+		self._build_ui()
 		self.protocol("WM_DELETE_WINDOW", self.destroy)
 
-	def _build_ui(self, cfg: Config):
-		if self.current_graph_path:
-			status_text = (
-				f"Editing properties for: {os.path.basename(self.current_graph_path)}  "
-				f"({'Custom per-file settings' if self.has_custom_config else 'Using global defaults'})"
+	@staticmethod
+	def _set_widget_enabled(widget, enabled: bool):
+		if isinstance(widget, tk.Text):
+			widget.configure(
+				state=tk.NORMAL if enabled else tk.DISABLED,
+				bg="#FFFFFF" if enabled else "#ECECEC",
+				fg="#000000" if enabled else "#777777",
 			)
-			banner = ttk.Label(self, text=status_text, padding=(12, 8, 12, 2), font=("Segoe UI", 9, "bold"))
-			banner.pack(fill=tk.X)
+		elif isinstance(widget, ttk.Combobox):
+			widget.configure(state="normal" if enabled else "disabled")
+		else:
+			widget.configure(state=tk.NORMAL if enabled else tk.DISABLED)
 
-		container = ttk.Frame(self, padding=10)
-		container.pack(fill=tk.BOTH, expand=True)
+	def _update_local_row_state(self, key: str):
+		enabled = self.has_file and bool(self.local_enabled_vars[key].get())
+		for w in self.local_widgets.get(key, []):
+			self._set_widget_enabled(w, enabled)
 
-		canvas = tk.Canvas(container, highlightthickness=0)
-		scrollbar = ttk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
+	def _build_ui(self):
+		if self.has_file:
+			active_count = sum(1 for k in GRAPH_SETTING_KEYS if k in self.local_overrides)
+			status_text = (
+				f"Current GraphML: {os.path.basename(self.current_graph_path)}  |  "
+				f"Active local overrides: {active_count} / {len(GRAPH_SETTING_KEYS)}"
+			)
+		else:
+			status_text = "No GraphML file loaded — editing Global Defaults & App Settings (Local overrides disabled)"
+		ttk.Label(self, text=status_text, padding=(12, 8, 12, 4), font=("Segoe UI", 9, "bold")).pack(fill=tk.X)
+
+		notebook = ttk.Notebook(self)
+		notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=(2, 6))
+
+		# ------------------------------------------------------------------
+		# Tab 1: Graph Settings (Global vs Local per setting)
+		# ------------------------------------------------------------------
+		graph_tab = ttk.Frame(notebook, padding=6)
+		notebook.add(graph_tab, text="Graph Settings (Global / Local)")
+
+		canvas = tk.Canvas(graph_tab, highlightthickness=0)
+		scrollbar = ttk.Scrollbar(graph_tab, orient=tk.VERTICAL, command=canvas.yview)
 		form_frame = ttk.Frame(canvas, padding=(4, 4, 12, 4))
 
-		form_frame.bind(
-			"<Configure>",
-			lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-		)
+		form_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
 		canvas_window = canvas.create_window((0, 0), window=form_frame, anchor="nw")
 		canvas.configure(yscrollcommand=scrollbar.set)
-		canvas.bind(
-			"<Configure>",
-			lambda e: canvas.itemconfigure(canvas_window, width=e.width)
-		)
+		canvas.bind("<Configure>", lambda e: canvas.itemconfigure(canvas_window, width=e.width))
 
 		def _on_mousewheel(event):
-			if hasattr(self, "txt_excluded") and event.widget is self.txt_excluded:
+			if event.widget in (getattr(self, "txt_global_excluded", None), getattr(self, "txt_local_excluded", None)):
 				return
 			if event.delta:
 				canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -227,127 +262,215 @@ class ConfigDialog(tk.Toplevel):
 		canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 		scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-		self.vars = {}
+		form_frame.columnconfigure(0, weight=2, minsize=210)
+		form_frame.columnconfigure(1, weight=2, minsize=200)
+		form_frame.columnconfigure(2, weight=0, minsize=72)
+		form_frame.columnconfigure(3, weight=2, minsize=200)
+
 		row = 0
+		ttk.Label(form_frame, text="Setting", font=("Segoe UI", 9, "bold")).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=(0, 4))
+		ttk.Label(form_frame, text="Global (Default)", font=("Segoe UI", 9, "bold")).grid(row=row, column=1, sticky="w", padx=(0, 8), pady=(0, 4))
+		ttk.Label(form_frame, text="Use Local", font=("Segoe UI", 9, "bold")).grid(row=row, column=2, sticky="n", padx=4, pady=(0, 4))
+		ttk.Label(form_frame, text="Local (Current File)", font=("Segoe UI", 9, "bold")).grid(row=row, column=3, sticky="w", padx=(8, 0), pady=(0, 4))
+		row += 1
 
 		def add_section(title: str):
 			nonlocal row
-			if row > 0:
-				ttk.Separator(form_frame, orient=tk.HORIZONTAL).grid(
-					row=row, column=0, columnspan=3, sticky="ew", pady=(10, 4)
-				)
-				row += 1
-			lbl = ttk.Label(form_frame, text=title, font=("Segoe UI", 10, "bold"))
-			lbl.grid(row=row, column=0, columnspan=3, sticky="w", pady=(2, 6))
+			ttk.Separator(form_frame, orient=tk.HORIZONTAL).grid(row=row, column=0, columnspan=4, sticky="ew", pady=(8, 4))
+			row += 1
+			ttk.Label(form_frame, text=title, font=("Segoe UI", 10, "bold")).grid(row=row, column=0, columnspan=4, sticky="w", pady=(0, 4))
 			row += 1
 
-		def add_entry(key: str, label: str, value: str, browse_file: bool = False):
+		def _register_local_toggle(key: str):
+			is_local = self.has_file and (key in self.local_overrides)
+			en_var = tk.BooleanVar(value=is_local)
+			self.local_enabled_vars[key] = en_var
+			chk_en = ttk.Checkbutton(
+				form_frame,
+				variable=en_var,
+				command=lambda k=key: self._update_local_row_state(k),
+				state=tk.NORMAL if self.has_file else tk.DISABLED,
+			)
+			chk_en.grid(row=row, column=2, sticky="n", pady=3)
+			return is_local
+
+		def add_entry_pair(key: str, label: str, g_val, l_raw_val=None, fmt_fn=str):
 			nonlocal row
 			ttk.Label(form_frame, text=label).grid(row=row, column=0, sticky="w", pady=3, padx=(0, 8))
-			var = tk.StringVar(value=str(value))
-			self.vars[key] = var
-			entry = ttk.Entry(form_frame, textvariable=var)
-			entry.grid(row=row, column=1, sticky="ew", pady=3)
-			if browse_file:
-				ttk.Button(form_frame, text="Browse...", command=self._browse_graphml).grid(
-					row=row, column=2, padx=(6, 0), pady=3
-				)
+
+			g_str = fmt_fn(g_val)
+			g_var = tk.StringVar(value=g_str)
+			self.global_vars[key] = g_var
+			ttk.Entry(form_frame, textvariable=g_var).grid(row=row, column=1, sticky="ew", pady=3, padx=(0, 8))
+
+			is_local = _register_local_toggle(key)
+			l_str = fmt_fn(l_raw_val) if is_local else g_str
+			l_var = tk.StringVar(value=l_str)
+			self.local_vars[key] = l_var
+			l_entry = ttk.Entry(form_frame, textvariable=l_var)
+			l_entry.grid(row=row, column=3, sticky="ew", pady=3, padx=(8, 0))
+			self.local_widgets[key] = [l_entry]
+			self._update_local_row_state(key)
 			row += 1
 
-		def add_combo(key: str, label: str, value: str, options: list):
+		def add_combo_pair(key: str, label: str, g_val: str, l_raw_val, options: list):
 			nonlocal row
 			ttk.Label(form_frame, text=label).grid(row=row, column=0, sticky="w", pady=3, padx=(0, 8))
-			var = tk.StringVar(value=str(value))
-			self.vars[key] = var
-			combo = ttk.Combobox(form_frame, textvariable=var, values=options, state="normal")
-			combo.grid(row=row, column=1, sticky="ew", pady=3)
+
+			g_var = tk.StringVar(value=str(g_val))
+			self.global_vars[key] = g_var
+			ttk.Combobox(form_frame, textvariable=g_var, values=options, state="normal").grid(
+				row=row, column=1, sticky="ew", pady=3, padx=(0, 8)
+			)
+
+			is_local = _register_local_toggle(key)
+			l_var = tk.StringVar(value=str(l_raw_val) if is_local else str(g_val))
+			self.local_vars[key] = l_var
+			l_combo = ttk.Combobox(form_frame, textvariable=l_var, values=options, state="normal")
+			l_combo.grid(row=row, column=3, sticky="ew", pady=3, padx=(8, 0))
+			self.local_widgets[key] = [l_combo]
+			self._update_local_row_state(key)
 			row += 1
 
-		def add_check(key: str, label: str, value: bool):
+		def add_check_pair(key: str, label: str, g_val: bool, l_raw_val):
 			nonlocal row
-			var = tk.BooleanVar(value=bool(value))
-			self.vars[key] = var
-			chk = ttk.Checkbutton(form_frame, text=label, variable=var)
-			chk.grid(row=row, column=0, columnspan=2, sticky="w", pady=2)
+			ttk.Label(form_frame, text=label).grid(row=row, column=0, sticky="w", pady=3, padx=(0, 8))
+
+			g_var = tk.BooleanVar(value=bool(g_val))
+			self.global_vars[key] = g_var
+			ttk.Checkbutton(form_frame, text="Enabled", variable=g_var).grid(row=row, column=1, sticky="w", pady=3, padx=(0, 8))
+
+			is_local = _register_local_toggle(key)
+			l_var = tk.BooleanVar(value=bool(l_raw_val) if is_local else bool(g_val))
+			self.local_vars[key] = l_var
+			l_chk = ttk.Checkbutton(form_frame, text="Enabled", variable=l_var)
+			l_chk.grid(row=row, column=3, sticky="w", pady=3, padx=(8, 0))
+			self.local_widgets[key] = [l_chk]
+			self._update_local_row_state(key)
 			row += 1
 
-		form_frame.columnconfigure(1, weight=1)
+		cfg = self.base_config
+		loc = self.local_overrides
 
-		add_section("1. Graph File & Connection Mode")
-		add_entry("folder_path", "Folder Path:", cfg.folder_path)
-		add_entry("file_name", "File Name / Path:", cfg.file_name, browse_file=True)
-		add_combo("connection_type", "Connection Type:", cfg.connection_type, ["correlation", "counter", "family"])
-		add_check("ignore_edge_colors", "Ignore Edge Colors (all edges = +1)", cfg.ignore_edge_colors)
-		add_entry("color_threshold", "Color Threshold:", cfg.color_threshold)
+		add_section("1. Connection Mode")
+		add_combo_pair("connection_type", "Connection Type", cfg.connection_type, loc.get("connection_type"), ["correlation", "counter", "family"])
+		add_check_pair("ignore_edge_colors", "Ignore Edge Colors (+1)", cfg.ignore_edge_colors, loc.get("ignore_edge_colors"))
+		add_entry_pair("color_threshold", "Color Threshold", cfg.color_threshold, loc.get("color_threshold"))
 
 		add_section("2. HTML & GraphML Output")
-		add_check("show_connections_list", "Show Connections List (instead of full paths)", cfg.show_connections_list)
-		add_entry("connections_skipped", "Connections Skipped (intermediate nodes):", cfg.connections_skipped)
-		add_check("show_only_edges", "Show Only Edges", cfg.show_only_edges)
-		add_check("show_edge_labels", "Show Edge Labels", cfg.show_edge_labels)
-		add_check("enable_non_cycle_printing", "Enable Non-Cycle Path Printing", cfg.enable_non_cycle_printing)
-		add_check("sort_by_len", "Sort Cycles by Length -> Alphabetical", cfg.sort_by_len)
-		add_check("sort_connections_alphabetically", "Sort Connections Alphabetically", cfg.sort_connections_alphabetically)
-		add_entry("max_cycle_length_html", "Max Cycle Length (HTML):", cfg.max_cycle_length_html)
-		add_entry("max_indirectness", "Max Indirectness (HTML):", cfg.max_indirectness)
+		add_check_pair("show_connections_list", "Show Connections List", cfg.show_connections_list, loc.get("show_connections_list"))
+		add_entry_pair("connections_skipped", "Connections Skipped", cfg.connections_skipped, loc.get("connections_skipped"))
+		add_check_pair("show_only_edges", "Show Only Edges", cfg.show_only_edges, loc.get("show_only_edges"))
+		add_check_pair("show_edge_labels", "Show Edge Labels", cfg.show_edge_labels, loc.get("show_edge_labels"))
+		add_check_pair("enable_non_cycle_printing", "Non-Cycle Path Printing", cfg.enable_non_cycle_printing, loc.get("enable_non_cycle_printing"))
+		add_check_pair("sort_by_len", "Sort Cycles by Length", cfg.sort_by_len, loc.get("sort_by_len"))
+		add_check_pair("sort_connections_alphabetically", "Sort Connections Alpha", cfg.sort_connections_alphabetically, loc.get("sort_connections_alphabetically"))
+		add_entry_pair("max_cycle_length_html", "Max Cycle Length (HTML)", cfg.max_cycle_length_html, loc.get("max_cycle_length_html"))
+		add_entry_pair("max_indirectness", "Max Indirectness (HTML)", cfg.max_indirectness, loc.get("max_indirectness"))
 
 		add_section("3. Node & Group Filters")
-		add_entry("source_node", "Source Node (blank = all):", cfg.source_node)
-		add_entry("target_node", "Target Node (blank = all):", cfg.target_node)
-		add_entry("block_starting_node", "Block Starting Nodes (comma-sep):", ", ".join(cfg.block_starting_node))
+		add_entry_pair("source_node", "Source Node (blank = all)", cfg.source_node, loc.get("source_node"))
+		add_entry_pair("target_node", "Target Node (blank = all)", cfg.target_node, loc.get("target_node"))
+		add_entry_pair(
+			"block_starting_node",
+			"Block Starting Nodes (csv)",
+			cfg.block_starting_node,
+			loc.get("block_starting_node"),
+			fmt_fn=lambda xs: ", ".join(xs) if isinstance(xs, list) else str(xs or ""),
+		)
 
-		ttk.Label(
-			form_frame,
-			text="Excluded Elements / Groups\n(one per line; groups exclude\nthemselves + all items inside):",
-		).grid(row=row, column=0, sticky="nw", pady=4, padx=(0, 8))
-		self.txt_excluded = tk.Text(form_frame, height=5, width=30, wrap=tk.NONE)
-		self.txt_excluded.insert("1.0", "\n".join(cfg.excluded_elements))
-		self.txt_excluded.grid(row=row, column=1, sticky="ew", pady=4)
-		if self.current_graph_path and os.path.isfile(self.current_graph_path):
-			ttk.Button(form_frame, text="Pick...", command=self._open_exclusion_picker).grid(
-				row=row, column=2, sticky="n", padx=(6, 0), pady=4
+		# Excluded Elements (Global + Local with Pick buttons)
+		ttk.Label(form_frame, text="Excluded Elements / Groups\n(one per line)").grid(row=row, column=0, sticky="nw", pady=4, padx=(0, 8))
+
+		g_excl_box = ttk.Frame(form_frame)
+		g_excl_box.grid(row=row, column=1, sticky="ew", pady=4, padx=(0, 8))
+		g_excl_box.columnconfigure(0, weight=1)
+		self.txt_global_excluded = tk.Text(g_excl_box, height=5, width=22, wrap=tk.NONE)
+		self.txt_global_excluded.insert("1.0", "\n".join(cfg.excluded_elements))
+		self.txt_global_excluded.grid(row=0, column=0, sticky="ew")
+		if self.has_file:
+			ttk.Button(g_excl_box, text="Pick...", command=lambda: self._open_exclusion_picker(self.txt_global_excluded)).grid(
+				row=0, column=1, sticky="n", padx=(4, 0)
 			)
+
+		is_local_excl = _register_local_toggle("excluded_elements")
+		l_excl_list = loc.get("excluded_elements") if (is_local_excl and isinstance(loc.get("excluded_elements"), list)) else cfg.excluded_elements
+
+		l_excl_box = ttk.Frame(form_frame)
+		l_excl_box.grid(row=row, column=3, sticky="ew", pady=4, padx=(8, 0))
+		l_excl_box.columnconfigure(0, weight=1)
+		self.txt_local_excluded = tk.Text(l_excl_box, height=5, width=22, wrap=tk.NONE)
+		self.txt_local_excluded.insert("1.0", "\n".join(l_excl_list))
+		self.txt_local_excluded.grid(row=0, column=0, sticky="ew")
+		l_widgets = [self.txt_local_excluded]
+		if self.has_file:
+			btn_l_pick = ttk.Button(l_excl_box, text="Pick...", command=lambda: self._open_exclusion_picker(self.txt_local_excluded))
+			btn_l_pick.grid(row=0, column=1, sticky="n", padx=(4, 0))
+			l_widgets.append(btn_l_pick)
+		self.local_widgets["excluded_elements"] = l_widgets
+		self._update_local_row_state("excluded_elements")
 		row += 1
 
 		add_section("4. Relationship Guessing Game")
-		add_entry("chance_irrelevant", "Chance Irrelevant (0.0 - 1.0):", cfg.chance_irrelevant)
-		add_entry("max_cycle_length_game", "Max Cycle Length (Game):", cfg.max_cycle_length_game)
-		add_entry("max_indirectness_game", "Max Indirectness (Game):", cfg.max_indirectness_game)
-		add_check("leaf_only", "Leaf Nodes Only", cfg.leaf_only)
+		add_entry_pair("chance_irrelevant", "Chance Irrelevant (0.0-1.0)", cfg.chance_irrelevant, loc.get("chance_irrelevant"))
+		add_entry_pair("max_cycle_length_game", "Max Cycle Length (Game)", cfg.max_cycle_length_game, loc.get("max_cycle_length_game"))
+		add_entry_pair("max_indirectness_game", "Max Indirectness (Game)", cfg.max_indirectness_game, loc.get("max_indirectness_game"))
+		add_check_pair("leaf_only", "Leaf Nodes Only", cfg.leaf_only, loc.get("leaf_only"))
 
-		btn_bar = ttk.Frame(self, padding=(10, 6, 10, 10))
+		# ------------------------------------------------------------------
+		# Tab 2: App Settings (Startup / Default File, separate from Graph Settings)
+		# ------------------------------------------------------------------
+		app_tab = ttk.Frame(notebook, padding=14)
+		notebook.add(app_tab, text="App Settings")
+		app_tab.columnconfigure(1, weight=1)
+
+		ttk.Label(
+			app_tab,
+			text="App Settings (saved in input.txt; independent of per-file Graph Settings):",
+			font=("Segoe UI", 10, "bold"),
+		).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+
+		ttk.Label(app_tab, text="Default Folder Path:").grid(row=1, column=0, sticky="w", pady=4, padx=(0, 8))
+		self.app_vars["folder_path"] = tk.StringVar(value=cfg.folder_path)
+		ttk.Entry(app_tab, textvariable=self.app_vars["folder_path"]).grid(row=1, column=1, sticky="ew", pady=4)
+
+		ttk.Label(app_tab, text="Default File Name / Path:").grid(row=2, column=0, sticky="w", pady=4, padx=(0, 8))
+		self.app_vars["file_name"] = tk.StringVar(value=cfg.file_name)
+		ttk.Entry(app_tab, textvariable=self.app_vars["file_name"]).grid(row=2, column=1, sticky="ew", pady=4)
+		ttk.Button(app_tab, text="Browse...", command=self._browse_graphml).grid(row=2, column=2, padx=(6, 0), pady=4)
+
+		if self.on_open_file_callback is not None:
+			ttk.Button(app_tab, text="Open Default File Now", command=self._open_configured_file).grid(
+				row=3, column=1, sticky="w", pady=(10, 4)
+			)
+
+		ttk.Label(
+			app_tab,
+			text="Used as the startup fallback file when no recent file is available in app_state.json.",
+			foreground="#555555",
+			wraplength=560,
+		).grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
+
+		# ------------------------------------------------------------------
+		# Bottom Button Bar
+		# ------------------------------------------------------------------
+		btn_bar = ttk.Frame(self, padding=(10, 4, 10, 10))
 		btn_bar.pack(fill=tk.X)
 
-		ttk.Button(btn_bar, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=(6, 0))
-		if self.current_graph_path:
-			ttk.Button(
-				btn_bar, text="Save for This GraphML & Apply", command=lambda: self._apply(mode="graph")
-			).pack(side=tk.RIGHT, padx=(6, 0))
-			ttk.Button(
-				btn_bar, text="Apply (Session Only)", command=lambda: self._apply(mode="session")
-			).pack(side=tk.RIGHT, padx=(6, 0))
-			ttk.Button(
-				btn_bar, text="Save Global (input.txt)", command=lambda: self._apply(mode="global")
-			).pack(side=tk.LEFT)
-			if self.has_custom_config:
-				ttk.Button(
-					btn_bar, text="Reset to Global Defaults", command=self._reset_to_defaults
-				).pack(side=tk.LEFT, padx=(6, 0))
-		else:
-			ttk.Button(
-				btn_bar, text="Save to input.txt & Apply", command=lambda: self._apply(mode="global")
-			).pack(side=tk.RIGHT, padx=(6, 0))
-			ttk.Button(
-				btn_bar, text="Apply & Reload", command=lambda: self._apply(mode="session")
-			).pack(side=tk.RIGHT)
+		if self.has_file:
+			ttk.Button(btn_bar, text="Clear All Local", command=self._clear_all_local).pack(side=tk.LEFT)
 
-	def _open_exclusion_picker(self):
-		raw = self.txt_excluded.get("1.0", tk.END)
+		ttk.Button(btn_bar, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=(6, 0))
+		ttk.Button(btn_bar, text="Save & Apply", command=lambda: self._apply(mode="save")).pack(side=tk.RIGHT, padx=(6, 0))
+		ttk.Button(btn_bar, text="Apply (Session Only)", command=lambda: self._apply(mode="session")).pack(side=tk.RIGHT)
+
+	def _open_exclusion_picker(self, target_text_widget: tk.Text):
+		raw = target_text_widget.get("1.0", tk.END)
 		current = [line.strip() for line in raw.splitlines() if line.strip()]
 
 		def on_picked(new_list):
-			self.txt_excluded.delete("1.0", tk.END)
-			self.txt_excluded.insert("1.0", "\n".join(new_list))
+			target_text_widget.delete("1.0", tk.END)
+			target_text_widget.insert("1.0", "\n".join(new_list))
 
 		try:
 			ExclusionPickerDialog(self, self.current_graph_path, current, on_picked)
@@ -355,82 +478,95 @@ class ConfigDialog(tk.Toplevel):
 			messagebox.showerror("Error", f"Could not inspect GraphML elements:\n{exc}", parent=self)
 
 	def _browse_graphml(self):
-		initial_dir = self.vars["folder_path"].get().strip() or os.getcwd()
+		initial_dir = self.app_vars["folder_path"].get().strip() or os.getcwd()
 		path = filedialog.askopenfilename(
 			parent=self,
-			title="Select GraphML File",
+			title="Select Default GraphML File",
 			initialdir=initial_dir if os.path.isdir(initial_dir) else os.getcwd(),
-			filetypes=[("GraphML files", "*.graphml"), ("All files", "*.*")]
+			filetypes=[("GraphML files", "*.graphml"), ("All files", "*.*")],
 		)
 		if path:
-			self.vars["folder_path"].set(os.path.dirname(path) + os.sep)
-			self.vars["file_name"].set(os.path.basename(path))
+			self.app_vars["folder_path"].set(os.path.dirname(path) + os.sep)
+			self.app_vars["file_name"].set(os.path.basename(path))
 
-	def _build_config_from_vars(self) -> Config:
-		new_cfg = copy.deepcopy(self.orig_config)
-		new_cfg.folder_path = self.vars["folder_path"].get().strip()
-		new_cfg.file_name = self.vars["file_name"].get().strip()
-		new_cfg.connection_type = self.vars["connection_type"].get().strip().lower() or "correlation"
-		new_cfg.ignore_edge_colors = bool(self.vars["ignore_edge_colors"].get()) or (
-			new_cfg.connection_type in COUNTER_CONNECTION_TYPES
-		)
-		new_cfg.color_threshold = int(self.vars["color_threshold"].get().strip())
+	def _open_configured_file(self):
+		folder = self.app_vars["folder_path"].get().strip()
+		fname = self.app_vars["file_name"].get().strip()
+		if not fname:
+			messagebox.showinfo("No File Specified", "Enter a Default File Name / Path first.", parent=self)
+			return
+		if '/' in fname or '\\' in fname or os.path.isabs(fname):
+			target = fname if fname.endswith('.graphml') else fname + '.graphml'
+		else:
+			target = os.path.join(folder, fname + ('' if fname.endswith('.graphml') else '.graphml'))
+		if not os.path.isfile(target):
+			messagebox.showerror("File Not Found", f"Could not find file:\n{target}", parent=self)
+			return
+		self.destroy()
+		self.on_open_file_callback(target)
 
-		new_cfg.show_connections_list = bool(self.vars["show_connections_list"].get())
-		new_cfg.connections_skipped = int(self.vars["connections_skipped"].get().strip())
-		new_cfg.show_only_edges = bool(self.vars["show_only_edges"].get())
-		new_cfg.show_edge_labels = bool(self.vars["show_edge_labels"].get())
-		new_cfg.enable_non_cycle_printing = bool(self.vars["enable_non_cycle_printing"].get())
-		new_cfg.sort_by_len = bool(self.vars["sort_by_len"].get())
-		new_cfg.sort_connections_alphabetically = bool(self.vars["sort_connections_alphabetically"].get())
-		new_cfg.max_cycle_length_html = int(self.vars["max_cycle_length_html"].get().strip())
-		new_cfg.max_indirectness = int(self.vars["max_indirectness"].get().strip())
+	def _clear_all_local(self):
+		for key, en_var in self.local_enabled_vars.items():
+			en_var.set(False)
+			self._update_local_row_state(key)
 
-		new_cfg.source_node = self.vars["source_node"].get().strip().lower()
-		new_cfg.target_node = self.vars["target_node"].get().strip().lower()
-		block_raw = self.vars["block_starting_node"].get().strip()
-		new_cfg.block_starting_node = [x.strip().lower() for x in block_raw.split(",") if x.strip()]
+	def _parse_graph_fields(self, vars_map: dict, excl_widget: tk.Text, scope_label: str) -> dict:
+		out = {}
+		out["connection_type"] = vars_map["connection_type"].get().strip().lower() or "correlation"
+		out["ignore_edge_colors"] = bool(vars_map["ignore_edge_colors"].get())
+		try:
+			out["color_threshold"] = int(vars_map["color_threshold"].get().strip())
+			out["connections_skipped"] = int(vars_map["connections_skipped"].get().strip())
+			out["max_cycle_length_html"] = int(vars_map["max_cycle_length_html"].get().strip())
+			out["max_indirectness"] = int(vars_map["max_indirectness"].get().strip())
+			out["max_cycle_length_game"] = int(vars_map["max_cycle_length_game"].get().strip())
+			out["max_indirectness_game"] = int(vars_map["max_indirectness_game"].get().strip())
+			chance = float(vars_map["chance_irrelevant"].get().strip())
+		except ValueError as exc:
+			raise ValueError(f"[{scope_label}] Check numeric fields: {exc}") from exc
 
-		excl_raw = self.txt_excluded.get("1.0", tk.END)
-		new_cfg.excluded_elements = [line.strip() for line in excl_raw.splitlines() if line.strip()]
-
-		chance = float(self.vars["chance_irrelevant"].get().strip())
 		if chance > 1.0:
 			chance /= 100.0
-		new_cfg.chance_irrelevant = chance
-		new_cfg.max_cycle_length_game = int(self.vars["max_cycle_length_game"].get().strip())
-		new_cfg.max_indirectness_game = int(self.vars["max_indirectness_game"].get().strip())
-		new_cfg.leaf_only = bool(self.vars["leaf_only"].get())
-		return new_cfg
+		out["chance_irrelevant"] = chance
+		out["show_connections_list"] = bool(vars_map["show_connections_list"].get())
+		out["show_only_edges"] = bool(vars_map["show_only_edges"].get())
+		out["show_edge_labels"] = bool(vars_map["show_edge_labels"].get())
+		out["enable_non_cycle_printing"] = bool(vars_map["enable_non_cycle_printing"].get())
+		out["sort_by_len"] = bool(vars_map["sort_by_len"].get())
+		out["sort_connections_alphabetically"] = bool(vars_map["sort_connections_alphabetically"].get())
+		out["source_node"] = vars_map["source_node"].get().strip().lower()
+		out["target_node"] = vars_map["target_node"].get().strip().lower()
+		block_raw = vars_map["block_starting_node"].get().strip()
+		out["block_starting_node"] = [x.strip().lower() for x in block_raw.split(",") if x.strip()]
+		out["excluded_elements"] = [line.strip() for line in excl_widget.get("1.0", tk.END).splitlines() if line.strip()]
+		out["leaf_only"] = bool(vars_map["leaf_only"].get())
+		return out
 
-	def _reset_to_defaults(self):
-		if self.current_graph_path:
-			delete_graph_config(self.current_graph_path)
-		self.destroy()
-		self.on_apply_callback(None, mode="reset")
+	def _build_configs(self):
+		global_dict = self._parse_graph_fields(self.global_vars, self.txt_global_excluded, "Global")
+		new_base = copy.deepcopy(self.base_config)
+		new_base.folder_path = self.app_vars["folder_path"].get().strip()
+		new_base.file_name = self.app_vars["file_name"].get().strip()
+		for k, v in global_dict.items():
+			setattr(new_base, k, v)
+
+		new_local = {}
+		if self.has_file:
+			local_parsed = self._parse_graph_fields(self.local_vars, self.txt_local_excluded, "Local")
+			for k in GRAPH_SETTING_KEYS:
+				if self.local_enabled_vars[k].get():
+					new_local[k] = local_parsed[k]
+		return new_base, new_local
 
 	def _apply(self, mode: str):
 		try:
-			new_cfg = self._build_config_from_vars()
+			new_base, new_local = self._build_configs()
 		except ValueError as e:
-			messagebox.showerror("Invalid Configuration", f"Please check numeric fields:\n{e}", parent=self)
+			messagebox.showerror("Invalid Configuration", str(e), parent=self)
 			return
 
-		if mode == "global":
-			try:
-				save_config_file(self.input_file, new_cfg)
-			except Exception as e:
-				messagebox.showerror("Save Error", f"Could not save configuration:\n{e}", parent=self)
-				return
-		elif mode == "graph" and self.current_graph_path:
-			try:
-				save_graph_config(self.current_graph_path, config_to_graph_dict(new_cfg))
-			except Exception as e:
-				messagebox.showerror("Save Error", f"Could not save per-GraphML configuration:\n{e}", parent=self)
-				return
-
 		self.destroy()
-		self.on_apply_callback(new_cfg, mode=mode)
+		self.on_apply_callback(new_base, new_local, mode=mode)
 
 
 class GraphMLExplorerApp(tk.Tk):
@@ -668,18 +804,11 @@ class GraphMLExplorerApp(tk.Tk):
 			return cfg.file_name if cfg.file_name.endswith('.graphml') else cfg.file_name + '.graphml'
 		return os.path.join(cfg.folder_path, cfg.file_name + ('' if cfg.file_name.endswith('.graphml') else '.graphml'))
 
-	def _resolve_effective_config(self, filepath: str) -> Config:
+	def _resolve_effective_config(self, filepath: str):
 		norm_path = os.path.abspath(filepath)
-		effective = copy.deepcopy(self.base_config)
-		effective.folder_path = os.path.dirname(norm_path) + os.sep
-		effective.file_name = os.path.basename(norm_path)
-		saved_dict = load_graph_config(norm_path)
-		if saved_dict:
-			effective = apply_graph_dict_to_config(effective, saved_dict)
-			effective.folder_path = os.path.dirname(norm_path) + os.sep
-			effective.file_name = os.path.basename(norm_path)
-		return effective
-
+		saved_dict = load_graph_config(norm_path) or {}
+		local_overrides = {k: v for k, v in saved_dict.items() if k in GRAPH_SETTING_KEYS}
+		return build_effective_config(self.base_config, local_overrides, norm_path), local_overrides
 	# ------------------------------------------------------------------
 	# Recent Files Menu
 	# ------------------------------------------------------------------
@@ -745,15 +874,21 @@ class GraphMLExplorerApp(tk.Tk):
 			self.active_session.waiting_for_input = False
 			self.active_session = None
 
-	def load_graph_file(self, filepath: str, override_config: Config = None):
+	def load_graph_file(self, filepath: str, override_config: Config = None, override_local: dict = None):
 		self.prepared_game_data = None
 		self._cancel_active_game()
 		norm_path = os.path.abspath(filepath)
 		self.current_graph_path = norm_path
+		if override_local is not None:
+			self.local_overrides = copy.deepcopy(override_local)
+		else:
+			saved_dict = load_graph_config(norm_path) or {}
+			self.local_overrides = {k: v for k, v in saved_dict.items() if k in GRAPH_SETTING_KEYS}
+
 		self.config_obj = (
 			copy.deepcopy(override_config)
 			if override_config is not None
-			else self._resolve_effective_config(norm_path)
+			else build_effective_config(self.base_config, self.local_overrides, norm_path)
 		)
 		self.is_busy = True
 		self.lbl_status.configure(text="Loading & generating HTML...")
@@ -878,33 +1013,41 @@ class GraphMLExplorerApp(tk.Tk):
 	# Configuration UI (only shown when requested or necessary)
 	# ------------------------------------------------------------------
 	def open_config_dialog(self):
-		def on_apply(new_cfg: Config, mode: str = "session"):
-			if mode == "reset":
+			def on_apply(new_base: Config, new_local: dict, mode: str = "session"):
+				self.base_config = new_base
+				self.local_overrides = new_local
+
+				if mode == "save":
+					try:
+						save_config_file(self.input_file, new_base)
+						if self.current_graph_path:
+							save_graph_config(self.current_graph_path, new_local)
+					except Exception as exc:
+						messagebox.showerror("Save Error", f"Could not save configuration:\n{exc}", parent=self)
+						return
+
 				if self.current_graph_path and os.path.isfile(self.current_graph_path):
-					self.load_graph_file(self.current_graph_path)
-				return
-
-			if mode == "global":
-				self.base_config = copy.deepcopy(new_cfg)
-
-			self.config_obj = new_cfg
-			target_path = self._resolve_graph_path_from_config(new_cfg)
-			if target_path and os.path.isfile(target_path):
-				same_file = (
-					self.current_graph_path
-					and os.path.normcase(os.path.abspath(target_path)) == os.path.normcase(os.path.abspath(self.current_graph_path))
-				)
-				if same_file:
-					self.load_graph_file(target_path, override_config=new_cfg)
+					effective = build_effective_config(self.base_config, self.local_overrides, self.current_graph_path)
+					self.load_graph_file(
+						self.current_graph_path,
+						override_config=effective,
+						override_local=self.local_overrides,
+					)
 				else:
-					self.load_graph_file(target_path)
-			elif self.current_graph_path and os.path.isfile(self.current_graph_path):
-				self.load_graph_file(self.current_graph_path, override_config=new_cfg)
-			else:
-				self._append_console_text(f"Configured file not found: {target_path}\n")
+					self.config_obj = copy.deepcopy(self.base_config)
+					target_path = self._resolve_graph_path_from_config(self.base_config)
+					if target_path and os.path.isfile(target_path):
+						self.load_graph_file(target_path)
 
-		ConfigDialog(self, self.config_obj, self.input_file, on_apply, current_graph_path=self.current_graph_path)
-
+			ConfigDialog(
+				self,
+				self.base_config,
+				self.local_overrides,
+				self.input_file,
+				on_apply,
+				current_graph_path=self.current_graph_path,
+				on_open_file_callback=self.open_specific_file,
+			)
 	# ------------------------------------------------------------------
 	# Relationship Game Runner & Controls
 	# ------------------------------------------------------------------

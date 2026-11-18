@@ -5,11 +5,39 @@ import copy
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 SECTION = 'SETTINGS'
 COUNTER_CONNECTION_TYPES = {'counter', 'counters', 'game', 'game-counters'}
 FAMILY_CONNECTION_TYPES = {'family', 'family-descendance', 'descendance', 'genealogy', 'tree', 'familytree', 'family-tree'}
+
+APP_SETTING_KEYS = (
+	'folder_path',
+	'file_name',
+)
+
+GRAPH_SETTING_KEYS = (
+	'connection_type',
+	'ignore_edge_colors',
+	'color_threshold',
+	'show_connections_list',
+	'connections_skipped',
+	'show_only_edges',
+	'show_edge_labels',
+	'enable_non_cycle_printing',
+	'sort_by_len',
+	'sort_connections_alphabetically',
+	'max_cycle_length_html',
+	'max_indirectness',
+	'source_node',
+	'target_node',
+	'block_starting_node',
+	'excluded_elements',
+	'chance_irrelevant',
+	'max_cycle_length_game',
+	'max_indirectness_game',
+	'leaf_only',
+)
 
 
 @dataclass
@@ -140,10 +168,22 @@ def apply_graph_dict_to_config(base_cfg: Config, data: Dict[str, Any]) -> Config
 		cfg.connection_type = str(data['connection_type'] or 'correlation').strip().lower()
 	if 'ignore_edge_colors' in data:
 		cfg.ignore_edge_colors = bool(data['ignore_edge_colors'])
-	if cfg.connection_type in COUNTER_CONNECTION_TYPES:
-		cfg.ignore_edge_colors = True
 
 	return cfg
+
+
+def build_effective_config(
+	base_cfg: Config,
+	local_overrides: Optional[Dict[str, Any]] = None,
+	filepath: str = "",
+) -> Config:
+	"""Merges global defaults with per-file overrides without mutating base_cfg's app settings."""
+	effective = apply_graph_dict_to_config(base_cfg, local_overrides or {})
+	if filepath:
+		norm_path = os.path.abspath(filepath)
+		effective.folder_path = os.path.dirname(norm_path) + os.sep
+		effective.file_name = os.path.basename(norm_path)
+	return effective
 
 
 def read_config_file(p_input_file: str) -> Config:
@@ -194,9 +234,7 @@ def read_config_file(p_input_file: str) -> Config:
 	max_indirectness_game = config.getint(SECTION, 'max_indirectness_game', fallback=3)
 	leaf_only = config.getboolean(SECTION, 'leaf_only', fallback=False)
 	connection_type = config.get(SECTION, 'connection_type', fallback='correlation').strip().lower()
-	ignore_edge_colors = config.getboolean(SECTION, 'ignore_edge_colors', fallback=False) or (
-		connection_type in COUNTER_CONNECTION_TYPES
-	)
+	ignore_edge_colors = config.getboolean(SECTION, 'ignore_edge_colors', fallback=False)
 
 	if ',' in file_name_raw:
 		parts = file_name_raw.split(',')
@@ -216,8 +254,6 @@ def read_config_file(p_input_file: str) -> Config:
 					sort_connections_alphabetically = val.lower() in ('true', '1', 'yes', 'alphabetical', 'alphabetic', 'alpha')
 				elif key == 'connection_type':
 					connection_type = val.lower()
-					if connection_type in COUNTER_CONNECTION_TYPES:
-						ignore_edge_colors = True
 				elif key == 'max_cycle_length_html':
 					max_cycle_length_html = int(val)
 				elif key == 'max_cycle_length_game':
@@ -238,9 +274,6 @@ def read_config_file(p_input_file: str) -> Config:
 				print(f"Warning: could not parse inline override '{override.strip()}', skipping.")
 	else:
 		file_name = file_name_raw
-
-	if connection_type in COUNTER_CONNECTION_TYPES:
-		ignore_edge_colors = True
 
 	return Config(
 		source_node=p_source_node,

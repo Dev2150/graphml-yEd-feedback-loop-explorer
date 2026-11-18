@@ -138,6 +138,9 @@ def load_graph_config(filepath: str) -> Optional[Dict[str, Any]]:
 def save_graph_config(filepath: str, config_dict: Dict[str, Any]):
 	if not filepath:
 		return
+	if not config_dict:
+		delete_graph_config(filepath)
+		return
 	all_cfgs = load_all_graph_configs()
 	all_cfgs[_graph_config_key(filepath)] = config_dict
 	try:

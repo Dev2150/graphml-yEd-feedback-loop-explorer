@@ -80,9 +80,9 @@ from src.android_file_picker import (
 )
 from src.config import (
 	COUNTER_CONNECTION_TYPES,
+	GRAPH_SETTING_KEYS,
 	Config,
-	apply_graph_dict_to_config,
-	config_to_graph_dict,
+	build_effective_config,
 	create_input_file,
 	read_config_file,
 	save_config_file,
@@ -451,17 +451,11 @@ class GraphMLAndroidApp(App):
 			return cfg.file_name if cfg.file_name.endswith('.graphml') else cfg.file_name + '.graphml'
 		return os.path.join(cfg.folder_path, cfg.file_name + ('' if cfg.file_name.endswith('.graphml') else '.graphml'))
 
-	def _resolve_effective_config(self, filepath: str) -> Config:
+	def _resolve_effective_config(self, filepath: str):
 		norm_path = os.path.abspath(filepath)
-		effective = copy.deepcopy(self.base_config)
-		effective.folder_path = os.path.dirname(norm_path) + os.sep
-		effective.file_name = os.path.basename(norm_path)
-		saved_dict = load_graph_config(norm_path)
-		if saved_dict:
-			effective = apply_graph_dict_to_config(effective, saved_dict)
-			effective.folder_path = os.path.dirname(norm_path) + os.sep
-			effective.file_name = os.path.basename(norm_path)
-		return effective
+		saved_dict = load_graph_config(norm_path) or {}
+		local_overrides = {k: v for k, v in saved_dict.items() if k in GRAPH_SETTING_KEYS}
+		return build_effective_config(self.base_config, local_overrides, norm_path), local_overrides
 
 	# ------------------------------------------------------------------
 	# File Opening, Recent & HTML Menu
@@ -571,15 +565,21 @@ class GraphMLAndroidApp(App):
 			self.active_session.waiting_for_input = False
 			self.active_session = None
 
-	def load_graph_file(self, filepath: str, override_config: Config = None):
+	def load_graph_file(self, filepath: str, override_config: Config = None, override_local: dict = None):
 		self.prepared_game_data = None
 		self._cancel_active_game()
 		norm_path = os.path.abspath(filepath)
 		self.current_graph_path = norm_path
+		if override_local is not None:
+			self.local_overrides = copy.deepcopy(override_local)
+		else:
+			saved_dict = load_graph_config(norm_path) or {}
+			self.local_overrides = {k: v for k, v in saved_dict.items() if k in GRAPH_SETTING_KEYS}
+
 		self.config_obj = (
 			copy.deepcopy(override_config)
 			if override_config is not None
-			else self._resolve_effective_config(norm_path)
+			else build_effective_config(self.base_config, self.local_overrides, norm_path)
 		)
 		self.is_busy = True
 		self.lbl_status.text = 'Loading...'
@@ -754,170 +754,364 @@ class GraphMLAndroidApp(App):
 		self._open_tracked_popup(popup)
 
 	def open_config_dialog(self):
-		cfg = self.config_obj
+		g_cfg = self.base_config
+		loc = self.local_overrides
 		has_file = bool(self.current_graph_path and os.path.isfile(self.current_graph_path))
-		has_custom = bool(has_file and load_graph_config(self.current_graph_path) is not None)
 
-		outer = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(8))
+		outer = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(8))
 		if has_file:
-			status_lbl = Label(
-				text=f"{os.path.basename(self.current_graph_path)} ({'Custom per-file' if has_custom else 'Global defaults'})",
-				size_hint_y=None,
-				height=dp(24),
-				font_size=dp(12),
-				bold=True,
-				color=(0.75, 0.85, 1.0, 1),
-			)
-			outer.add_widget(status_lbl)
+			active_count = sum(1 for k in GRAPH_SETTING_KEYS if k in loc)
+			status_text = f"{os.path.basename(self.current_graph_path)} ({active_count}/{len(GRAPH_SETTING_KEYS)} local)"
+		else:
+			status_text = 'No file loaded — Global & App Settings only'
 
-		scroll = ScrollView()
-		form = GridLayout(cols=2, size_hint_y=None, spacing=dp(6), padding=dp(4))
+		status_lbl = Label(
+			text=status_text,
+			size_hint_y=None,
+			height=dp(22),
+			font_size=dp(12),
+			bold=True,
+			color=(0.75, 0.85, 1.0, 1),
+		)
+		outer.add_widget(status_lbl)
+
+		# Tab switcher: Graph Settings (Global / Local) vs App Settings
+		tab_bar = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(6))
+		btn_tab_graph = Button(text='Graph (Global/Local)', font_size=dp(12), background_color=(0.24, 0.45, 0.70, 1))
+		btn_tab_app = Button(text='App Settings', font_size=dp(12), background_color=(0.25, 0.27, 0.30, 1))
+		tab_bar.add_widget(btn_tab_graph)
+		tab_bar.add_widget(btn_tab_app)
+		outer.add_widget(tab_bar)
+
+		content_area = BoxLayout()
+		outer.add_widget(content_area)
+
+		# ------------------------------------------------------------------
+		# View 1: Graph Settings (Global + Local Checkbox + Local)
+		# ------------------------------------------------------------------
+		graph_scroll = ScrollView()
+		form = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(8), padding=dp(4))
 		form.bind(minimum_height=form.setter('height'))
+		graph_scroll.add_widget(form)
 
-		fields = {}
+		global_fields = {}
+		local_enabled_cbs = {}
+		local_fields = {}
+		local_widgets = {}
 
-		def add_text(key: str, label: str, val: str):
-			lbl = Label(text=label, size_hint_y=None, height=dp(40), halign='left', valign='middle', font_size=dp(13))
+		def update_local_state(key: str):
+			enabled = bool(has_file and local_enabled_cbs[key].active)
+			for w in local_widgets.get(key, []):
+				w.disabled = not enabled
+
+		def add_card_header(key: str, label: str):
+			hdr = BoxLayout(size_hint_y=None, height=dp(28), spacing=dp(4))
+			lbl = Label(text=label, halign='left', valign='middle', bold=True, font_size=dp(12))
 			lbl.bind(size=lambda inst, v: setattr(inst, 'text_size', v))
-			ti = TextInput(text=str(val), multiline=False, size_hint_y=None, height=dp(40))
-			fields[key] = ti
-			form.add_widget(lbl)
-			form.add_widget(ti)
+			hdr.add_widget(lbl)
 
-		def add_spinner(key: str, label: str, val: str, values: tuple):
-			lbl = Label(text=label, size_hint_y=None, height=dp(40), halign='left', valign='middle', font_size=dp(13))
-			lbl.bind(size=lambda inst, v: setattr(inst, 'text_size', v))
-			sp = Spinner(text=str(val), values=values, size_hint_y=None, height=dp(40))
-			fields[key] = sp
-			form.add_widget(lbl)
-			form.add_widget(sp)
+			is_local = has_file and (key in loc)
+			hdr.add_widget(Label(text='Local', size_hint_x=None, width=dp(38), font_size=dp(11), color=(0.75, 0.85, 1.0, 1)))
+			en_cb = CheckBox(active=is_local, disabled=not has_file, size_hint_x=None, width=dp(34))
+			en_cb.bind(active=lambda _inst, _val, k=key: update_local_state(k))
+			local_enabled_cbs[key] = en_cb
+			hdr.add_widget(en_cb)
+			return hdr, is_local
 
-		def add_bool(key: str, label: str, val: bool):
-			lbl = Label(text=label, size_hint_y=None, height=dp(36), halign='left', valign='middle', font_size=dp(13))
-			lbl.bind(size=lambda inst, v: setattr(inst, 'text_size', v))
-			cb = CheckBox(active=bool(val), size_hint_y=None, height=dp(36))
-			fields[key] = cb
-			form.add_widget(lbl)
-			form.add_widget(cb)
+		def add_text_pair(key: str, label: str, g_val, l_raw_val=None, fmt_fn=str):
+			card = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(70), spacing=dp(2))
+			hdr, is_local = add_card_header(key, label)
+			card.add_widget(hdr)
 
-		add_spinner('connection_type', 'Connection Type', cfg.connection_type, ('correlation', 'counter', 'family'))
-		add_bool('ignore_edge_colors', 'Ignore Edge Colors', cfg.ignore_edge_colors)
-		add_text('color_threshold', 'Color Threshold', str(cfg.color_threshold))
-		add_bool('show_connections_list', 'Show Connections List', cfg.show_connections_list)
-		add_text('connections_skipped', 'Connections Skipped', str(cfg.connections_skipped))
-		add_bool('show_only_edges', 'Show Only Edges', cfg.show_only_edges)
-		add_bool('show_edge_labels', 'Show Edge Labels', cfg.show_edge_labels)
-		add_bool('enable_non_cycle_printing', 'Non-Cycle Printing', cfg.enable_non_cycle_printing)
-		add_bool('sort_by_len', 'Sort Cycles by Length', cfg.sort_by_len)
-		add_bool('sort_connections_alphabetically', 'Sort Connections Alpha', cfg.sort_connections_alphabetically)
-		add_text('max_cycle_length_html', 'Max Cycle Len (HTML)', str(cfg.max_cycle_length_html))
-		add_text('max_indirectness', 'Max Indirectness (HTML)', str(cfg.max_indirectness))
-		add_text('source_node', 'Source Node', cfg.source_node)
-		add_text('target_node', 'Target Node', cfg.target_node)
-		add_text('block_starting_node', 'Block Starting Nodes', ', '.join(cfg.block_starting_node))
+			g_str = fmt_fn(g_val)
+			l_str = fmt_fn(l_raw_val) if is_local else g_str
 
-		excl_left = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(96), spacing=dp(4))
-		excl_lbl = Label(text='Excluded Elements\n/ Groups (1/line)', halign='left', valign='top', font_size=dp(12))
-		excl_lbl.bind(size=lambda inst, v: setattr(inst, 'text_size', v))
-		excl_left.add_widget(excl_lbl)
-		ti_excluded = TextInput(text='\n'.join(cfg.excluded_elements), multiline=True, size_hint_y=None, height=dp(96))
-		fields['excluded_elements'] = ti_excluded
+			row = BoxLayout(size_hint_y=None, height=dp(38), spacing=dp(6))
+			g_box = BoxLayout(spacing=dp(3))
+			g_box.add_widget(Label(text='G:', size_hint_x=None, width=dp(20), font_size=dp(11)))
+			g_ti = TextInput(text=g_str, multiline=False, font_size=dp(12))
+			g_box.add_widget(g_ti)
+
+			l_box = BoxLayout(spacing=dp(3))
+			l_box.add_widget(Label(text='L:', size_hint_x=None, width=dp(20), font_size=dp(11)))
+			l_ti = TextInput(text=l_str, multiline=False, font_size=dp(12))
+			l_box.add_widget(l_ti)
+
+			row.add_widget(g_box)
+			row.add_widget(l_box)
+			card.add_widget(row)
+			form.add_widget(card)
+
+			global_fields[key] = g_ti
+			local_fields[key] = l_ti
+			local_widgets[key] = [l_ti]
+			update_local_state(key)
+
+		def add_spinner_pair(key: str, label: str, g_val: str, l_raw_val, values: tuple):
+			card = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(70), spacing=dp(2))
+			hdr, is_local = add_card_header(key, label)
+			card.add_widget(hdr)
+
+			row = BoxLayout(size_hint_y=None, height=dp(38), spacing=dp(6))
+			g_box = BoxLayout(spacing=dp(3))
+			g_box.add_widget(Label(text='G:', size_hint_x=None, width=dp(20), font_size=dp(11)))
+			g_sp = Spinner(text=str(g_val), values=values, font_size=dp(12))
+			g_box.add_widget(g_sp)
+
+			l_box = BoxLayout(spacing=dp(3))
+			l_box.add_widget(Label(text='L:', size_hint_x=None, width=dp(20), font_size=dp(11)))
+			l_sp = Spinner(text=str(l_raw_val) if is_local else str(g_val), values=values, font_size=dp(12))
+			l_box.add_widget(l_sp)
+
+			row.add_widget(g_box)
+			row.add_widget(l_box)
+			card.add_widget(row)
+			form.add_widget(card)
+
+			global_fields[key] = g_sp
+			local_fields[key] = l_sp
+			local_widgets[key] = [l_sp]
+			update_local_state(key)
+
+		def add_bool_pair(key: str, label: str, g_val: bool, l_raw_val):
+			card = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(66), spacing=dp(2))
+			hdr, is_local = add_card_header(key, label)
+			card.add_widget(hdr)
+
+			row = BoxLayout(size_hint_y=None, height=dp(34), spacing=dp(6))
+			g_box = BoxLayout(spacing=dp(4))
+			g_box.add_widget(Label(text='Global:', size_hint_x=None, width=dp(50), font_size=dp(12)))
+			g_cb = CheckBox(active=bool(g_val), size_hint_x=None, width=dp(36))
+			g_box.add_widget(g_cb)
+
+			l_box = BoxLayout(spacing=dp(4))
+			l_box.add_widget(Label(text='Local:', size_hint_x=None, width=dp(46), font_size=dp(12)))
+			l_cb = CheckBox(active=bool(l_raw_val) if is_local else bool(g_val), size_hint_x=None, width=dp(36))
+			l_box.add_widget(l_cb)
+
+			row.add_widget(g_box)
+			row.add_widget(l_box)
+			card.add_widget(row)
+			form.add_widget(card)
+
+			global_fields[key] = g_cb
+			local_fields[key] = l_cb
+			local_widgets[key] = [l_cb]
+			update_local_state(key)
+
+		add_spinner_pair('connection_type', 'Connection Type', g_cfg.connection_type, loc.get('connection_type'), ('correlation', 'counter', 'family'))
+		add_bool_pair('ignore_edge_colors', 'Ignore Edge Colors', g_cfg.ignore_edge_colors, loc.get('ignore_edge_colors'))
+		add_text_pair('color_threshold', 'Color Threshold', g_cfg.color_threshold, loc.get('color_threshold'))
+		add_bool_pair('show_connections_list', 'Show Connections List', g_cfg.show_connections_list, loc.get('show_connections_list'))
+		add_text_pair('connections_skipped', 'Connections Skipped', g_cfg.connections_skipped, loc.get('connections_skipped'))
+		add_bool_pair('show_only_edges', 'Show Only Edges', g_cfg.show_only_edges, loc.get('show_only_edges'))
+		add_bool_pair('show_edge_labels', 'Show Edge Labels', g_cfg.show_edge_labels, loc.get('show_edge_labels'))
+		add_bool_pair('enable_non_cycle_printing', 'Non-Cycle Printing', g_cfg.enable_non_cycle_printing, loc.get('enable_non_cycle_printing'))
+		add_bool_pair('sort_by_len', 'Sort Cycles by Length', g_cfg.sort_by_len, loc.get('sort_by_len'))
+		add_bool_pair('sort_connections_alphabetically', 'Sort Connections Alpha', g_cfg.sort_connections_alphabetically, loc.get('sort_connections_alphabetically'))
+		add_text_pair('max_cycle_length_html', 'Max Cycle Len (HTML)', g_cfg.max_cycle_length_html, loc.get('max_cycle_length_html'))
+		add_text_pair('max_indirectness', 'Max Indirectness (HTML)', g_cfg.max_indirectness, loc.get('max_indirectness'))
+		add_text_pair('source_node', 'Source Node', g_cfg.source_node, loc.get('source_node'))
+		add_text_pair('target_node', 'Target Node', g_cfg.target_node, loc.get('target_node'))
+		add_text_pair(
+			'block_starting_node',
+			'Block Starting Nodes',
+			g_cfg.block_starting_node,
+			loc.get('block_starting_node'),
+			fmt_fn=lambda xs: ', '.join(xs) if isinstance(xs, list) else str(xs or ''),
+		)
+
+		# Excluded Elements / Groups (Global + Local)
+		excl_card = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(132), spacing=dp(2))
+		excl_hdr, is_local_excl = add_card_header('excluded_elements', 'Excluded Elements / Groups (1/line)')
+		excl_card.add_widget(excl_hdr)
+
+		l_excl_list = (
+			loc.get('excluded_elements')
+			if (is_local_excl and isinstance(loc.get('excluded_elements'), list))
+			else g_cfg.excluded_elements
+		)
+		excl_row = BoxLayout(size_hint_y=None, height=dp(96), spacing=dp(6))
+
+		g_excl_box = BoxLayout(orientation='vertical', spacing=dp(2))
+		g_ti_excl = TextInput(text='\n'.join(g_cfg.excluded_elements), multiline=True, font_size=dp(11))
+		g_excl_box.add_widget(g_ti_excl)
 		if has_file:
-			excl_left.add_widget(Button(
-				text='Pick...',
+			g_excl_box.add_widget(Button(
+				text='Pick Global...',
 				size_hint_y=None,
-				height=dp(32),
-				font_size=dp(12),
-				on_release=lambda *_: self._open_exclusion_picker(ti_excluded),
+				height=dp(26),
+				font_size=dp(11),
+				on_release=lambda *_: self._open_exclusion_picker(g_ti_excl),
 			))
-		form.add_widget(excl_left)
-		form.add_widget(ti_excluded)
 
-		add_text('chance_irrelevant', 'Chance Irrelevant', str(cfg.chance_irrelevant))
-		add_text('max_cycle_length_game', 'Max Cycle Len (Game)', str(cfg.max_cycle_length_game))
-		add_text('max_indirectness_game', 'Max Indirectness (Game)', str(cfg.max_indirectness_game))
-		add_bool('leaf_only', 'Leaf Nodes Only', cfg.leaf_only)
+		l_excl_box = BoxLayout(orientation='vertical', spacing=dp(2))
+		l_ti_excl = TextInput(text='\n'.join(l_excl_list), multiline=True, font_size=dp(11))
+		l_excl_box.add_widget(l_ti_excl)
+		l_excl_widgets = [l_ti_excl]
+		if has_file:
+			btn_l_pick = Button(
+				text='Pick Local...',
+				size_hint_y=None,
+				height=dp(26),
+				font_size=dp(11),
+				on_release=lambda *_: self._open_exclusion_picker(l_ti_excl),
+			)
+			l_excl_box.add_widget(btn_l_pick)
+			l_excl_widgets.append(btn_l_pick)
 
-		scroll.add_widget(form)
-		outer.add_widget(scroll)
+		excl_row.add_widget(g_excl_box)
+		excl_row.add_widget(l_excl_box)
+		excl_card.add_widget(excl_row)
+		form.add_widget(excl_card)
+
+		global_fields['excluded_elements'] = g_ti_excl
+		local_fields['excluded_elements'] = l_ti_excl
+		local_widgets['excluded_elements'] = l_excl_widgets
+		update_local_state('excluded_elements')
+
+		add_text_pair('chance_irrelevant', 'Chance Irrelevant', g_cfg.chance_irrelevant, loc.get('chance_irrelevant'))
+		add_text_pair('max_cycle_length_game', 'Max Cycle Len (Game)', g_cfg.max_cycle_length_game, loc.get('max_cycle_length_game'))
+		add_text_pair('max_indirectness_game', 'Max Indirectness (Game)', g_cfg.max_indirectness_game, loc.get('max_indirectness_game'))
+		add_bool_pair('leaf_only', 'Leaf Nodes Only', g_cfg.leaf_only, loc.get('leaf_only'))
+
+		# ------------------------------------------------------------------
+		# View 2: App Settings (Separate from Graph Global / Local)
+		# ------------------------------------------------------------------
+		app_scroll = ScrollView()
+		app_form = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(8), padding=dp(6))
+		app_form.bind(minimum_height=app_form.setter('height'))
+		app_scroll.add_widget(app_form)
+
+		app_info = Label(
+			text='App Settings (stored in input.txt; independent of per-file Graph Settings):',
+			size_hint_y=None,
+			height=dp(36),
+			halign='left',
+			valign='middle',
+			font_size=dp(12),
+			color=(0.75, 0.85, 1.0, 1),
+		)
+		app_info.bind(size=lambda inst, v: setattr(inst, 'text_size', v))
+		app_form.add_widget(app_info)
+
+		app_form.add_widget(Label(text='Default Folder Path:', size_hint_y=None, height=dp(24), halign='left', font_size=dp(12)))
+		ti_app_folder = TextInput(text=g_cfg.folder_path, multiline=False, size_hint_y=None, height=dp(40))
+		app_form.add_widget(ti_app_folder)
+
+		app_form.add_widget(Label(text='Default File Name / Path:', size_hint_y=None, height=dp(24), halign='left', font_size=dp(12)))
+		ti_app_file = TextInput(text=g_cfg.file_name, multiline=False, size_hint_y=None, height=dp(40))
+		app_form.add_widget(ti_app_file)
+
+		def _show_tab(tab_name: str):
+			content_area.clear_widgets()
+			if tab_name == 'graph':
+				content_area.add_widget(graph_scroll)
+				btn_tab_graph.background_color = (0.24, 0.45, 0.70, 1)
+				btn_tab_app.background_color = (0.25, 0.27, 0.30, 1)
+			else:
+				content_area.add_widget(app_scroll)
+				btn_tab_app.background_color = (0.24, 0.45, 0.70, 1)
+				btn_tab_graph.background_color = (0.25, 0.27, 0.30, 1)
+
+		btn_tab_graph.bind(on_release=lambda *_: _show_tab('graph'))
+		btn_tab_app.bind(on_release=lambda *_: _show_tab('app'))
+		_show_tab('graph')
 
 		popup_title = f'Config — {os.path.basename(self.current_graph_path)}' if has_file else 'Configuration'
-		popup = Popup(title=popup_title, content=outer, size_hint=(0.95, 0.90))
+		popup = Popup(title=popup_title, content=outer, size_hint=(0.96, 0.92))
+
+		def _parse_fields(fmap: dict, scope_label: str) -> dict:
+			out = {}
+			out['connection_type'] = fmap['connection_type'].text.strip().lower() or 'correlation'
+			out['ignore_edge_colors'] = bool(fmap['ignore_edge_colors'].active)
+			try:
+				out['color_threshold'] = int(fmap['color_threshold'].text.strip())
+				out['connections_skipped'] = int(fmap['connections_skipped'].text.strip())
+				out['max_cycle_length_html'] = int(fmap['max_cycle_length_html'].text.strip())
+				out['max_indirectness'] = int(fmap['max_indirectness'].text.strip())
+				out['max_cycle_length_game'] = int(fmap['max_cycle_length_game'].text.strip())
+				out['max_indirectness_game'] = int(fmap['max_indirectness_game'].text.strip())
+				chance = float(fmap['chance_irrelevant'].text.strip())
+			except ValueError as exc:
+				raise ValueError(f"[{scope_label}] Check numeric fields:\n{exc}") from exc
+
+			if chance > 1.0:
+				chance /= 100.0
+			out['chance_irrelevant'] = chance
+			out['show_connections_list'] = bool(fmap['show_connections_list'].active)
+			out['show_only_edges'] = bool(fmap['show_only_edges'].active)
+			out['show_edge_labels'] = bool(fmap['show_edge_labels'].active)
+			out['enable_non_cycle_printing'] = bool(fmap['enable_non_cycle_printing'].active)
+			out['sort_by_len'] = bool(fmap['sort_by_len'].active)
+			out['sort_connections_alphabetically'] = bool(fmap['sort_connections_alphabetically'].active)
+			out['source_node'] = fmap['source_node'].text.strip().lower()
+			out['target_node'] = fmap['target_node'].text.strip().lower()
+			block_raw = fmap['block_starting_node'].text.strip()
+			out['block_starting_node'] = [x.strip().lower() for x in block_raw.split(',') if x.strip()]
+			out['excluded_elements'] = [line.strip() for line in fmap['excluded_elements'].text.splitlines() if line.strip()]
+			out['leaf_only'] = bool(fmap['leaf_only'].active)
+			return out
 
 		def _apply(mode: str):
 			try:
-				new_cfg = copy.deepcopy(self.config_obj)
-				new_cfg.connection_type = fields['connection_type'].text.strip().lower() or 'correlation'
-				new_cfg.ignore_edge_colors = bool(fields['ignore_edge_colors'].active) or (
-					new_cfg.connection_type in COUNTER_CONNECTION_TYPES
-				)
-				new_cfg.color_threshold = int(fields['color_threshold'].text.strip())
-				new_cfg.show_connections_list = bool(fields['show_connections_list'].active)
-				new_cfg.connections_skipped = int(fields['connections_skipped'].text.strip())
-				new_cfg.show_only_edges = bool(fields['show_only_edges'].active)
-				new_cfg.show_edge_labels = bool(fields['show_edge_labels'].active)
-				new_cfg.enable_non_cycle_printing = bool(fields['enable_non_cycle_printing'].active)
-				new_cfg.sort_by_len = bool(fields['sort_by_len'].active)
-				new_cfg.sort_connections_alphabetically = bool(fields['sort_connections_alphabetically'].active)
-				new_cfg.max_cycle_length_html = int(fields['max_cycle_length_html'].text.strip())
-				new_cfg.max_indirectness = int(fields['max_indirectness'].text.strip())
-				new_cfg.source_node = fields['source_node'].text.strip().lower()
-				new_cfg.target_node = fields['target_node'].text.strip().lower()
-				block_raw = fields['block_starting_node'].text.strip()
-				new_cfg.block_starting_node = [x.strip().lower() for x in block_raw.split(',') if x.strip()]
-				new_cfg.excluded_elements = [
-					line.strip() for line in fields['excluded_elements'].text.splitlines() if line.strip()
-				]
-				chance = float(fields['chance_irrelevant'].text.strip())
-				if chance > 1.0:
-					chance /= 100.0
-				new_cfg.chance_irrelevant = chance
-				new_cfg.max_cycle_length_game = int(fields['max_cycle_length_game'].text.strip())
-				new_cfg.max_indirectness_game = int(fields['max_indirectness_game'].text.strip())
-				new_cfg.leaf_only = bool(fields['leaf_only'].active)
+				global_dict = _parse_fields(global_fields, 'Global')
+				new_base = copy.deepcopy(self.base_config)
+				new_base.folder_path = ti_app_folder.text.strip()
+				new_base.file_name = ti_app_file.text.strip()
+				for k, v in global_dict.items():
+					setattr(new_base, k, v)
+
+				new_local = {}
+				if has_file:
+					local_parsed = _parse_fields(local_fields, 'Local')
+					for k in GRAPH_SETTING_KEYS:
+						if local_enabled_cbs[k].active:
+							new_local[k] = local_parsed[k]
 			except ValueError as exc:
-				self._show_message('Invalid Value', f'Check numeric fields:\n{exc}')
+				self._show_message('Invalid Value', str(exc))
 				return
 
-			if mode == 'global':
+			if mode == 'save':
 				try:
-					save_config_file(self.input_file, new_cfg)
-					self.base_config = copy.deepcopy(new_cfg)
-				except Exception as exc:
-					self._show_message('Save Error', str(exc))
-					return
-			elif mode == 'graph' and has_file:
-				try:
-					save_graph_config(self.current_graph_path, config_to_graph_dict(new_cfg))
+					save_config_file(self.input_file, new_base)
+					if has_file:
+						save_graph_config(self.current_graph_path, new_local)
 				except Exception as exc:
 					self._show_message('Save Error', str(exc))
 					return
 
-			self.config_obj = new_cfg
+			self.base_config = new_base
+			self.local_overrides = new_local
 			popup.dismiss()
-			if has_file:
-				self.load_graph_file(self.current_graph_path, override_config=new_cfg)
 
-		def _reset_default(*_):
 			if has_file:
-				delete_graph_config(self.current_graph_path)
-				popup.dismiss()
-				self.load_graph_file(self.current_graph_path)
+				effective = build_effective_config(self.base_config, self.local_overrides, self.current_graph_path)
+				self.load_graph_file(
+					self.current_graph_path,
+					override_config=effective,
+					override_local=self.local_overrides,
+				)
+			else:
+				self.config_obj = copy.deepcopy(self.base_config)
+				cfg_path = self._resolve_graph_path_from_config(self.base_config)
+				if cfg_path and os.path.isfile(cfg_path):
+					self.load_graph_file(os.path.abspath(cfg_path))
 
-		btn_bar = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
-		btn_bar.add_widget(Button(text='Apply', font_size=dp(12), on_release=lambda *_: _apply('session')))
-		if has_file:
-			btn_bar.add_widget(Button(text='Save GraphML', font_size=dp(12), on_release=lambda *_: _apply('graph')))
-		else:
-			btn_bar.add_widget(Button(text='Save & Apply', font_size=dp(12), on_release=lambda *_: _apply('global')))
+		def _clear_all_local(*_):
+			for k, cb in local_enabled_cbs.items():
+				cb.active = False
+				update_local_state(k)
+
+		btn_bar = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(6))
+		btn_bar.add_widget(Button(text='Apply (Session)', font_size=dp(12), on_release=lambda *_: _apply('session')))
+		btn_bar.add_widget(Button(text='Save & Apply', font_size=dp(12), on_release=lambda *_: _apply('save')))
 		btn_bar.add_widget(Button(text='Cancel', font_size=dp(12), on_release=lambda *_: popup.dismiss()))
 		outer.add_widget(btn_bar)
 
 		if has_file:
 			btn_bar2 = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(6))
-			btn_bar2.add_widget(Button(text='Save as Global Default', font_size=dp(11), on_release=lambda *_: _apply('global')))
-			if has_custom:
-				btn_bar2.add_widget(Button(text='Reset to Default', font_size=dp(11), on_release=_reset_default))
+			btn_bar2.add_widget(Button(text='Clear All Local', font_size=dp(11), on_release=_clear_all_local))
 			outer.add_widget(btn_bar2)
 
 		self._open_tracked_popup(popup)
