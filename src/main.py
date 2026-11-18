@@ -83,11 +83,10 @@ def run_cli():
 
 	generate_html_and_graphml(ctx, OUTPUT_FOLDER, input_graph_ml)
 
-	print("=" * 50)
+	print()
 	print("Select Game Mode:")
 	print("  [1] Relationship Guessing Game (Direct / Indirect / Same / Irrelevant)")
 	print("  [0] Exit (HTML already generated)")
-	print("=" * 50)
 	choice = input("Enter choice (0-1): ").strip()
 
 	if choice == '1':

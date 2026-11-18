@@ -588,7 +588,7 @@ class GraphMLAndroidApp(App):
 
 		record_recent_file(norm_path)
 		cfg_snapshot = copy.deepcopy(self.config_obj)
-		self._append_console_text(f"\n{'=' * 40}\nLoading: {os.path.basename(norm_path)}\n{'=' * 40}\n")
+		self._append_console_text(f"\nLoading: {os.path.basename(norm_path)}\n")
 
 		def worker():
 			try:

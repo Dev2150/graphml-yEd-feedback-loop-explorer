@@ -199,7 +199,11 @@ def prepare_relationship_game_data(ctx: GraphContext) -> dict:
 				else:
 					irrelevant_pairs.append((u, v))
 
-		cycle_items = [('cycle', cyc) for cyc in valid_cycles]
+		cycle_items = []
+		for cyc in valid_cycles:
+			for rot_idx in range(len(cyc)):
+				rotated_cyc = cyc[rot_idx:] + cyc[:rot_idx]
+				cycle_items.append(('cycle', rotated_cyc))
 		leaf_items = [('leaf_src', n) for n in leaf_source_candidates] + [('leaf_dst', n) for n in leaf_dest_candidates]
 		parent_child_items = [('parent_child', p) for p in parent_child_pairs]
 		grandparent_items = [('grandparent', p) for p in grandparent_pairs]
@@ -325,9 +329,7 @@ def run_relationship_guessing_game(
 	prepared_data: dict = None,
 ):
 	_input = input_fn if input_fn is not None else input
-	print("\n--- Relationship Guessing Game ---")
-	print("Guess if the nodes connect Directly, Indirectly, Share a Source/Destination, Leaf (Source/Dest), Form a Cycle, or are Irrelevant. Enter 0 to stop.")
-	print("[Cycle / Direct / Indirect / Shared sources/destinations / Leaf Source/Dest / Irrelevant] (Press Enter to reveal answer, or 0 to quit).\n")
+	print("\nGuess if the nodes connect Directly, Indirectly, Share a Source/Destination, Leaf (Source/Dest), Form a Cycle, or are Irrelevant.")
 
 	g = ctx.graph
 	nodes = ctx.nodes
@@ -457,10 +459,12 @@ def run_relationship_guessing_game(
 
 		# Handle Cycle Question
 		if itype == 'cycle':
-			cyc = data
-			rot_idx = random.randrange(len(cyc))
-			rotated_cyc = cyc[rot_idx:] + cyc[:rot_idx]
-			m = random.randint(1, len(rotated_cyc) - 1)
+			rotated_cyc = data
+			valid_m = [
+				idx for idx in range(1, len(rotated_cyc))
+				if str(nodes.get(rotated_cyc[idx], rotated_cyc[idx])).lower() not in block_starting_node
+			]
+			m = random.choice(valid_m) if valid_m else random.randint(1, len(rotated_cyc) - 1)
 
 			full_path = rotated_cyc + [rotated_cyc[0]]
 			chosen_middle = full_path[m]

@@ -899,7 +899,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self._refresh_recent_menu()
 
 		cfg_snapshot = copy.deepcopy(self.config_obj)
-		self._append_console_text(f"\n{'=' * 60}\nLoading: {norm_path}\n{'=' * 60}\n")
+		self._append_console_text(f"\nLoading: {norm_path}\n")
 
 		def worker():
 			try:

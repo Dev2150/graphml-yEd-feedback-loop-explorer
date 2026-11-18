@@ -143,7 +143,6 @@ def print_to_file(p_html_content: str, output_folder: str, ctx: GraphContext):
 """
 	with open(file_path, 'w', encoding="utf-8") as f:
 		f.write(p_html_content)
-	print(f"HTML file '{file_name}' has been generated.")
 	return file_path
 
 def show_edges(p_edges, p_html_content, ctx: GraphContext):
@@ -288,11 +287,11 @@ def generate_html_and_graphml(ctx: GraphContext, output_folder: str, input_graph
 	nodes_to_keep = set(ctx.nodes_printed)
 	nodes_to_exclude = sorted([ctx.nodes[y] for y in ctx.nodes if y not in nodes_to_keep])
 
-	print('Irrelevant nodes:')
-	for i in nodes_to_exclude:
-		print(i, end=', ')
+	if len(nodes_to_exclude) > 0:
+		print('Irrelevant nodes:')
+		for i in nodes_to_exclude:
+			print(i, end=', ')
 	remove_nodes_from_graphml(input_graph_ml_file, output_file, nodes_to_keep)
-	print('\nHTML & GraphML files generated.\n')
 	html_file_path = print_to_file(html_content, output_folder, ctx)
 	return html_file_path
 
