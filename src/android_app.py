@@ -160,7 +160,7 @@ class CircularGraphWidget(StencilView):
 		self.diagram = diagram
 		self._redraw()
 
-	def _build_node_texture(self, text: str, text_rgba, max_text_w: float):
+	def _build_node_texture(self, text: str, text_rgba, max_text_w: float = 0):
 		formatted = format_graph_node_label(text)
 		line_count = formatted.count('\n') + 1
 		if line_count > 5:
@@ -358,7 +358,7 @@ class GraphMLAndroidApp(App):
 		self.btn_open = Button(text='Open', on_release=lambda *_: self.open_file_dialog())
 		self.btn_recent = Button(text='Recent', on_release=lambda *_: self.open_recent_dialog())
 		self.btn_reload = Button(text='Reload', on_release=lambda *_: self.reload_current_file())
-		self.btn_html = Button(text='HTML', on_release=lambda *_: self.open_html_menu(), disabled=True)
+		self.btn_html = Button(text='HTML', on_release=lambda *_: self.open_generated_html(), disabled=True)
 		self.btn_config = Button(text='Config', on_release=lambda *_: self.open_config_dialog())
 
 		for b in (self.btn_open, self.btn_recent, self.btn_reload, self.btn_html, self.btn_config):
@@ -433,6 +433,7 @@ class GraphMLAndroidApp(App):
 		graph_bar = BoxLayout(size_hint_y=None, height=dp(28), spacing=dp(6))
 		self.lbl_graph_title = Label(
 			text='Graph: —',
+			font_name=self.console_font,
 			halign='left',
 			valign='middle',
 			bold=True,
@@ -671,6 +672,7 @@ class GraphMLAndroidApp(App):
 		if self.is_busy:
 			return
 
+		graphml_dir = self.base_config.folder_path.strip()
 		sync_dir = get_sync_folder()
 		start_dir = ''
 		for candidate in (
@@ -678,8 +680,8 @@ class GraphMLAndroidApp(App):
 				os.path.dirname(self.current_graph_path)
 				if self.current_graph_path and os.path.dirname(self.current_graph_path) != self.imported_dir
 				else '',
+				graphml_dir,
 				sync_dir,
-				self.base_config.folder_path,
 				get_external_storage_root(),
 		):
 			if candidate and os.path.isdir(candidate):
@@ -708,8 +710,12 @@ class GraphMLAndroidApp(App):
 		btn_storage = Button(text='Storage', font_size=dp(12))
 		nav_row.add_widget(btn_up)
 		nav_row.add_widget(btn_storage)
+		if graphml_dir and os.path.isdir(graphml_dir):
+			btn_gml = Button(text='GraphML Dir', font_size=dp(12))
+			btn_gml.bind(on_release=lambda *_: _go_to(graphml_dir))
+			nav_row.add_widget(btn_gml)
 		if sync_dir and os.path.isdir(sync_dir):
-			btn_sync = Button(text='Sync Folder', font_size=dp(12))
+			btn_sync = Button(text='Sync Dir', font_size=dp(12))
 			btn_sync.bind(on_release=lambda *_: _go_to(sync_dir))
 			nav_row.add_widget(btn_sync)
 		content.add_widget(nav_row)
@@ -888,39 +894,82 @@ class GraphMLAndroidApp(App):
 		content.add_widget(btn_row)
 		self._open_tracked_popup(popup)
 
-	def open_html_menu(self):
-		content = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(10))
-		popup = Popup(title='HTML & GraphML Output', content=content, size_hint=(0.88, 0.52))
+	def open_generated_html(self):
+		if not self.last_html_path or not os.path.isfile(self.last_html_path):
+			self._show_message('No HTML Yet', 'Load or reload a GraphML file first.')
+			return
+		err = open_html_viewer(self.last_html_path)
+		if err:
+			self._show_message('Open HTML Error', err)
 
-		def _export(src_path: str, mime: str):
-			popup.dismiss()
-			export_file_with_system_picker(
-				src_path,
-				mime,
-				lambda ok, err: self._show_message(
-					'Export',
-					'File exported successfully.' if ok else (err or 'Export cancelled.'),
-				) if (ok or err) else None,
-			)
+	def _open_folder_picker(self, title: str, initial_dir: str, on_selected):
+		start_dir = initial_dir.strip() if initial_dir and os.path.isdir(
+			initial_dir.strip()) else get_external_storage_root()
+		if not os.path.isdir(start_dir):
+			start_dir = os.getcwd()
+		state = {'dir': os.path.abspath(start_dir)}
 
-		content.add_widget(Button(
-			text='View Generated HTML',
-			on_release=lambda *_: (popup.dismiss(), open_html_viewer(self.last_html_path)),
+		content = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(8))
+		lbl_path = Label(text=state['dir'], size_hint_y=None, height=dp(32), halign='left', valign='middle',
+						 font_size=dp(11))
+		lbl_path.bind(size=lambda inst, sz: setattr(inst, 'text_size', sz))
+		content.add_widget(lbl_path)
+
+		nav_row = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(6))
+		btn_up = Button(text='Up (..)', font_size=dp(12))
+		btn_storage = Button(text='Storage', font_size=dp(12))
+		nav_row.add_widget(btn_up)
+		nav_row.add_widget(btn_storage)
+		content.add_widget(nav_row)
+
+		sv = ScrollView(do_scroll_x=False)
+		lst = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(4))
+		lst.bind(minimum_height=lst.setter('height'))
+		sv.add_widget(lst)
+		content.add_widget(sv)
+
+		popup = Popup(title=title, content=content, size_hint=(0.94, 0.85))
+
+		def _refresh(*_):
+			lst.clear_widgets()
+			lbl_path.text = state['dir']
+			dirs, _files, err = list_directory_entries(state['dir'], show_all_files=False)
+			if err == 'permission_denied' or (not has_all_files_access() and not dirs):
+				lst.add_widget(Button(
+					text='Grant Storage Access',
+					size_hint_y=None,
+					height=dp(44),
+					on_release=lambda *_: request_storage_permissions(lambda _ok: _refresh()),
+				))
+				return
+			for d in dirs:
+				full_d = os.path.join(state['dir'], d)
+				btn = Button(text=f'[DIR] {d}', size_hint_y=None, height=dp(40), halign='left', valign='middle',
+							 font_size=dp(12))
+				btn.bind(size=lambda inst, sz: setattr(inst, 'text_size', (max(0, sz[0] - dp(12)), sz[1])))
+				btn.bind(on_release=lambda _b, p=full_d: _go(p))
+				lst.add_widget(btn)
+
+		def _go(p: str):
+			if p and os.path.isdir(p):
+				state['dir'] = os.path.abspath(p)
+				_refresh()
+
+		btn_up.bind(on_release=lambda *_: _go(os.path.dirname(state['dir'])))
+		btn_storage.bind(on_release=lambda *_: _go(get_external_storage_root()))
+
+		bottom = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(6))
+		bottom.add_widget(Button(
+			text='Select This Folder',
+			background_color=(0.18, 0.52, 0.32, 1),
+			on_release=lambda *_: (popup.dismiss(), on_selected(state['dir'])),
 		))
-		content.add_widget(Button(
-			text='Regenerate HTML & GraphML',
-			on_release=lambda *_: (popup.dismiss(), self.regenerate_html()),
-		))
-		content.add_widget(Button(
-			text='Export HTML File...',
-			on_release=lambda *_: _export(self.last_html_path, 'text/html'),
-		))
-		out_graphml = os.path.join(self.output_folder, 'output.graphml')
-		content.add_widget(Button(
-			text='Export Filtered output.graphml...',
-			on_release=lambda *_: _export(out_graphml, 'application/xml'),
-		))
-		content.add_widget(Button(text='Close', on_release=lambda *_: popup.dismiss()))
+		bottom.add_widget(Button(text='Cancel', on_release=lambda *_: popup.dismiss()))
+		content.add_widget(bottom)
+
+		self._on_resume_refresh = _refresh
+		popup.bind(on_dismiss=lambda *_: setattr(self, '_on_resume_refresh', None))
+		_refresh()
 		self._open_tracked_popup(popup)
 
 	# ------------------------------------------------------------------
@@ -1123,7 +1172,7 @@ class GraphMLAndroidApp(App):
 
 	def open_config_dialog(self):
 		g_cfg = self.base_config
-		loc = self.local_overrides
+		loc = getattr(self, 'local_overrides', {})
 		has_file = bool(self.current_graph_path and os.path.isfile(self.current_graph_path))
 
 		outer = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(8))
@@ -1179,7 +1228,8 @@ class GraphMLAndroidApp(App):
 			hdr.add_widget(lbl)
 
 			is_local = has_file and (key in loc)
-			hdr.add_widget(Label(text='Local', size_hint_x=None, width=dp(38), font_size=dp(11), color=(0.75, 0.85, 1.0, 1)))
+			hdr.add_widget(
+				Label(text='Local', size_hint_x=None, width=dp(38), font_size=dp(11), color=(0.75, 0.85, 1.0, 1)))
 			en_cb = CheckBox(active=is_local, disabled=not has_file, size_hint_x=None, width=dp(34))
 			en_cb.bind(active=lambda _inst, _val, k=key: update_local_state(k))
 			local_enabled_cbs[key] = en_cb
@@ -1267,17 +1317,23 @@ class GraphMLAndroidApp(App):
 			local_widgets[key] = [l_cb]
 			update_local_state(key)
 
-		add_spinner_pair('connection_type', 'Connection Type', g_cfg.connection_type, loc.get('connection_type'), ('correlation', 'counter', 'family'))
+		add_spinner_pair('connection_type', 'Connection Type', g_cfg.connection_type, loc.get('connection_type'),
+						 ('correlation', 'counter', 'family'))
 		add_bool_pair('ignore_edge_colors', 'Ignore Edge Colors', g_cfg.ignore_edge_colors, loc.get('ignore_edge_colors'))
 		add_text_pair('color_threshold', 'Color Threshold', g_cfg.color_threshold, loc.get('color_threshold'))
-		add_bool_pair('show_connections_list', 'Show Connections List', g_cfg.show_connections_list, loc.get('show_connections_list'))
-		add_text_pair('connections_skipped', 'Connections Skipped', g_cfg.connections_skipped, loc.get('connections_skipped'))
+		add_bool_pair('show_connections_list', 'Show Connections List', g_cfg.show_connections_list,
+					  loc.get('show_connections_list'))
+		add_text_pair('connections_skipped', 'Connections Skipped', g_cfg.connections_skipped,
+					  loc.get('connections_skipped'))
 		add_bool_pair('show_only_edges', 'Show Only Edges', g_cfg.show_only_edges, loc.get('show_only_edges'))
 		add_bool_pair('show_edge_labels', 'Show Edge Labels', g_cfg.show_edge_labels, loc.get('show_edge_labels'))
-		add_bool_pair('enable_non_cycle_printing', 'Non-Cycle Printing', g_cfg.enable_non_cycle_printing, loc.get('enable_non_cycle_printing'))
+		add_bool_pair('enable_non_cycle_printing', 'Non-Cycle Printing', g_cfg.enable_non_cycle_printing,
+					  loc.get('enable_non_cycle_printing'))
 		add_bool_pair('sort_by_len', 'Sort Cycles by Length', g_cfg.sort_by_len, loc.get('sort_by_len'))
-		add_bool_pair('sort_connections_alphabetically', 'Sort Connections Alpha', g_cfg.sort_connections_alphabetically, loc.get('sort_connections_alphabetically'))
-		add_text_pair('max_cycle_length_html', 'Max Cycle Len (HTML)', g_cfg.max_cycle_length_html, loc.get('max_cycle_length_html'))
+		add_bool_pair('sort_connections_alphabetically', 'Sort Connections Alpha', g_cfg.sort_connections_alphabetically,
+					  loc.get('sort_connections_alphabetically'))
+		add_text_pair('max_cycle_length_html', 'Max Cycle Len (HTML)', g_cfg.max_cycle_length_html,
+					  loc.get('max_cycle_length_html'))
 		add_text_pair('max_indirectness', 'Max Indirectness (HTML)', g_cfg.max_indirectness, loc.get('max_indirectness'))
 		add_text_pair('source_node', 'Source Node', g_cfg.source_node, loc.get('source_node'))
 		add_text_pair('target_node', 'Target Node', g_cfg.target_node, loc.get('target_node'))
@@ -1339,12 +1395,14 @@ class GraphMLAndroidApp(App):
 		update_local_state('excluded_elements')
 
 		add_text_pair('chance_irrelevant', 'Chance Irrelevant', g_cfg.chance_irrelevant, loc.get('chance_irrelevant'))
-		add_text_pair('max_cycle_length_game', 'Max Cycle Len (Game)', g_cfg.max_cycle_length_game, loc.get('max_cycle_length_game'))
-		add_text_pair('max_indirectness_game', 'Max Indirectness (Game)', g_cfg.max_indirectness_game, loc.get('max_indirectness_game'))
+		add_text_pair('max_cycle_length_game', 'Max Cycle Len (Game)', g_cfg.max_cycle_length_game,
+					  loc.get('max_cycle_length_game'))
+		add_text_pair('max_indirectness_game', 'Max Indirectness (Game)', g_cfg.max_indirectness_game,
+					  loc.get('max_indirectness_game'))
 		add_bool_pair('leaf_only', 'Leaf Nodes Only', g_cfg.leaf_only, loc.get('leaf_only'))
 
 		# ------------------------------------------------------------------
-		# View 2: App Settings (Separate from Graph Global / Local)
+		# View 2: App Settings
 		# ------------------------------------------------------------------
 		app_scroll = ScrollView()
 		app_form = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(8), padding=dp(6))
@@ -1352,7 +1410,7 @@ class GraphMLAndroidApp(App):
 		app_scroll.add_widget(app_form)
 
 		app_info = Label(
-			text='App Settings (stored in input.txt; independent of per-file Graph Settings):',
+			text='App Settings (GraphML folder stored in input.txt; Sync folder stored in sync_settings.json):',
 			size_hint_y=None,
 			height=dp(36),
 			halign='left',
@@ -1363,30 +1421,59 @@ class GraphMLAndroidApp(App):
 		app_info.bind(size=lambda inst, v: setattr(inst, 'text_size', v))
 		app_form.add_widget(app_info)
 
-		app_form.add_widget(Label(text='Default Folder Path:', size_hint_y=None, height=dp(24), halign='left', font_size=dp(12)))
-		ti_app_folder = TextInput(text=g_cfg.folder_path, multiline=False, size_hint_y=None, height=dp(40))
-		app_form.add_widget(ti_app_folder)
+		app_form.add_widget(
+			Label(text='Default GraphML Folder:', size_hint_y=None, height=dp(24), halign='left', font_size=dp(12)))
+		row_gml = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(6))
+		ti_app_folder = TextInput(
+			text=g_cfg.folder_path,
+			hint_text='/storage/emulated/0/Documents/Graphs',
+			multiline=False,
+		)
+		row_gml.add_widget(ti_app_folder)
+		row_gml.add_widget(Button(
+			text='Browse',
+			size_hint_x=None,
+			width=dp(76),
+			font_size=dp(12),
+			on_release=lambda *_: self._open_folder_picker(
+				'Select Default GraphML Folder',
+				ti_app_folder.text,
+				lambda p: setattr(ti_app_folder, 'text', p),
+			),
+		))
+		app_form.add_widget(row_gml)
 
-		app_form.add_widget(Label(text='Default File Name / Path:', size_hint_y=None, height=dp(24), halign='left', font_size=dp(12)))
+		app_form.add_widget(
+			Label(text='Default File Name / Path:', size_hint_y=None, height=dp(24), halign='left', font_size=dp(12)))
 		ti_app_file = TextInput(text=g_cfg.file_name, multiline=False, size_hint_y=None, height=dp(40))
 		app_form.add_widget(ti_app_file)
 
 		app_form.add_widget(Label(
-			text='Sync Folder (for Syncthing):',
+			text='Default Sync Folder (for Syncthing):',
 			size_hint_y=None,
 			height=dp(24),
 			halign='left',
 			font_size=dp(12),
 		))
+		row_sync = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(6))
 		ti_sync_folder = TextInput(
 			text=get_sync_folder(),
 			hint_text='/storage/emulated/0/Syncthing/GraphML',
 			multiline=False,
-			size_hint_y=None,
-			height=dp(40),
 		)
-		app_form.add_widget(ti_sync_folder)
-
+		row_sync.add_widget(ti_sync_folder)
+		row_sync.add_widget(Button(
+			text='Browse',
+			size_hint_x=None,
+			width=dp(76),
+			font_size=dp(12),
+			on_release=lambda *_: self._open_folder_picker(
+				'Select Default Sync Folder',
+				ti_sync_folder.text,
+				lambda p: setattr(ti_sync_folder, 'text', p),
+			),
+		))
+		app_form.add_widget(row_sync)
 
 		def _show_tab(tab_name: str):
 			content_area.clear_widgets()
@@ -1434,7 +1521,8 @@ class GraphMLAndroidApp(App):
 			out['target_node'] = fmap['target_node'].text.strip().lower()
 			block_raw = fmap['block_starting_node'].text.strip()
 			out['block_starting_node'] = [x.strip().lower() for x in block_raw.split(',') if x.strip()]
-			out['excluded_elements'] = [line.strip() for line in fmap['excluded_elements'].text.splitlines() if line.strip()]
+			out['excluded_elements'] = [line.strip() for line in fmap['excluded_elements'].text.splitlines() if
+										line.strip()]
 			out['leaf_only'] = bool(fmap['leaf_only'].active)
 			return out
 

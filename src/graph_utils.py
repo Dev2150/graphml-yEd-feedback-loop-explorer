@@ -14,42 +14,40 @@ def remove_duplicate_subsequences(list_of_lists: List[List[Any]]) -> List[List[A
 	# is a sub-sequence of a longer list that has already been added to 'result'.
 	sorted_lists = sorted(list_of_lists, key=len, reverse=True)
 	result: List[List[Any]] = []
+	result_strs: List[str] = []
 
 	for current_list in sorted_lists:
-		current_str = ','.join(map(str, current_list))
+		current_str = ',' + ','.join(map(str, current_list)) + ','
 		is_subsequence = False
-		for existing_list in result:
-			existing_str = ','.join(map(str, existing_list))
+		for existing_str in result_strs:
 			if current_str in existing_str:
 				is_subsequence = True
 				break
 		if not is_subsequence:
 			result.append(current_list)
+			result_strs.append(current_str)
 	return result
 
 
 def find_all_paths_for_graph_ml(graph: nx.DiGraph, p_nodes: list, p_source: str, nodes_printed: Set[str], is_reversed: bool = False):
-	for node_id in p_nodes:
-		target = node_id
-		source = p_source
-		if target == source or target in nodes_printed:
-			continue
-		if is_reversed:
-			source, target = target, source
-		paths = list(nx.all_simple_paths(graph, source, target))
-		for path in paths:
-			for node in path:
-				nodes_printed.add(node)
+	has_edge = graph.in_degree(p_source) > 0 if is_reversed else graph.out_degree(p_source) > 0
+	if not has_edge:
+		return
+	reach = nx.ancestors(graph, p_source) if is_reversed else nx.descendants(graph, p_source)
+	valid_targets = set(p_nodes)
+	if any(t in valid_targets and t != p_source and t not in nodes_printed for t in reach):
+		nodes_printed.add(p_source)
+		nodes_printed.update(reach)
 
 
-def find_all_paths(graph: nx.DiGraph, all_paths: list, is_reversed: bool, p_nodes: list, p_source: str):
+def find_all_paths(graph: nx.DiGraph, all_paths: list, is_reversed: bool, p_nodes: list, p_source: str, cutoff: Optional[int] = None):
 	for node_id in p_nodes:
 		target = node_id
 		source = p_source
 		if target != source:
 			if is_reversed:
 				source, target = target, source
-			paths = list(nx.all_simple_paths(graph, source, target))
+			paths = list(nx.all_simple_paths(graph, source, target, cutoff=cutoff))
 			for path in paths:
 				all_paths.append(path)
 	return all_paths

@@ -12,28 +12,34 @@ from src.models import GraphContext
 
 def show_all_paths(p_nodes: list, p_source: str, p_html_content: str, ctx: GraphContext, is_reversed: bool = False) -> str:
 	p_html_content += '<br>'
-	nodes_to_work_with = []
-
 	if p_source is not None:
 		p_html_content = add_title_to_html(p_html_content, ctx.nodes, p_source, is_reversed)
-		nodes_to_work_with.append(p_source)
-	else:
-		for node_id in p_nodes:
-			nodes_to_work_with.append(node_id)
+
+	if not ctx.config.enable_non_cycle_printing:
+		if p_source is not None:
+			find_all_paths_for_graph_ml(ctx.graph, p_nodes, p_source, ctx.nodes_printed, is_reversed=is_reversed)
+		else:
+			for nid in ctx.graph.nodes():
+				if ctx.graph.in_degree(nid) > 0 or ctx.graph.out_degree(nid) > 0:
+					ctx.nodes_printed.add(nid)
+		return p_html_content
+
+	nodes_to_work_with = [p_source] if p_source is not None else list(p_nodes)
+	cutoff = (ctx.config.max_indirectness + 1) if ctx.config.max_indirectness >= 0 else None
 
 	all_paths = []
 	for source_node in nodes_to_work_with:
-		all_paths = find_all_paths(ctx.graph, all_paths, is_reversed, p_nodes, source_node)
-		all_paths = remove_duplicate_subsequences(all_paths)
-		all_paths = sort_alphabetically_by_joining_numerical_string_lists(all_paths, ctx.nodes)
+		all_paths = find_all_paths(ctx.graph, all_paths, is_reversed, p_nodes, source_node, cutoff=cutoff)
+
+	all_paths = remove_duplicate_subsequences(all_paths)
+	all_paths = sort_alphabetically_by_joining_numerical_string_lists(all_paths, ctx.nodes)
 
 	for path in all_paths:
 		cycle_correlation, nodes_to_traverse, path_len, hp = initialize_printing_nodes(path, False)
 		for path_node_id, _ in enumerate(path):
 			cycle_correlation, hp = print_node(path, path_node_id, path_len, cycle_correlation, nodes_to_traverse, hp,
 											   ctx.config.enable_non_cycle_printing, ctx)
-		if ctx.config.enable_non_cycle_printing:
-			p_html_content += hp + "</p>"
+		p_html_content += hp + "</p>"
 	return p_html_content
 
 

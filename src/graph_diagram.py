@@ -420,7 +420,7 @@ def compute_circular_layout(
 
 	rx_avail = max(10.0, (width - max_w) / 2.0 - margin)
 	ry_avail = max(10.0, (height - max_h) / 2.0 - margin)
-	rx = min(rx_avail, ry_avail * 1.8)
+	rx = min(rx_avail, ry_avail * 2.2)
 	ry = ry_avail
 
 	cx_center = width / 2.0
@@ -444,6 +444,45 @@ def compute_circular_layout(
 		cx = max(nw / 2.0 + margin * 0.5, min(width - nw / 2.0 - margin * 0.5, cx))
 		cy = max(nh / 2.0 + margin * 0.5, min(height - nh / 2.0 - margin * 0.5, cy))
 		rects[node.node_id] = (cx, cy, nw, nh)
+
+	# Resolve any remaining box overlaps on compact viewports
+	if n >= 2:
+		node_ids = [node.node_id for node in nodes]
+		pad = 6.0
+		for _ in range(12):
+			moved = False
+			for i in range(n):
+				id1 = node_ids[i]
+				cx1, cy1, w1, h1 = rects[id1]
+				for j in range(i + 1, n):
+					id2 = node_ids[j]
+					cx2, cy2, w2, h2 = rects[id2]
+					dx = cx2 - cx1
+					dy = cy2 - cy1
+					req_x = (w1 + w2) / 2.0 + pad
+					req_y = (h1 + h2) / 2.0 + pad
+					ox = req_x - abs(dx)
+					oy = req_y - abs(dy)
+					if ox > 0 and oy > 0:
+						moved = True
+						if ox <= oy * 1.4:
+							sgn = 1.0 if dx >= 0 else -1.0
+							shift = ox / 2.0
+							cx1 -= sgn * shift
+							cx2 += sgn * shift
+						else:
+							sgn = 1.0 if dy >= 0 else -1.0
+							shift = oy / 2.0
+							cy1 -= sgn * shift
+							cy2 += sgn * shift
+						cx1 = max(w1 / 2.0 + margin * 0.5, min(width - w1 / 2.0 - margin * 0.5, cx1))
+						cy1 = max(h1 / 2.0 + margin * 0.5, min(height - h1 / 2.0 - margin * 0.5, cy1))
+						cx2 = max(w2 / 2.0 + margin * 0.5, min(width - w2 / 2.0 - margin * 0.5, cx2))
+						cy2 = max(h2 / 2.0 + margin * 0.5, min(height - h2 / 2.0 - margin * 0.5, cy2))
+						rects[id1] = (cx1, cy1, w1, h1)
+						rects[id2] = (cx2, cy2, w2, h2)
+			if not moved:
+				break
 
 	return rects
 

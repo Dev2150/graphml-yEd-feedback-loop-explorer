@@ -449,17 +449,23 @@ class ConfigDialog(tk.Toplevel):
 			font=("Segoe UI", 10, "bold"),
 		).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
 
-		ttk.Label(app_tab, text="Default Folder Path:").grid(row=1, column=0, sticky="w", pady=4, padx=(0, 8))
+		ttk.Label(app_tab, text="Default GraphML Folder:").grid(row=1, column=0, sticky="w", pady=4, padx=(0, 8))
 		self.app_vars["folder_path"] = tk.StringVar(value=cfg.folder_path)
 		ttk.Entry(app_tab, textvariable=self.app_vars["folder_path"]).grid(row=1, column=1, sticky="ew", pady=4)
+		ttk.Button(app_tab, text="Browse...", command=self._browse_graphml_folder).grid(row=1, column=2, padx=(6, 0), pady=4)
 
 		ttk.Label(app_tab, text="Default File Name / Path:").grid(row=2, column=0, sticky="w", pady=4, padx=(0, 8))
 		self.app_vars["file_name"] = tk.StringVar(value=cfg.file_name)
 		ttk.Entry(app_tab, textvariable=self.app_vars["file_name"]).grid(row=2, column=1, sticky="ew", pady=4)
 		ttk.Button(app_tab, text="Browse...", command=self._browse_graphml).grid(row=2, column=2, padx=(6, 0), pady=4)
 
+		ttk.Label(app_tab, text="Default Sync Folder (Syncthing):").grid(row=3, column=0, sticky="w", pady=4, padx=(0, 8))
+		self.app_vars["sync_folder"] = tk.StringVar(value=get_sync_folder())
+		ttk.Entry(app_tab, textvariable=self.app_vars["sync_folder"]).grid(row=3, column=1, sticky="ew", pady=4)
+		ttk.Button(app_tab, text="Browse...", command=self._browse_sync_folder).grid(row=3, column=2, padx=(6, 0), pady=4)
+
 		btn_app_row = ttk.Frame(app_tab)
-		btn_app_row.grid(row=3, column=1, sticky="w", pady=(10, 4))
+		btn_app_row.grid(row=4, column=1, sticky="w", pady=(10, 4))
 
 		if self.on_open_file_callback is not None:
 			ttk.Button(btn_app_row, text="Open Default File Now", command=self._open_configured_file).pack(
@@ -594,14 +600,14 @@ class ConfigDialog(tk.Toplevel):
 		self.on_apply_callback(new_base, new_local, mode=mode, sync_folder=sync_folder)
 
 	def _browse_sync_folder(self):
-		current = self.app_vars["sync_folder"].get().strip()
+		current = self.app_vars["folder_path"].get().strip()
 		path = filedialog.askdirectory(
 			parent=self,
-			title="Select Syncthing / Data Sync Folder",
+			title="Select Default GraphML Folder",
 			initialdir=current if os.path.isdir(current) else os.getcwd(),
 		)
 		if path:
-			self.app_vars["sync_folder"].set(path)
+			self.app_vars["folder_path"].set(path + os.sep)
 
 	def _open_appdata_folder(self):
 		folder = get_local_data_dir()
@@ -916,7 +922,11 @@ class GraphMLExplorerApp(tk.Tk):
 		initial_dir = (
 			os.path.dirname(self.current_graph_path)
 			if self.current_graph_path and os.path.isdir(os.path.dirname(self.current_graph_path))
-			else (self.config_obj.folder_path if os.path.isdir(self.config_obj.folder_path) else os.getcwd())
+			else (
+				self.base_config.folder_path
+				if os.path.isdir(self.base_config.folder_path)
+				else os.getcwd()
+			)
 		)
 		filepath = filedialog.askopenfilename(
 			parent=self,

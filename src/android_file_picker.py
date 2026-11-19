@@ -229,44 +229,85 @@ def export_file_with_system_picker(
 	mActivity.startActivityForResult(intent, _SAVE_DOC_REQ)
 
 
-def open_html_viewer(html_path: str):
-	"""Displays generated HTML in an Android WebView dialog (or desktop browser)."""
-	if not os.path.isfile(html_path):
-		return
+import threading
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+_HTML_SERVER_LOCK = threading.Lock()
+_HTML_SERVER = None
+_HTML_SERVER_PORT = 0
+_SERVED_HTML_FILES = {}
+
+
+class _LocalHtmlHandler(BaseHTTPRequestHandler):
+	def _send_html(self, send_body: bool):
+		req_path = urllib.parse.unquote(self.path.split('?', 1)[0]).lstrip('/')
+		file_path = _SERVED_HTML_FILES.get(req_path)
+		if not file_path or not os.path.isfile(file_path):
+			self.send_response(404)
+			self.end_headers()
+			return
+		with open(file_path, 'r', encoding='utf-8') as f:
+			html_str = f.read().replace('charset="UTF-16"', 'charset="UTF-8"')
+		data = html_str.encode('utf-8')
+		self.send_response(200)
+		self.send_header('Content-Type', 'text/html; charset=utf-8')
+		self.send_header('Content-Length', str(len(data)))
+		self.send_header('Cache-Control', 'no-store')
+		self.end_headers()
+		if send_body:
+			self.wfile.write(data)
+
+	def do_GET(self):
+		self._send_html(True)
+
+	def do_HEAD(self):
+		self._send_html(False)
+
+	def log_message(self, format, *args):
+		pass
+
+
+def _ensure_local_html_server() -> int:
+	global _HTML_SERVER, _HTML_SERVER_PORT
+	with _HTML_SERVER_LOCK:
+		if _HTML_SERVER is None:
+			server = ThreadingHTTPServer(('127.0.0.1', 0), _LocalHtmlHandler)
+			server.daemon_threads = True
+			_HTML_SERVER = server
+			_HTML_SERVER_PORT = server.server_address[1]
+			threading.Thread(target=server.serve_forever, daemon=True).start()
+		return _HTML_SERVER_PORT
+
+
+def open_html_viewer(html_path: str) -> Optional[str]:
+	"""Opens generated HTML directly in the system browser (e.g. Firefox on Android)."""
+	if not html_path or not os.path.isfile(html_path):
+		return "HTML file not found."
 
 	if not is_android():
 		webbrowser.open(Path(html_path).resolve().as_uri())
-		return
+		return None
 
-	from android.runnable import run_on_ui_thread
-	from jnius import autoclass
+	try:
+		from jnius import autoclass
 
-	with open(html_path, 'r', encoding='utf-8') as f:
-		html_str = f.read()
-	html_str = html_str.replace('charset="UTF-16"', 'charset="utf-8"')
-	title = os.path.basename(html_path)
+		port = _ensure_local_html_server()
+		filename = os.path.basename(html_path)
+		_SERVED_HTML_FILES[filename] = os.path.abspath(html_path)
+		url = f"http://127.0.0.1:{port}/{urllib.parse.quote(filename)}"
 
-	@run_on_ui_thread
-	def _show():
 		PythonActivity = autoclass('org.kivy.android.PythonActivity')
-		WebView = autoclass('android.webkit.WebView')
-		AlertDialogBuilder = autoclass('android.app.AlertDialog$Builder')
-		JavaString = autoclass('java.lang.String')
+		Intent = autoclass('android.content.Intent')
+		Uri = autoclass('android.net.Uri')
 
 		mActivity = PythonActivity.mActivity
-		webview = WebView(mActivity)
-		settings = webview.getSettings()
-		settings.setBuiltInZoomControls(True)
-		settings.setDisplayZoomControls(False)
-		webview.loadDataWithBaseURL("file:///android_asset/", html_str, "text/html", "utf-8", None)
-
-		builder = AlertDialogBuilder(mActivity)
-		builder.setTitle(JavaString(title))
-		builder.setView(webview)
-		builder.setPositiveButton(JavaString("Close"), None)
-		builder.show()
-
-	_show()
+		intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+		intent.addCategory(Intent.CATEGORY_BROWSABLE)
+		mActivity.startActivity(intent)
+		return None
+	except Exception as exc:
+		return f"Could not open mobile browser:\n{exc}"
 
 
 def _desktop_open_fallback(callback: Callable[[Optional[str], Optional[str]], None]):
