@@ -4,8 +4,10 @@ import queue
 import re
 import shutil
 import sys
+import textwrap
 import threading
-from kivy.core.text import LabelBase
+from kivy.core.text import Label as CoreLabel, LabelBase
+from kivy.graphics import Color, Line, Rectangle, Triangle
 from kivy.resources import resource_find
 
 # Ensure project root is on sys.path when running src/android_app.py directly
@@ -71,6 +73,7 @@ from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
+from kivy.uix.stencilview import StencilView
 from kivy.uix.textinput import TextInput
 
 from src.android_file_picker import (
@@ -93,6 +96,11 @@ from src.games.relationship_game import (
 	prepare_relationship_game_data,
 	run_relationship_guessing_game,
 )
+from src.graph_diagram import (
+	GraphDiagramData,
+	compute_circular_layout,
+	compute_edge_geometry,
+)
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import list_graph_elements_and_groups, read_from_graph_xml
 from src.models import GraphContext
@@ -107,6 +115,11 @@ from src.progress_storage import (
 
 ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
 MAX_CONSOLE_LINES = 250
+
+
+def _hex_to_rgba(hex_color: str):
+	h = hex_color.lstrip('#')
+	return (int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0, 1.0)
 
 
 def _format_console_markup(text: str) -> str:
@@ -136,6 +149,125 @@ def _resolve_console_font() -> str:
 			except Exception:
 				pass
 	return 'Roboto'
+
+
+class CircularGraphWidget(StencilView):
+	def __init__(self, font_name: str = 'Roboto', **kwargs):
+		super().__init__(**kwargs)
+		self.font_name = font_name
+		self.diagram: GraphDiagramData = None
+		self.bind(pos=self._redraw, size=self._redraw)
+
+	def set_diagram(self, diagram: GraphDiagramData):
+		self.diagram = diagram
+		self._redraw()
+
+	def _build_node_texture(self, text: str, text_rgba, max_text_w: float):
+		lbl = CoreLabel(
+			text=text,
+			font_size=dp(11),
+			font_name=self.font_name,
+			color=text_rgba,
+		)
+		lbl.refresh()
+		if lbl.texture.width > max_text_w and ' ' in text:
+			lines = textwrap.wrap(text, width=14) or [text]
+			lbl = CoreLabel(
+				text='\n'.join(lines),
+				font_size=dp(10.5),
+				font_name=self.font_name,
+				color=text_rgba,
+				halign='center',
+			)
+			lbl.refresh()
+		return lbl.texture
+
+	def _redraw(self, *_):
+		self.canvas.clear()
+		if self.width < 20 or self.height < 20:
+			return
+
+		ox, oy = self.x, self.y
+		with self.canvas:
+			Color(1, 1, 1, 1)
+			Rectangle(pos=self.pos, size=self.size)
+
+			if self.diagram is None or not self.diagram.nodes:
+				lbl = CoreLabel(
+					text='Reveal an answer to view graph',
+					font_size=dp(12),
+					font_name=self.font_name,
+					color=(0.45, 0.45, 0.45, 1),
+				)
+				lbl.refresh()
+				tex = lbl.texture
+				Color(1, 1, 1, 1)
+				Rectangle(
+					texture=tex,
+					pos=(ox + (self.width - tex.width) / 2.0, oy + (self.height - tex.height) / 2.0),
+					size=tex.size,
+				)
+				return
+
+			max_text_w = max(dp(55), min(dp(105), self.width * 0.28))
+			textures = {}
+			node_sizes = {}
+
+			for node in self.diagram.nodes:
+				tex = self._build_node_texture(node.label, _hex_to_rgba(node.text_color), max_text_w)
+				textures[node.node_id] = tex
+				node_sizes[node.node_id] = (
+					max(dp(46), tex.width + dp(12)),
+					max(dp(24), tex.height + dp(8)),
+				)
+
+			rects = compute_circular_layout(
+				self.diagram,
+				self.width,
+				self.height,
+				node_sizes,
+				margin=dp(8),
+				flip_y=True,
+			)
+			edges_geom = compute_edge_geometry(
+				self.diagram,
+				rects,
+				parallel_offset=dp(6),
+				target_pad=dp(1),
+			)
+
+			arrow_len = dp(8)
+			arrow_hw = dp(3.5)
+			for edge, x1, y1, x2, y2, ux, uy in edges_geom:
+				Color(*_hex_to_rgba(edge.color))
+				base_x = x2 - ux * arrow_len
+				base_y = y2 - uy * arrow_len
+				lx = base_x - uy * arrow_hw
+				ly = base_y + ux * arrow_hw
+				rx = base_x + uy * arrow_hw
+				ry = base_y - ux * arrow_hw
+
+				Line(points=[ox + x1, oy + y1, ox + base_x, oy + base_y], width=dp(1.1))
+				Triangle(points=[ox + x2, oy + y2, ox + lx, oy + ly, ox + rx, oy + ry])
+
+			for node in self.diagram.nodes:
+				cx, cy, nw, nh = rects[node.node_id]
+				tex = textures[node.node_id]
+				bx = ox + cx - nw / 2.0
+				by = oy + cy - nh / 2.0
+
+				Color(*_hex_to_rgba(node.fill_color))
+				Rectangle(pos=(bx, by), size=(nw, nh))
+
+				Color(0, 0, 0, 1)
+				Line(rectangle=(bx, by, nw, nh), width=1.05)
+
+				Color(1, 1, 1, 1)
+				Rectangle(
+					texture=tex,
+					pos=(ox + cx - tex.width / 2.0, oy + cy - tex.height / 2.0),
+					size=tex.size,
+				)
 
 
 class ConsoleRedirector:
@@ -190,6 +322,8 @@ class GraphMLAndroidApp(App):
 		self._pending_line_buf: str = ''
 		self._progress_visible: bool = True
 		self._progress_expanded_height: float = dp(164)
+		self._graph_visible: bool = True
+		self._graph_expanded_height: float = dp(230)
 		self._open_popups: list = []
 
 	def build(self):
@@ -212,6 +346,8 @@ class GraphMLAndroidApp(App):
 				shutil.copyfile(bundled_input, self.input_file)
 			except Exception:
 				pass
+
+		self.console_font = _resolve_console_font()
 
 		root = BoxLayout(orientation='vertical', padding=dp(8), spacing=dp(6))
 
@@ -291,6 +427,36 @@ class GraphMLAndroidApp(App):
 		self.progress_scroll.add_widget(self.progress_grid)
 		root.add_widget(self.progress_scroll)
 
+		# --- Collapsible Circular Graph Panel ---
+		graph_bar = BoxLayout(size_hint_y=None, height=dp(28), spacing=dp(6))
+		self.lbl_graph_title = Label(
+			text='Graph: —',
+			halign='left',
+			valign='middle',
+			bold=True,
+			font_size=dp(12),
+			color=(0.85, 0.9, 1.0, 1),
+		)
+		self.lbl_graph_title.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
+
+		self.btn_toggle_graph = Button(
+			text='Hide Graph',
+			size_hint_x=None,
+			width=dp(90),
+			font_size=dp(12),
+			on_release=lambda *_: self._toggle_graph(),
+		)
+		graph_bar.add_widget(self.lbl_graph_title)
+		graph_bar.add_widget(self.btn_toggle_graph)
+		root.add_widget(graph_bar)
+
+		self.graph_widget = CircularGraphWidget(
+			font_name=self.console_font,
+			size_hint_y=None,
+			height=self._graph_expanded_height,
+		)
+		root.add_widget(self.graph_widget)
+
 		# --- Scrollable Console Output ---
 		self.console_scroll = ScrollView(do_scroll_x=False, bar_width=dp(6))
 		self.console_box = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(2), padding=(dp(4), dp(4)))
@@ -311,25 +477,10 @@ class GraphMLAndroidApp(App):
 			on_release=lambda *_: self.send_reveal_next(),
 			disabled=True,
 		)
-		self.btn_stop_game = Button(
-			text='Stop (0)',
-			background_color=(0.68, 0.24, 0.24, 1),
-			on_release=lambda *_: self.send_stop_game(),
-			disabled=True,
-		)
-		self.btn_clear = Button(
-			text='Clear',
-			size_hint_x=0.65,
-			on_release=lambda *_: self.clear_console(),
-		)
 
 		bottom_bar.add_widget(self.btn_start_game)
 		bottom_bar.add_widget(self.btn_reveal)
-		bottom_bar.add_widget(self.btn_stop_game)
-		bottom_bar.add_widget(self.btn_clear)
 		root.add_widget(bottom_bar)
-
-		self.console_font = _resolve_console_font()
 
 		# Redirect stdout/stderr into UI queue (while still forwarding to logcat)
 		self._orig_stdout = sys.stdout
@@ -1148,6 +1299,9 @@ class GraphMLAndroidApp(App):
 		def on_stats(stats_dict: dict):
 			self.output_queue.put(('stats', (session, stats_dict)))
 
+		def on_graph(diagram_data: GraphDiagramData):
+			self.output_queue.put(('graph', (session, diagram_data)))
+
 		def gui_input() -> str:
 			if session.cancel_event.is_set():
 				raise GameCancelledError()
@@ -1172,6 +1326,7 @@ class GraphMLAndroidApp(App):
 					exit_on_finish=False,
 					on_stats_update=on_stats,
 					prepared_data=prepared_ref,
+					on_graph_update=on_graph,
 				)
 				self.output_queue.put(('game_finished', session))
 			except GameCancelledError:
@@ -1189,20 +1344,8 @@ class GraphMLAndroidApp(App):
 			self.active_session.input_queue.put('')
 			self._update_button_states()
 
-	def send_stop_game(self):
-		if self.active_session and self.active_session.waiting_for_input:
-			self._append_console_text('0\n')
-			self.active_session.waiting_for_input = False
-			self.active_session.input_queue.put('0')
-			self._update_button_states()
-		elif self.active_session:
-			self._cancel_active_game()
-			self._append_console_text('\nGame stopped.\n')
-			self.lbl_status.text = 'Ready'
-			self._update_button_states()
-
 	# ------------------------------------------------------------------
-	# Console, Progress Table & Queue Polling
+	# Console, Progress Table, Graph Panel & Queue Polling
 	# ------------------------------------------------------------------
 	def clear_console(self):
 		self._pending_line_buf = ''
@@ -1256,6 +1399,23 @@ class GraphMLAndroidApp(App):
 			self.progress_scroll.opacity = 0
 			self.btn_toggle_progress.text = 'Show Stats'
 
+	def _toggle_graph(self):
+		self._graph_visible = not self._graph_visible
+		if self._graph_visible:
+			self.graph_widget.height = self._graph_expanded_height
+			self.graph_widget.opacity = 1
+			self.btn_toggle_graph.text = 'Hide Graph'
+		else:
+			self.graph_widget.height = 0
+			self.graph_widget.opacity = 0
+			self.btn_toggle_graph.text = 'Show Graph'
+
+	def _update_graph_panel(self, diagram_data: GraphDiagramData):
+		if diagram_data is None:
+			self.lbl_graph_title.text = 'Graph: —'
+		else:
+			self.lbl_graph_title.text = f'Graph: {diagram_data.title}'
+		self.graph_widget.set_diagram(diagram_data)
 
 	def _update_progress_table(self, stats: dict):
 		self.progress_grid.clear_widgets()
@@ -1328,6 +1488,7 @@ class GraphMLAndroidApp(App):
 					self.lbl_file.text = f"{os.path.basename(norm_path)} ({len(ctx.nodes)}N / {len(ctx.edges)}E | {conn_mode})"
 					self.lbl_status.text = 'Ready'
 					self._update_progress_table(stats)
+					self._update_graph_panel(None)
 					self._append_console_text('Ready! Tap "Start Game" to begin.\n')
 					self._update_button_states()
 
@@ -1341,6 +1502,7 @@ class GraphMLAndroidApp(App):
 					self.is_busy = False
 					self.prepared_game_data = None
 					self._update_progress_table(None)
+					self._update_graph_panel(None)
 					self.lbl_status.text = 'Load Error'
 					self._append_console_text(f'\nERROR: {payload}\n')
 					self._update_button_states()
@@ -1374,6 +1536,11 @@ class GraphMLAndroidApp(App):
 					if session is self.active_session:
 						self._update_progress_table(stats_dict)
 
+				elif kind == 'graph':
+					session, diagram_data = payload
+					if session is self.active_session:
+						self._update_graph_panel(diagram_data)
+
 		except queue.Empty:
 			pass
 
@@ -1392,7 +1559,6 @@ class GraphMLAndroidApp(App):
 		self.btn_start_game.text = 'Restart' if game_active else 'Start Game'
 		self.btn_start_game.disabled = self.is_busy or not has_ctx
 		self.btn_reveal.disabled = not waiting
-		self.btn_stop_game.disabled = not game_active
 
 	def _show_message(self, title: str, msg: str):
 		box = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(10))

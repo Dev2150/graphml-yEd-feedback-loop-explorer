@@ -27,6 +27,11 @@ from src.games.relationship_game import (
 	prepare_relationship_game_data,
 	compute_relationship_stats,
 )
+from src.graph_diagram import (
+	GraphDiagramData,
+	compute_circular_layout,
+	compute_edge_geometry,
+)
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import list_graph_elements_and_groups, read_from_graph_xml
 from src.models import GraphContext
@@ -93,8 +98,8 @@ class ExclusionPickerDialog(tk.Toplevel):
 		self.title(f"Exclude Elements / Groups — {os.path.basename(graph_path)}")
 		self.transient(parent)
 		self.grab_set()
-		self.geometry("460x560")
-		self.minsize(360, 380)
+		self.geometry("1220x760")
+		self.minsize(880, 540)
 
 		self.on_confirm = on_confirm
 		self.selected_lower = {x.strip().lower(): x.strip() for x in current_excluded if x.strip()}
@@ -587,8 +592,8 @@ class GraphMLExplorerApp(tk.Tk):
 	def __init__(self, input_file: str, output_folder: str):
 		super().__init__()
 		self.title("GraphML Feedback Loop Explorer")
-		self.geometry("1080x740")
-		self.minsize(780, 520)
+		self.geometry("1220x760")
+		self.minsize(880, 540)
 
 		self.input_file = os.path.abspath(input_file)
 		self.output_folder = os.path.abspath(output_folder)
@@ -601,6 +606,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self.is_busy: bool = False
 		self.active_session: GameSession = None
 		self.prepared_game_data = None
+		self.current_diagram: GraphDiagramData = None
 
 		self.output_queue: queue.Queue = queue.Queue()
 		self._orig_stdout = sys.stdout
@@ -723,8 +729,11 @@ class GraphMLExplorerApp(tk.Tk):
 		self.progress_tree.pack(fill=tk.X)
 		self.progress_tree.tag_configure("complete", foreground="#1B7A34")
 
-		console_frame = ttk.Frame(self)
-		console_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 6))
+		main_pane = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+		main_pane.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 6))
+
+		console_frame = ttk.Frame(main_pane)
+		main_pane.add(console_frame, weight=3)
 
 		self.console = tk.Text(
 			console_frame,
@@ -751,6 +760,22 @@ class GraphMLExplorerApp(tk.Tk):
 		self.console.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 		v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
+		graph_panel = ttk.LabelFrame(main_pane, text="Relationship Graph", padding=6)
+		main_pane.add(graph_panel, weight=2)
+
+		self.lbl_graph_title = ttk.Label(graph_panel, text="Reveal an answer to view graph",
+										 font=("Segoe UI", 9, "bold"))
+		self.lbl_graph_title.pack(anchor="w", pady=(0, 4))
+
+		self.graph_canvas = tk.Canvas(
+			graph_panel,
+			bg="#FFFFFF",
+			highlightthickness=1,
+			highlightbackground="#CCCCCC",
+		)
+		self.graph_canvas.pack(fill=tk.BOTH, expand=True)
+		self.graph_canvas.bind("<Configure>", lambda _e: self._redraw_graph_canvas())
+
 		bottom_bar = ttk.Frame(self, padding=(8, 0, 8, 8))
 		bottom_bar.pack(fill=tk.X)
 
@@ -761,9 +786,6 @@ class GraphMLExplorerApp(tk.Tk):
 		self.btn_reveal = ttk.Button(bottom_bar, text="⏭ Reveal / Next (Enter/Space)", command=self.send_reveal_next,
 									 takefocus=0)
 		self.btn_reveal.pack(side=tk.LEFT, padx=(0, 6))
-
-		self.btn_stop_game = ttk.Button(bottom_bar, text="⏹ Stop Game (0)", command=self.send_stop_game, takefocus=0)
-		self.btn_stop_game.pack(side=tk.LEFT, padx=(0, 6))
 
 		ttk.Button(bottom_bar, text="🧹 Clear Console", command=self.clear_console, takefocus=0).pack(side=tk.RIGHT)
 
@@ -826,6 +848,7 @@ class GraphMLExplorerApp(tk.Tk):
 		saved_dict = load_graph_config(norm_path) or {}
 		local_overrides = {k: v for k, v in saved_dict.items() if k in GRAPH_SETTING_KEYS}
 		return build_effective_config(self.base_config, local_overrides, norm_path), local_overrides
+
 	# ------------------------------------------------------------------
 	# Recent Files Menu
 	# ------------------------------------------------------------------
@@ -1030,41 +1053,42 @@ class GraphMLExplorerApp(tk.Tk):
 	# Configuration UI (only shown when requested or necessary)
 	# ------------------------------------------------------------------
 	def open_config_dialog(self):
-			def on_apply(new_base: Config, new_local: dict, mode: str = "session"):
-				self.base_config = new_base
-				self.local_overrides = new_local
+		def on_apply(new_base: Config, new_local: dict, mode: str = "session"):
+			self.base_config = new_base
+			self.local_overrides = new_local
 
-				if mode == "save":
-					try:
-						save_config_file(self.input_file, new_base)
-						if self.current_graph_path:
-							save_graph_config(self.current_graph_path, new_local)
-					except Exception as exc:
-						messagebox.showerror("Save Error", f"Could not save configuration:\n{exc}", parent=self)
-						return
+			if mode == "save":
+				try:
+					save_config_file(self.input_file, new_base)
+					if self.current_graph_path:
+						save_graph_config(self.current_graph_path, new_local)
+				except Exception as exc:
+					messagebox.showerror("Save Error", f"Could not save configuration:\n{exc}", parent=self)
+					return
 
-				if self.current_graph_path and os.path.isfile(self.current_graph_path):
-					effective = build_effective_config(self.base_config, self.local_overrides, self.current_graph_path)
-					self.load_graph_file(
-						self.current_graph_path,
-						override_config=effective,
-						override_local=self.local_overrides,
-					)
-				else:
-					self.config_obj = copy.deepcopy(self.base_config)
-					target_path = self._resolve_graph_path_from_config(self.base_config)
-					if target_path and os.path.isfile(target_path):
-						self.load_graph_file(target_path)
+			if self.current_graph_path and os.path.isfile(self.current_graph_path):
+				effective = build_effective_config(self.base_config, self.local_overrides, self.current_graph_path)
+				self.load_graph_file(
+					self.current_graph_path,
+					override_config=effective,
+					override_local=self.local_overrides,
+				)
+			else:
+				self.config_obj = copy.deepcopy(self.base_config)
+				target_path = self._resolve_graph_path_from_config(self.base_config)
+				if target_path and os.path.isfile(target_path):
+					self.load_graph_file(target_path)
 
-			ConfigDialog(
-				self,
-				self.base_config,
-				self.local_overrides,
-				self.input_file,
-				on_apply,
-				current_graph_path=self.current_graph_path,
-				on_open_file_callback=self.open_specific_file,
-			)
+		ConfigDialog(
+			self,
+			self.base_config,
+			self.local_overrides,
+			self.input_file,
+			on_apply,
+			current_graph_path=self.current_graph_path,
+			on_open_file_callback=self.open_specific_file,
+		)
+
 	# ------------------------------------------------------------------
 	# Relationship Game Runner & Controls
 	# ------------------------------------------------------------------
@@ -1087,6 +1111,9 @@ class GraphMLExplorerApp(tk.Tk):
 
 		def on_stats(stats_dict: dict):
 			self.output_queue.put(("stats", (session, stats_dict)))
+
+		def on_graph(diagram_data: GraphDiagramData):
+			self.output_queue.put(("graph", (session, diagram_data)))
 
 		def gui_input() -> str:
 			if session.cancel_event.is_set():
@@ -1112,6 +1139,7 @@ class GraphMLExplorerApp(tk.Tk):
 					exit_on_finish=False,
 					on_stats_update=on_stats,
 					prepared_data=prepared_ref,
+					on_graph_update=on_graph,
 				)
 				self.output_queue.put(("game_finished", session))
 			except GameCancelledError:
@@ -1142,6 +1170,87 @@ class GraphMLExplorerApp(tk.Tk):
 			self._append_console_text("\nGame stopped.\n")
 			self.lbl_status.configure(text="Ready")
 			self._update_button_states()
+
+	# ------------------------------------------------------------------
+	# Circular Graph Panel Rendering
+	# ------------------------------------------------------------------
+	def _update_graph_panel(self, diagram_data: GraphDiagramData):
+		self.current_diagram = diagram_data
+		if diagram_data is None:
+			self.lbl_graph_title.configure(text="Reveal an answer to view graph")
+		else:
+			self.lbl_graph_title.configure(text=diagram_data.title)
+		self._redraw_graph_canvas()
+
+	def _redraw_graph_canvas(self):
+		canvas = getattr(self, "graph_canvas", None)
+		if canvas is None:
+			return
+		canvas.delete("all")
+		w = canvas.winfo_width()
+		h = canvas.winfo_height()
+		if w < 40 or h < 40:
+			return
+
+		diagram = self.current_diagram
+		if diagram is None or not diagram.nodes:
+			canvas.create_text(
+				w / 2.0,
+				h / 2.0,
+				text="Reveal an answer to generate the circular graph.",
+				fill="#777777",
+				font=("Segoe UI", 10),
+				width=max(120, w - 32),
+				justify=tk.CENTER,
+			)
+			return
+
+		font_spec = ("Segoe UI", 10)
+		max_text_w = max(80, min(140, int(w * 0.28)))
+		node_sizes = {}
+		for node in diagram.nodes:
+			tid = canvas.create_text(0, 0, text=node.label, font=font_spec, width=max_text_w, justify=tk.CENTER)
+			bbox = canvas.bbox(tid)
+			canvas.delete(tid)
+			tw = (bbox[2] - bbox[0]) if bbox else 60
+			th = (bbox[3] - bbox[1]) if bbox else 20
+			node_sizes[node.node_id] = (max(60.0, tw + 20.0), max(32.0, th + 12.0))
+
+		rects = compute_circular_layout(diagram, float(w), float(h), node_sizes, margin=16.0, flip_y=False)
+		edges_geom = compute_edge_geometry(diagram, rects, parallel_offset=7.0, target_pad=1.0)
+
+		for edge, x1, y1, x2, y2, _ux, _uy in edges_geom:
+			canvas.create_line(
+				x1,
+				y1,
+				x2,
+				y2,
+				fill=edge.color,
+				width=1.8,
+				arrow=tk.LAST,
+				arrowshape=(10, 12, 4.5),
+			)
+
+		for node in diagram.nodes:
+			cx, cy, nw, nh = rects[node.node_id]
+			canvas.create_rectangle(
+				cx - nw / 2.0,
+				cy - nh / 2.0,
+				cx + nw / 2.0,
+				cy + nh / 2.0,
+				fill=node.fill_color,
+				outline="#000000",
+				width=1.4,
+			)
+			canvas.create_text(
+				cx,
+				cy,
+				text=node.label,
+				fill=node.text_color,
+				font=font_spec,
+				width=max_text_w,
+				justify=tk.CENTER,
+			)
 
 	# ------------------------------------------------------------------
 	# Terminal-like Console Widget Handling
@@ -1270,6 +1379,7 @@ class GraphMLExplorerApp(tk.Tk):
 					)
 					self.lbl_status.configure(text="Ready")
 					self._update_progress_table(stats)
+					self._update_graph_panel(None)
 					self._append_console_text("Press Enter, Space, or click 'Start Game' to begin.\n")
 					self._update_button_states()
 					self.focus_set()
@@ -1284,6 +1394,7 @@ class GraphMLExplorerApp(tk.Tk):
 					self.is_busy = False
 					self.prepared_game_data = None
 					self._update_progress_table(None)
+					self._update_graph_panel(None)
 					self.lbl_status.configure(text="Load Error")
 					self._append_console_text(f"\nERROR: {payload}\n")
 					self._update_button_states()
@@ -1318,10 +1429,16 @@ class GraphMLExplorerApp(tk.Tk):
 						self.lbl_status.configure(text="Game Error")
 						self._append_console_text(f"\nGame Error: {err_msg}\n")
 						self._update_button_states()
+
 				elif kind == "stats":
 					session, stats_dict = payload
 					if session is self.active_session:
 						self._update_progress_table(stats_dict)
+
+				elif kind == "graph":
+					session, diagram_data = payload
+					if session is self.active_session:
+						self._update_graph_panel(diagram_data)
 
 		except queue.Empty:
 			pass
@@ -1344,7 +1461,6 @@ class GraphMLExplorerApp(tk.Tk):
 			state=tk.NORMAL if (not self.is_busy and has_ctx) else tk.DISABLED,
 		)
 		self.btn_reveal.configure(state=tk.NORMAL if waiting else tk.DISABLED)
-		self.btn_stop_game.configure(state=tk.NORMAL if game_active else tk.DISABLED)
 
 	def _on_closing(self):
 		self._cancel_active_game()
@@ -1416,3 +1532,84 @@ class GraphMLExplorerApp(tk.Tk):
 			self.send_stop_game()
 			return "break"
 		return None
+
+	# ------------------------------------------------------------------
+	# Circular Graph Panel Rendering
+	# ------------------------------------------------------------------
+	def _update_graph_panel(self, diagram_data: GraphDiagramData):
+		self.current_diagram = diagram_data
+		if diagram_data is None:
+			self.lbl_graph_title.configure(text="Reveal an answer to view graph")
+		else:
+			self.lbl_graph_title.configure(text=diagram_data.title)
+		self._redraw_graph_canvas()
+
+	def _redraw_graph_canvas(self):
+		canvas = getattr(self, "graph_canvas", None)
+		if canvas is None:
+			return
+		canvas.delete("all")
+		w = canvas.winfo_width()
+		h = canvas.winfo_height()
+		if w < 40 or h < 40:
+			return
+
+		diagram = self.current_diagram
+		if diagram is None or not diagram.nodes:
+			canvas.create_text(
+				w / 2.0,
+				h / 2.0,
+				text="Reveal an answer to generate the circular graph.",
+				fill="#777777",
+				font=("Segoe UI", 10),
+				width=max(120, w - 32),
+				justify=tk.CENTER,
+			)
+			return
+
+		font_spec = ("Segoe UI", 10)
+		max_text_w = max(80, min(140, int(w * 0.28)))
+		node_sizes = {}
+		for node in diagram.nodes:
+			tid = canvas.create_text(0, 0, text=node.label, font=font_spec, width=max_text_w, justify=tk.CENTER)
+			bbox = canvas.bbox(tid)
+			canvas.delete(tid)
+			tw = (bbox[2] - bbox[0]) if bbox else 60
+			th = (bbox[3] - bbox[1]) if bbox else 20
+			node_sizes[node.node_id] = (max(60.0, tw + 20.0), max(32.0, th + 12.0))
+
+		rects = compute_circular_layout(diagram, float(w), float(h), node_sizes, margin=16.0, flip_y=False)
+		edges_geom = compute_edge_geometry(diagram, rects, parallel_offset=7.0, target_pad=1.0)
+
+		for edge, x1, y1, x2, y2, _ux, _uy in edges_geom:
+			canvas.create_line(
+				x1,
+				y1,
+				x2,
+				y2,
+				fill=edge.color,
+				width=1.8,
+				arrow=tk.LAST,
+				arrowshape=(10, 12, 4.5),
+			)
+
+		for node in diagram.nodes:
+			cx, cy, nw, nh = rects[node.node_id]
+			canvas.create_rectangle(
+				cx - nw / 2.0,
+				cy - nh / 2.0,
+				cx + nw / 2.0,
+				cy + nh / 2.0,
+				fill=node.fill_color,
+				outline="#000000",
+				width=1.4,
+			)
+			canvas.create_text(
+				cx,
+				cy,
+				text=node.label,
+				fill=node.text_color,
+				font=font_spec,
+				width=max_text_w,
+				justify=tk.CENTER,
+			)

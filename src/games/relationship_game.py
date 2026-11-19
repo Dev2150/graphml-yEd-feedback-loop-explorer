@@ -16,6 +16,12 @@ from src.formatters import (
 	format_path_string, get_path_net_effect_arrow, get_edge_arrow,
 	format_node_name, get_box_prefix, COUNTER_CONNECTION_TYPES
 )
+from src.graph_diagram import (
+	build_cycle_diagram,
+	build_family_pair_diagram,
+	build_leaf_diagram,
+	build_pair_diagram,
+)
 from src.graph_utils import find_bounded_cycles
 from src.models import GraphContext
 from src.progress_storage import get_save_file_path, load_progress, save_progress
@@ -327,9 +333,10 @@ def run_relationship_guessing_game(
 	exit_on_finish: bool = True,
 	on_stats_update=None,
 	prepared_data: dict = None,
+	on_graph_update=None,
 ):
 	_input = input_fn if input_fn is not None else input
-	print("\nGuess if the nodes connect Directly, Indirectly, Share a Source/Destination, Leaf (Source/Dest), Form a Cycle, or are Irrelevant.")
+	print("\nGuess if the nodes connect directly, indirectly, share a source/destination, are a leaf (source/dest), form a cycle, or are irrelevant.")
 
 	g = ctx.graph
 	nodes = ctx.nodes
@@ -367,6 +374,8 @@ def run_relationship_guessing_game(
 		print("No valid questions found matching your graph and filter settings.")
 		if on_stats_update is not None:
 			on_stats_update({"rows": [], "current_tier": 0})
+		if on_graph_update is not None:
+			on_graph_update(None)
 		return
 
 	# Load progress
@@ -406,6 +415,8 @@ def run_relationship_guessing_game(
 
 	current_tiers = get_global_tiers()
 	emit_stats(force_cli_print=True)
+	if on_graph_update is not None:
+		on_graph_update(None)
 	question_num = 0
 
 	while True:
@@ -539,6 +550,17 @@ def run_relationship_guessing_game(
 						print(f"  • {formatted_cycle} ({polarity_icon} {loop_type})")
 
 			print()
+			if on_graph_update is not None:
+				paths_for_diagram = candidate_paths if candidate_paths else [full_path]
+				ans_ids = {p[m] for p in paths_for_diagram}
+				on_graph_update(build_cycle_diagram(
+					paths=paths_for_diagram,
+					answer_node_ids=ans_ids,
+					nodes_dict=nodes,
+					edge_values=edge_values,
+					ignore_edge_colors=is_counter or ignore_edge_colors,
+					question_num=question_num,
+				))
 			cycle_key = _get_item_key(chosen_item, nodes)
 			current_counter = progress_data[game2_key].get(cycle_key, 0)
 			progress_data[game2_key][cycle_key] = current_counter + 1
@@ -587,6 +609,16 @@ def run_relationship_guessing_game(
 						print(f"  • {format_path_string([s, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 
 			print()
+			if on_graph_update is not None:
+				on_graph_update(build_leaf_diagram(
+					anchor_node=target_node,
+					leaf_nodes=found_leaves,
+					is_source_question=True,
+					nodes_dict=nodes,
+					edge_values=edge_values,
+					ignore_edge_colors=is_counter or ignore_edge_colors or is_family,
+					question_num=question_num,
+				))
 			progress_data[game2_key][leaf_key] = current_counter + 1
 			save_progress(save_path, progress_data)
 			emit_stats()
@@ -632,6 +664,16 @@ def run_relationship_guessing_game(
 						print(f"  • {format_path_string([source_node, d], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 
 			print()
+			if on_graph_update is not None:
+				on_graph_update(build_leaf_diagram(
+					anchor_node=source_node,
+					leaf_nodes=found_leaves,
+					is_source_question=False,
+					nodes_dict=nodes,
+					edge_values=edge_values,
+					ignore_edge_colors=is_counter or ignore_edge_colors or is_family,
+					question_num=question_num,
+				))
 			progress_data[game2_key][leaf_key] = current_counter + 1
 			save_progress(save_path, progress_data)
 			emit_stats()
@@ -669,6 +711,20 @@ def run_relationship_guessing_game(
 						print("  Lineage:", end='')
 						for l in fam_res.lineages:
 							print(f"    {l}")
+
+				if on_graph_update is not None:
+					on_graph_update(build_family_pair_diagram(
+						u=u,
+						v=v,
+						graph=g,
+						nodes_dict=nodes,
+						parents_map=parents_map,
+						children_map=children_map,
+						spouses_map=spouses_map,
+						ancestor_paths=ancestor_paths,
+						ancestor_dist=ancestor_dist,
+						question_num=question_num,
+					))
 
 			# --- Correlation / Counter Mode ---
 			else:
@@ -775,11 +831,11 @@ def run_relationship_guessing_game(
 						connection_lines.append(f"{prefix} ({len(p) - 2}): {formatted_p}{suffix}")
 
 				# Find feedback loops / cycles
+				pair_cycles = []
 				if max_cycle_length_game >= 2:
 					paths_fwd = list(nx.all_simple_paths(g, source=u, target=v, cutoff=max_cycle_length_game - 1))
 					paths_bwd = list(nx.all_simple_paths(g, source=v, target=u, cutoff=max_cycle_length_game - 1))
 					seen_pair_cycles = set()
-					pair_cycles = []
 
 					for p1 in paths_fwd:
 						mid1 = set(p1[1:-1])
@@ -815,6 +871,21 @@ def run_relationship_guessing_game(
 				else:
 					for line in connection_lines:
 						print(f"  • {line}")
+
+				if on_graph_update is not None:
+					on_graph_update(build_pair_diagram(
+						u=u,
+						v=v,
+						nodes_dict=nodes,
+						edge_values=edge_values,
+						shared_srcs=shared_srcs,
+						shared_dsts=shared_dsts,
+						paths_u_v=paths_u_v,
+						paths_v_u=paths_v_u,
+						pair_cycles=pair_cycles,
+						ignore_edge_colors=is_counter or ignore_edge_colors,
+						question_num=question_num,
+					))
 
 			print()
 			pair_key_to_save = _get_item_key(chosen_item, nodes)
