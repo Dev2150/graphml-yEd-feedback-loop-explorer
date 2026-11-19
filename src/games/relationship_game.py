@@ -17,6 +17,7 @@ from src.formatters import (
 	format_node_name, get_box_prefix, COUNTER_CONNECTION_TYPES, format_console_node_name
 )
 from src.graph_diagram import (
+	AnswerHighlight,
 	build_cycle_diagram,
 	build_family_pair_diagram,
 	build_leaf_diagram,
@@ -334,9 +335,16 @@ def run_relationship_guessing_game(
 	on_stats_update=None,
 	prepared_data: dict = None,
 	on_graph_update=None,
+	on_answer_output=None,
 ):
 	_input = input_fn if input_fn is not None else input
-	print("\nGuess if the nodes connect directly, indirectly, share a source/destination, are a leaf (source/dest), form a cycle, or are irrelevant.")
+	print("\nGuess if the nodes connect directly, indirectly, share a source/destination, are a leaf (source/dest), form a cycle, or are irrelevant.\n")
+
+	def emit_answer(text: str, highlight: AnswerHighlight = None):
+		if on_answer_output is not None:
+			on_answer_output(text, highlight)
+		else:
+			print(text)
 
 	g = ctx.graph
 	nodes = ctx.nodes
@@ -524,43 +532,70 @@ def run_relationship_guessing_game(
 
 			candidate_paths.sort(key=lambda p: [str(nodes.get(n, n)).lower() for n in p])
 
+			paths_for_diagram = candidate_paths if candidate_paths else [full_path]
+			ans_ids = {p[m] for p in paths_for_diagram}
+			diagram = build_cycle_diagram(
+				paths=paths_for_diagram,
+				answer_node_ids=ans_ids,
+				nodes_dict=nodes,
+				edge_values=edge_values,
+				ignore_edge_colors=is_counter or ignore_edge_colors,
+				question_num=question_num,
+			)
+
 			if len(candidate_paths) <= 1:
-				formatted_cycle = format_path_string(full_path, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+				target_path = candidate_paths[0] if candidate_paths else full_path
+				formatted_cycle = format_path_string(target_path, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 				if is_counter or ignore_edge_colors:
-					print(f"{formatted_cycle}")
+					polarity = None
+					ans_text = f"{formatted_cycle}"
 				else:
 					cycle_corr = 1
-					for k in range(len(full_path) - 1):
-						cycle_corr *= edge_values.get((full_path[k], full_path[k + 1]), 1)
+					for k in range(len(target_path) - 1):
+						cycle_corr *= edge_values.get((target_path[k], target_path[k + 1]), 1)
+					polarity = 1 if cycle_corr > 0 else -1
 					polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
 					loop_type = "Reinforcing" if cycle_corr > 0 else "Balancing"
-					print(f"{formatted_cycle} ({polarity_icon} {loop_type})")
+					ans_text = f"{formatted_cycle} ({polarity_icon} {loop_type})"
+
+				hl = AnswerHighlight(
+					node_ids=set(target_path),
+					edges={(target_path[k], target_path[k + 1]) for k in range(len(target_path) - 1)},
+					is_cycle=True,
+					cycle_polarity=polarity,
+					cycle_node_ids=list(dict.fromkeys(target_path)),
+					diagram=diagram,
+				)
+				emit_answer(ans_text, hl)
 			else:
 				print("Answer(s):")
 				for cand_p in candidate_paths:
 					formatted_cycle = format_path_string(cand_p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 					if is_counter or ignore_edge_colors:
-						print(f"  • {formatted_cycle}")
+						polarity = None
+						ans_text = f"  • {formatted_cycle}"
 					else:
 						cycle_corr = 1
 						for k in range(len(cand_p) - 1):
 							cycle_corr *= edge_values.get((cand_p[k], cand_p[k + 1]), 1)
+						polarity = 1 if cycle_corr > 0 else -1
 						polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
 						loop_type = "Reinforcing" if cycle_corr > 0 else "Balancing"
-						print(f"  • {formatted_cycle} ({polarity_icon} {loop_type})")
+						ans_text = f"  • {formatted_cycle} ({polarity_icon} {loop_type})"
+
+					hl = AnswerHighlight(
+						node_ids=set(cand_p),
+						edges={(cand_p[k], cand_p[k + 1]) for k in range(len(cand_p) - 1)},
+						is_cycle=True,
+						cycle_polarity=polarity,
+						cycle_node_ids=list(dict.fromkeys(cand_p)),
+						diagram=diagram,
+					)
+					emit_answer(ans_text, hl)
 
 			print()
 			if on_graph_update is not None:
-				paths_for_diagram = candidate_paths if candidate_paths else [full_path]
-				ans_ids = {p[m] for p in paths_for_diagram}
-				on_graph_update(build_cycle_diagram(
-					paths=paths_for_diagram,
-					answer_node_ids=ans_ids,
-					nodes_dict=nodes,
-					edge_values=edge_values,
-					ignore_edge_colors=is_counter or ignore_edge_colors,
-					question_num=question_num,
-				))
+				on_graph_update(diagram)
 			cycle_key = _get_item_key(chosen_item, nodes)
 			current_counter = progress_data[game2_key].get(cycle_key, 0)
 			progress_data[game2_key][cycle_key] = current_counter + 1
@@ -591,35 +626,41 @@ def run_relationship_guessing_game(
 				break
 
 			found_leaves = sorted(leaf_sources_map[target_node], key=lambda x: str(nodes.get(x, x)).lower())
+			diagram = build_leaf_diagram(
+				anchor_node=target_node,
+				leaf_nodes=found_leaves,
+				is_source_question=True,
+				nodes_dict=nodes,
+				edge_values=edge_values,
+				ignore_edge_colors=is_counter or ignore_edge_colors or is_family,
+				question_num=question_num,
+			)
+
 			if len(found_leaves) == 1:
 				p_nid = found_leaves[0]
 				p_name = format_console_node_name(nodes.get(p_nid, str(p_nid)))
 				if is_family:
 					p_term = get_parent_term(detect_gender(node_colors.get(p_nid, '')))
-					print(f"{p_name} ({p_term}) → {target_name}")
+					ans_text = f"{p_name} ({p_term}) → {target_name}"
 				else:
-					print(f"{format_path_string([p_nid, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
+					ans_text = f"{format_path_string([p_nid, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}"
+				hl = AnswerHighlight(node_ids={p_nid, target_node}, edges={(p_nid, target_node)}, diagram=diagram)
+				emit_answer(ans_text, hl)
 			else:
 				print("Answer(s):")
 				for s in found_leaves:
 					s_name = format_console_node_name(nodes.get(s, str(s)))
 					if is_family:
 						p_term = get_parent_term(detect_gender(node_colors.get(s, '')))
-						print(f"  • {s_name} ({p_term}) → {target_name}")
+						ans_text = f"  • {s_name} ({p_term}) → {target_name}"
 					else:
-						print(f"  • {format_path_string([s, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
+						ans_text = f"  • {format_path_string([s, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}"
+					hl = AnswerHighlight(node_ids={s, target_node}, edges={(s, target_node)}, diagram=diagram)
+					emit_answer(ans_text, hl)
 
 			print()
 			if on_graph_update is not None:
-				on_graph_update(build_leaf_diagram(
-					anchor_node=target_node,
-					leaf_nodes=found_leaves,
-					is_source_question=True,
-					nodes_dict=nodes,
-					edge_values=edge_values,
-					ignore_edge_colors=is_counter or ignore_edge_colors or is_family,
-					question_num=question_num,
-				))
+				on_graph_update(diagram)
 			progress_data[game2_key][leaf_key] = current_counter + 1
 			save_progress(save_path, progress_data)
 			emit_stats()
@@ -648,34 +689,40 @@ def run_relationship_guessing_game(
 				break
 
 			found_leaves = sorted(leaf_dests_map[source_node], key=lambda x: str(nodes.get(x, x)).lower())
+			diagram = build_leaf_diagram(
+				anchor_node=source_node,
+				leaf_nodes=found_leaves,
+				is_source_question=False,
+				nodes_dict=nodes,
+				edge_values=edge_values,
+				ignore_edge_colors=is_counter or ignore_edge_colors or is_family,
+				question_num=question_num,
+			)
+
 			if len(found_leaves) == 1:
 				c_nid = found_leaves[0]
 				c_name = format_console_node_name(nodes.get(c_nid, str(c_nid)))
 				if is_family:
 					c_term = get_child_term(detect_gender(node_colors.get(c_nid, '')))
-					print(f"{source_name} → {c_name} ({c_term})")
+					ans_text = f"{source_name} → {c_name} ({c_term})"
 				else:
-					print(f"{format_path_string([source_node, c_nid], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
+					ans_text = f"{format_path_string([source_node, c_nid], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}"
+				hl = AnswerHighlight(node_ids={source_node, c_nid}, edges={(source_node, c_nid)}, diagram=diagram)
+				emit_answer(ans_text, hl)
 			else:
 				for d in found_leaves:
 					d_name = format_console_node_name(nodes.get(d, str(d)))
 					if is_family:
 						c_term = get_child_term(detect_gender(node_colors.get(d, '')))
-						print(f"  • {source_name} → {d_name} ({c_term})")
+						ans_text = f"  • {source_name} → {d_name} ({c_term})"
 					else:
-						print(f"  • {format_path_string([source_node, d], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
+						ans_text = f"  • {format_path_string([source_node, d], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}"
+					hl = AnswerHighlight(node_ids={source_node, d}, edges={(source_node, d)}, diagram=diagram)
+					emit_answer(ans_text, hl)
 
 			print()
 			if on_graph_update is not None:
-				on_graph_update(build_leaf_diagram(
-					anchor_node=source_node,
-					leaf_nodes=found_leaves,
-					is_source_question=False,
-					nodes_dict=nodes,
-					edge_values=edge_values,
-					ignore_edge_colors=is_counter or ignore_edge_colors or is_family,
-					question_num=question_num,
-				))
+				on_graph_update(diagram)
 			progress_data[game2_key][leaf_key] = current_counter + 1
 			save_progress(save_path, progress_data)
 			emit_stats()
@@ -703,30 +750,31 @@ def run_relationship_guessing_game(
 				if not fam_res:
 					fam_res = analyze_family_pair(u, v, nodes, node_colors, parents_map, children_map, spouses_map, ancestor_paths, ancestor_dist)
 
+				diagram = build_family_pair_diagram(
+					u=u, v=v, graph=g, nodes_dict=nodes,
+					parents_map=parents_map, children_map=children_map,
+					spouses_map=spouses_map, ancestor_paths=ancestor_paths,
+					ancestor_dist=ancestor_dist, question_num=question_num,
+				)
+
 				if not fam_res.is_relevant:
 					print("IRRELEVANT (No blood or marriage relationship found)")
 				else:
-					print(f"{fam_res.primary_title}")
+					fam_hl = AnswerHighlight(
+						node_ids={n.node_id for n in diagram.nodes},
+						edges={(e.source_id, e.target_id) for e in diagram.edges},
+						diagram=diagram,
+					)
+					emit_answer(f"{fam_res.primary_title}", fam_hl)
 					for d in fam_res.details:
-						print(f"  • {d}")
+						emit_answer(f"  • {d}", fam_hl)
 					if fam_res.lineages:
 						print("  Lineage:", end='')
 						for l in fam_res.lineages:
-							print(f"    {l}")
+							emit_answer(f"    {l}", fam_hl)
 
 				if on_graph_update is not None:
-					on_graph_update(build_family_pair_diagram(
-						u=u,
-						v=v,
-						graph=g,
-						nodes_dict=nodes,
-						parents_map=parents_map,
-						children_map=children_map,
-						spouses_map=spouses_map,
-						ancestor_paths=ancestor_paths,
-						ancestor_dist=ancestor_dist,
-						question_num=question_num,
-					))
+					on_graph_update(diagram)
 
 			# --- Correlation / Counter Mode ---
 			else:
@@ -754,16 +802,22 @@ def run_relationship_guessing_game(
 				shared_dsts.sort(key=lambda d: str(nodes.get(d, d)).lower())
 
 				# Collect all distinct connection options
-				connection_lines = []
+				connection_entries = []
 
 				if is_counter:
 					for s in shared_srcs:
 						s_name = format_console_node_name(nodes.get(s, s))
-						connection_lines.append(f"{text_shared_source}: 🟦 {s_name} → 🟥 {u_name} & 🟥 {v_name}")
+						connection_entries.append((
+							f"{text_shared_source}: 🟦 {s_name} → 🟥 {u_name} & 🟥 {v_name}",
+							AnswerHighlight(node_ids={s, u, v}, edges={(s, u), (s, v)}),
+						))
 
 					for d in shared_dsts:
 						d_name = format_console_node_name(nodes.get(d, d))
-						connection_lines.append(f"{text_shared_dest}: 🟦 {u_name} & 🟦 {v_name} → 🟥 {d_name}")
+						connection_entries.append((
+							f"{text_shared_dest}: 🟦 {u_name} & 🟦 {v_name} → 🟥 {d_name}",
+							AnswerHighlight(node_ids={u, v, d}, edges={(u, d), (v, d)}),
+						))
 				else:
 					for s in shared_srcs:
 						val_u = edge_values.get((s, u), 1)
@@ -772,9 +826,13 @@ def run_relationship_guessing_game(
 						arr_v = get_edge_arrow(val_v)
 						s_name = format_console_node_name(nodes.get(s, s))
 						if arr_u == arr_v:
-							connection_lines.append(f"{text_shared_source}: {s_name} {arr_u}")
+							line = f"{text_shared_source}: {s_name} {arr_u}"
 						else:
-							connection_lines.append(f"{text_shared_source}: {s_name} {arr_u} {u_name} + {arr_v} {v_name}")
+							line = f"{text_shared_source}: {s_name} {arr_u} {u_name} + {arr_v} {v_name}"
+						connection_entries.append((
+							line,
+							AnswerHighlight(node_ids={s, u, v}, edges={(s, u), (s, v)}),
+						))
 
 					for d in shared_dsts:
 						val_u = edge_values.get((u, d), 1)
@@ -783,9 +841,13 @@ def run_relationship_guessing_game(
 						arr_v = get_edge_arrow(val_v)
 						d_name = format_console_node_name(nodes.get(d, d))
 						if arr_u == arr_v:
-							connection_lines.append(f"{text_shared_dest}: {arr_u} {d_name}")
+							line = f"{text_shared_dest}: {arr_u} {d_name}"
 						else:
-							connection_lines.append(f"{text_shared_dest}: {u_name} ({arr_u}) + {v_name} ({arr_v}) → {d_name}")
+							line = f"{text_shared_dest}: {u_name} ({arr_u}) + {v_name} ({arr_v}) → {d_name}"
+						connection_entries.append((
+							line,
+							AnswerHighlight(node_ids={u, v, d}, edges={(u, d), (v, d)}),
+						))
 
 				if is_direct:
 					if direct_u_v and direct_v_u:
@@ -799,40 +861,64 @@ def run_relationship_guessing_game(
 						if lbl2:
 							lbl_lines.append(f"      ({v_name} → {u_name}: {lbl2})")
 						lbl_suffix = ("\n" + "\n".join(lbl_lines)) if lbl_lines else ""
-						connection_lines.append(f"Direct (⟳): {p1_str} ↔ {p2_str}{lbl_suffix}")
+						connection_entries.append((
+							f"Direct (⟳): {p1_str} ↔ {p2_str}{lbl_suffix}",
+							AnswerHighlight(node_ids={u, v}, edges={(u, v), (v, u)}),
+						))
 					elif direct_u_v:
 						p_str = format_path_string([u, v], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-						connection_lines.append(f"Direct: {p_str}")
+						connection_entries.append((
+							f"Direct: {p_str}",
+							AnswerHighlight(node_ids={u, v}, edges={(u, v)}),
+						))
 						for p in paths_v_u:
 							is_p_direct = len(p) == 2
 							prefix = "Direct ↩" if is_p_direct else f"Indirect ↩ ({len(p) - 2})"
 							formatted_p = format_path_string(p, nodes, edge_values, edge_labels if is_p_direct else None, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 							suffix = "" if (is_counter or ignore_edge_colors or is_p_direct) else f" ({get_path_net_effect_arrow(p, edge_values)})"
-							connection_lines.append(f"{prefix}: {formatted_p}{suffix}")
+							connection_entries.append((
+								f"{prefix}: {formatted_p}{suffix}",
+								AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}),
+							))
 					elif direct_v_u:
 						p_str = format_path_string([v, u], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-						connection_lines.append(f"Direct: {p_str}")
+						connection_entries.append((
+							f"Direct: {p_str}",
+							AnswerHighlight(node_ids={v, u}, edges={(v, u)}),
+						))
 						for p in paths_u_v:
 							is_p_direct = len(p) == 2
 							prefix = "Direct ↩" if is_p_direct else f"Indirect ↩ ({len(p) - 2})"
 							formatted_p = format_path_string(p, nodes, edge_values, edge_labels if is_p_direct else None, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 							suffix = "" if (is_counter or ignore_edge_colors or is_p_direct) else f" ({get_path_net_effect_arrow(p, edge_values)})"
-							connection_lines.append(f"{prefix}: {formatted_p}{suffix}")
+							connection_entries.append((
+								f"{prefix}: {formatted_p}{suffix}",
+								AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}),
+							))
 
 					for p in indirect_u_v:
 						formatted_p = format_path_string(p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 						suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
-						connection_lines.append(f"Indirect ({len(p) - 2}): {formatted_p}{suffix}")
+						connection_entries.append((
+							f"Indirect ({len(p) - 2}): {formatted_p}{suffix}",
+							AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}),
+						))
 				elif is_indirect:
 					for p in indirect_u_v:
 						formatted_p = format_path_string(p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 						suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
-						connection_lines.append(f"Indirect ({len(p) - 2}): {formatted_p}{suffix}")
+						connection_entries.append((
+							f"Indirect ({len(p) - 2}): {formatted_p}{suffix}",
+							AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}),
+						))
 					for p in indirect_v_u:
 						prefix = "Indirect ↩" if indirect_u_v else "Indirect"
 						formatted_p = format_path_string(p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 						suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
-						connection_lines.append(f"{prefix} ({len(p) - 2}): {formatted_p}{suffix}")
+						connection_entries.append((
+							f"{prefix} ({len(p) - 2}): {formatted_p}{suffix}",
+							AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}),
+						))
 
 				# Find feedback loops / cycles
 				pair_cycles = []
@@ -860,36 +946,55 @@ def run_relationship_guessing_game(
 						formatted_cyc = format_path_string(cyc, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 						cyc_len = len(cyc) - 1
 						if is_counter or ignore_edge_colors:
-							connection_lines.append(f"Cycle ({cyc_len}): {formatted_cyc}")
+							polarity = None
+							line = f"Cycle ({cyc_len}): {formatted_cyc}"
 						else:
 							cycle_corr = 1
 							for k in range(len(cyc) - 1):
 								cycle_corr *= edge_values.get((cyc[k], cyc[k + 1]), 1)
+							polarity = 1 if cycle_corr > 0 else -1
 							polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
-							connection_lines.append(f"Cycle ({cyc_len}) {polarity_icon}: {formatted_cyc}")
+							line = f"Cycle ({cyc_len}) {polarity_icon}: {formatted_cyc}"
 
-				if not connection_lines:
+						connection_entries.append((
+							line,
+							AnswerHighlight(
+								node_ids=set(cyc),
+								edges={(cyc[k], cyc[k + 1]) for k in range(len(cyc) - 1)},
+								is_cycle=True,
+								cycle_polarity=polarity,
+								cycle_node_ids=list(dict.fromkeys(cyc)),
+							),
+						))
+
+				diagram = build_pair_diagram(
+					u=u,
+					v=v,
+					nodes_dict=nodes,
+					edge_values=edge_values,
+					shared_srcs=shared_srcs,
+					shared_dsts=shared_dsts,
+					paths_u_v=paths_u_v,
+					paths_v_u=paths_v_u,
+					pair_cycles=pair_cycles,
+					ignore_edge_colors=is_counter or ignore_edge_colors,
+					question_num=question_num,
+				)
+
+				for _, hl in connection_entries:
+					hl.diagram = diagram
+
+				if not connection_entries:
 					print("IRRELEVANT")
-				elif len(connection_lines) == 1:
-					print(f"{connection_lines[0]}")
+				elif len(connection_entries) == 1:
+					text, hl = connection_entries[0]
+					emit_answer(text, hl)
 				else:
-					for line in connection_lines:
-						print(f"  • {line}")
+					for text, hl in connection_entries:
+						emit_answer(f"  • {text}", hl)
 
 				if on_graph_update is not None:
-					on_graph_update(build_pair_diagram(
-						u=u,
-						v=v,
-						nodes_dict=nodes,
-						edge_values=edge_values,
-						shared_srcs=shared_srcs,
-						shared_dsts=shared_dsts,
-						paths_u_v=paths_u_v,
-						paths_v_u=paths_v_u,
-						pair_cycles=pair_cycles,
-						ignore_edge_colors=is_counter or ignore_edge_colors,
-						question_num=question_num,
-					))
+					on_graph_update(diagram)
 
 			print()
 			pair_key_to_save = _get_item_key(chosen_item, nodes)

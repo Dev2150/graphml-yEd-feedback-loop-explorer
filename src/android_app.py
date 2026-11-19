@@ -5,8 +5,9 @@ import re
 import shutil
 import sys
 import threading
+from kivy.core.image import Image as CoreImage
 from kivy.core.text import Label as CoreLabel, LabelBase
-from kivy.graphics import Color, Line, Rectangle, Triangle
+from kivy.graphics import Color, Ellipse, Line, Rectangle, Triangle
 from kivy.resources import resource_find
 
 # Ensure project root is on sys.path when running src/android_app.py directly
@@ -79,7 +80,8 @@ from src.android_file_picker import (
 	export_file_with_system_picker,
 	open_graphml_with_system_picker,
 	open_html_viewer, has_all_files_access, request_all_files_access, get_external_storage_root,
-	list_directory_entries, request_storage_permissions, )
+	list_directory_entries, request_storage_permissions,
+)
 from src.config import (
 	COUNTER_CONNECTION_TYPES,
 	GRAPH_SETTING_KEYS,
@@ -96,9 +98,13 @@ from src.games.relationship_game import (
 	run_relationship_guessing_game,
 )
 from src.graph_diagram import (
+	AnswerHighlight,
 	GraphDiagramData,
 	compute_circular_layout,
-	compute_edge_geometry, format_graph_node_label,
+	compute_cycle_center,
+	compute_edge_geometry,
+	find_cycle_icon_path,
+	format_graph_node_label,
 )
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import list_graph_elements_and_groups, read_from_graph_xml
@@ -149,16 +155,73 @@ def _resolve_console_font() -> str:
 	return 'Roboto'
 
 
+class ConsoleAnswerLabel(Label):
+	"""Seamless borderless console row that triggers on tap without blocking ScrollView drags."""
+
+	def __init__(self, highlight: AnswerHighlight, on_tap, **kwargs):
+		super().__init__(**kwargs)
+		self.highlight = highlight
+		self.on_tap = on_tap
+		self.is_selected = False
+		self._touch_down_pos = None
+		self.bind(pos=self._redraw_bg, size=self._redraw_bg)
+
+	def set_selected(self, selected: bool):
+		if self.is_selected != selected:
+			self.is_selected = selected
+			self._redraw_bg()
+
+	def _redraw_bg(self, *_):
+		self.canvas.before.clear()
+		if self.is_selected:
+			with self.canvas.before:
+				Color(0.18, 0.22, 0.29, 1)
+				Rectangle(pos=self.pos, size=self.size)
+
+	def on_touch_down(self, touch):
+		if self.collide_point(*touch.pos) and getattr(touch, 'button', None) in (None, 'left'):
+			self._touch_down_pos = touch.pos
+		return super().on_touch_down(touch)
+
+	def on_touch_up(self, touch):
+		start = self._touch_down_pos
+		self._touch_down_pos = None
+		if start is not None and self.collide_point(*touch.pos):
+			dx = touch.pos[0] - start[0]
+			dy = touch.pos[1] - start[1]
+			if (dx * dx + dy * dy) <= dp(12) ** 2 and self.on_tap:
+				self.on_tap(self)
+		return super().on_touch_up(touch)
+
+
 class CircularGraphWidget(StencilView):
 	def __init__(self, font_name: str = 'Roboto', **kwargs):
 		super().__init__(**kwargs)
 		self.font_name = font_name
 		self.diagram: GraphDiagramData = None
+		self.highlight: AnswerHighlight = None
+		self._icon_texture_cache = {}
 		self.bind(pos=self._redraw, size=self._redraw)
 
 	def set_diagram(self, diagram: GraphDiagramData):
 		self.diagram = diagram
+		self.highlight = None
 		self._redraw()
+
+	def set_highlight(self, highlight: AnswerHighlight):
+		self.highlight = highlight
+		self._redraw()
+
+	def _load_cycle_icon_texture(self, polarity: int):
+		icon_path = find_cycle_icon_path(polarity)
+		if not icon_path:
+			return None
+		if icon_path not in self._icon_texture_cache:
+			try:
+				self._icon_texture_cache[icon_path] = CoreImage(icon_path).texture
+			except Exception:
+				self._icon_texture_cache[icon_path] = None
+		return self._icon_texture_cache[icon_path]
 
 	def _build_node_texture(self, text: str, text_rgba, max_text_w: float = 0):
 		formatted = format_graph_node_label(text)
@@ -187,12 +250,19 @@ class CircularGraphWidget(StencilView):
 		if self.width < 20 or self.height < 20:
 			return
 
+		active_hl = self.highlight
+		active_diagram = (
+			active_hl.diagram
+			if (active_hl is not None and active_hl.diagram is not None)
+			else self.diagram
+		)
+
 		ox, oy = self.x, self.y
 		with self.canvas:
 			Color(1, 1, 1, 1)
 			Rectangle(pos=self.pos, size=self.size)
 
-			if self.diagram is None or not self.diagram.nodes:
+			if active_diagram is None or not active_diagram.nodes:
 				lbl = CoreLabel(
 					text='Reveal an answer to view graph',
 					font_size=dp(12),
@@ -209,11 +279,10 @@ class CircularGraphWidget(StencilView):
 				)
 				return
 
-			max_text_w = max(dp(55), min(dp(105), self.width * 0.28))
 			textures = {}
 			node_sizes = {}
 
-			for node in self.diagram.nodes:
+			for node in active_diagram.nodes:
 				tex = self._build_node_texture(node.label, _hex_to_rgba(node.text_color))
 				textures[node.node_id] = tex
 				node_sizes[node.node_id] = (
@@ -222,7 +291,7 @@ class CircularGraphWidget(StencilView):
 				)
 
 			rects = compute_circular_layout(
-				self.diagram,
+				active_diagram,
 				self.width,
 				self.height,
 				node_sizes,
@@ -230,15 +299,28 @@ class CircularGraphWidget(StencilView):
 				flip_y=True,
 			)
 			edges_geom = compute_edge_geometry(
-				self.diagram,
+				active_diagram,
 				rects,
 				parallel_offset=dp(6),
 				target_pad=dp(1),
 			)
 
+			hl_edges = active_hl.edges if active_hl is not None else set()
+			hl_nodes = active_hl.node_ids if active_hl is not None else set()
+
+			normal_edges = []
+			highlighted_edges = []
+			for item in edges_geom:
+				edge = item[0]
+				if (edge.source_id, edge.target_id) in hl_edges:
+					highlighted_edges.append(item)
+				else:
+					normal_edges.append(item)
+
+			# 1. Non-highlighted edges
 			arrow_len = dp(8)
 			arrow_hw = dp(3.5)
-			for edge, x1, y1, x2, y2, ux, uy in edges_geom:
+			for edge, x1, y1, x2, y2, ux, uy in normal_edges:
 				Color(*_hex_to_rgba(edge.color))
 				base_x = x2 - ux * arrow_len
 				base_y = y2 - uy * arrow_len
@@ -250,17 +332,50 @@ class CircularGraphWidget(StencilView):
 				Line(points=[ox + x1, oy + y1, ox + base_x, oy + base_y], width=dp(1.1))
 				Triangle(points=[ox + x2, oy + y2, ox + lx, oy + ly, ox + rx, oy + ry])
 
-			for node in self.diagram.nodes:
+			# 2. Highlighted edge glow + crisp highlighted arrow
+			hl_arrow_len = dp(10)
+			hl_arrow_hw = dp(4.5)
+			for edge, x1, y1, x2, y2, ux, uy in highlighted_edges:
+				er, eg, eb, _ = _hex_to_rgba(edge.color)
+				base_x = x2 - ux * hl_arrow_len
+				base_y = y2 - uy * hl_arrow_len
+				for gw, alpha in ((dp(7.0), 0.22), (dp(4.2), 0.44)):
+					Color(er, eg, eb, alpha)
+					Line(points=[ox + x1, oy + y1, ox + base_x, oy + base_y], width=gw, cap='round')
+
+				Color(er, eg, eb, 1.0)
+				lx = base_x - uy * hl_arrow_hw
+				ly = base_y + ux * hl_arrow_hw
+				rx = base_x + uy * hl_arrow_hw
+				ry = base_y - ux * hl_arrow_hw
+				Line(points=[ox + x1, oy + y1, ox + base_x, oy + base_y], width=dp(2.0))
+				Triangle(points=[ox + x2, oy + y2, ox + lx, oy + ly, ox + rx, oy + ry])
+
+			# 3. Highlighted node glow behind boxes
+			for node in active_diagram.nodes:
+				if node.node_id not in hl_nodes:
+					continue
+				cx, cy, nw, nh = rects[node.node_id]
+				bx = ox + cx - nw / 2.0
+				by = oy + cy - nh / 2.0
+				nr, ng, nb, _ = _hex_to_rgba(node.fill_color)
+				for pad, alpha in ((dp(14), 0.25), (dp(9), 0.45), (dp(4.5), 0.72)):
+					Color(nr, ng, nb, alpha)
+					Rectangle(pos=(bx - pad / 2.0, by - pad / 2.0), size=(nw + pad, nh + pad))
+
+			# 4. Node boxes & labels
+			for node in active_diagram.nodes:
 				cx, cy, nw, nh = rects[node.node_id]
 				tex = textures[node.node_id]
 				bx = ox + cx - nw / 2.0
 				by = oy + cy - nh / 2.0
+				is_hl = node.node_id in hl_nodes
 
 				Color(*_hex_to_rgba(node.fill_color))
 				Rectangle(pos=(bx, by), size=(nw, nh))
 
 				Color(0, 0, 0, 1)
-				Line(rectangle=(bx, by, nw, nh), width=1.05)
+				Line(rectangle=(bx, by, nw, nh), width=1.6 if is_hl else 1.05)
 
 				Color(1, 1, 1, 1)
 				Rectangle(
@@ -268,6 +383,34 @@ class CircularGraphWidget(StencilView):
 					pos=(ox + cx - tex.width / 2.0, oy + cy - tex.height / 2.0),
 					size=tex.size,
 				)
+
+			# 5. Cycle plus/minus icon in the middle of the cycle path
+			if active_hl is not None and active_hl.is_cycle and active_hl.cycle_polarity in (1, -1):
+				center = compute_cycle_center(active_hl, rects)
+				if center is not None:
+					mid_x = ox + center[0]
+					mid_y = oy + center[1]
+					icon_sz = max(dp(34), min(dp(56), min(self.width, self.height) * 0.22))
+					icon_tex = self._load_cycle_icon_texture(active_hl.cycle_polarity)
+					if icon_tex is not None:
+						Color(1, 1, 1, 1)
+						Rectangle(
+							texture=icon_tex,
+							pos=(mid_x - icon_sz / 2.0, mid_y - icon_sz / 2.0),
+							size=(icon_sz, icon_sz),
+						)
+					else:
+						r_bg = icon_sz * 0.46
+						badge_rgba = (0.11, 0.73, 0.33, 1) if active_hl.cycle_polarity > 0 else (0.90, 0.22, 0.21, 1)
+						Color(1, 1, 1, 0.92)
+						Ellipse(pos=(mid_x - r_bg, mid_y - r_bg), size=(r_bg * 2.0, r_bg * 2.0))
+						Color(*badge_rgba)
+						Line(circle=(mid_x, mid_y, r_bg), width=dp(2.2))
+						arm = r_bg * 0.54
+						half_t = max(dp(2.2), r_bg * 0.14)
+						Rectangle(pos=(mid_x - arm, mid_y - half_t), size=(arm * 2.0, half_t * 2.0))
+						if active_hl.cycle_polarity > 0:
+							Rectangle(pos=(mid_x - half_t, mid_y - arm), size=(half_t * 2.0, arm * 2.0))
 
 
 class ConsoleRedirector:
@@ -320,6 +463,7 @@ class GraphMLAndroidApp(App):
 		self.prepared_game_data = None
 		self.output_queue: queue.Queue = queue.Queue()
 		self._pending_line_buf: str = ''
+		self._selected_answer_lbl: ConsoleAnswerLabel = None
 		self._progress_visible: bool = True
 		self._progress_expanded_height: float = dp(164)
 		self._graph_visible: bool = True
@@ -985,6 +1129,9 @@ class GraphMLAndroidApp(App):
 	def load_graph_file(self, filepath: str, override_config: Config = None, override_local: dict = None):
 		self.prepared_game_data = None
 		self._cancel_active_game()
+		if self._selected_answer_lbl is not None:
+			self._selected_answer_lbl.set_selected(False)
+			self._selected_answer_lbl = None
 		norm_path = os.path.abspath(filepath)
 		self.current_graph_path = norm_path
 		if override_local is not None:
@@ -1665,6 +1812,7 @@ class GraphMLAndroidApp(App):
 	# ------------------------------------------------------------------
 	def clear_console(self):
 		self._pending_line_buf = ''
+		self._selected_answer_lbl = None
 		self.console_box.clear_widgets()
 
 	def _append_console_text(self, text: str):
@@ -1700,7 +1848,55 @@ class GraphMLAndroidApp(App):
 		self.console_box.add_widget(lbl)
 
 		while len(self.console_box.children) > MAX_CONSOLE_LINES:
-			self.console_box.remove_widget(self.console_box.children[-1])
+			oldest = self.console_box.children[-1]
+			if oldest is self._selected_answer_lbl:
+				self._selected_answer_lbl = None
+			self.console_box.remove_widget(oldest)
+
+		Clock.schedule_once(lambda dt: setattr(self.console_scroll, 'scroll_y', 0), 0.02)
+
+	def _on_answer_tapped(self, lbl: ConsoleAnswerLabel):
+		if self._selected_answer_lbl is lbl:
+			lbl.set_selected(False)
+			self._selected_answer_lbl = None
+			self.graph_widget.set_highlight(None)
+			d = self.graph_widget.diagram
+			self.lbl_graph_title.text = f'Graph: {d.title}' if d else 'Graph: —'
+			return
+
+		if self._selected_answer_lbl is not None:
+			self._selected_answer_lbl.set_selected(False)
+		self._selected_answer_lbl = lbl
+		lbl.set_selected(True)
+		self.graph_widget.set_highlight(lbl.highlight)
+		d = lbl.highlight.diagram if (lbl.highlight and lbl.highlight.diagram) else self.graph_widget.diagram
+		self.lbl_graph_title.text = f'Graph: {d.title}' if d else 'Graph: —'
+
+	def _add_answer_line(self, text: str, highlight: AnswerHighlight):
+		if highlight is None:
+			self._add_console_line(text)
+			return
+		lbl = ConsoleAnswerLabel(
+			highlight=highlight,
+			on_tap=self._on_answer_tapped,
+			text=_format_console_markup(text if text else ' '),
+			markup=True,
+			font_name=getattr(self, 'console_font', 'Roboto'),
+			font_size=dp(13),
+			color=(0.91, 0.92, 0.93, 1),
+			size_hint_y=None,
+			halign='left',
+			valign='top',
+		)
+		lbl.bind(width=lambda inst, w: setattr(inst, 'text_size', (w, None)))
+		lbl.bind(texture_size=lambda inst, ts: setattr(inst, 'height', max(dp(18), ts[1] + dp(2))))
+		self.console_box.add_widget(lbl)
+
+		while len(self.console_box.children) > MAX_CONSOLE_LINES:
+			oldest = self.console_box.children[-1]
+			if oldest is self._selected_answer_lbl:
+				self._selected_answer_lbl = None
+			self.console_box.remove_widget(oldest)
 
 		Clock.schedule_once(lambda dt: setattr(self.console_scroll, 'scroll_y', 0), 0.02)
 
@@ -1727,6 +1923,9 @@ class GraphMLAndroidApp(App):
 			self.btn_toggle_graph.text = 'Show Graph'
 
 	def _update_graph_panel(self, diagram_data: GraphDiagramData):
+		if self._selected_answer_lbl is not None:
+			self._selected_answer_lbl.set_selected(False)
+			self._selected_answer_lbl = None
 		if diagram_data is None:
 			self.lbl_graph_title.text = 'Graph: —'
 		else:
@@ -1793,6 +1992,12 @@ class GraphMLAndroidApp(App):
 
 				if kind == 'text':
 					self._append_console_text(payload)
+
+				elif kind == 'answer_line':
+					session, text, highlight = payload
+					if session is self.active_session:
+						self._flush_partial_line()
+						self._add_answer_line(text, highlight)
 
 				elif kind == 'loaded':
 					ctx, html_path, norm_path, prepared, stats = payload
@@ -1903,6 +2108,7 @@ def run_android_app():
 			except Exception:
 				pass
 			os._exit(0)
+
 
 if __name__ == '__main__':
 	run_android_app()

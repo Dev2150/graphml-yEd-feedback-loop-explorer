@@ -30,7 +30,8 @@ from src.games.relationship_game import (
 from src.graph_diagram import (
 	GraphDiagramData,
 	compute_circular_layout,
-	compute_edge_geometry, format_graph_node_label,
+	compute_edge_geometry, format_graph_node_label, AnswerHighlight, find_cycle_icon_path, compute_cycle_center,
+	blend_hex_with_white,
 )
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import list_graph_elements_and_groups, read_from_graph_xml
@@ -452,7 +453,7 @@ class ConfigDialog(tk.Toplevel):
 		ttk.Label(app_tab, text="Default GraphML Folder:").grid(row=1, column=0, sticky="w", pady=4, padx=(0, 8))
 		self.app_vars["folder_path"] = tk.StringVar(value=cfg.folder_path)
 		ttk.Entry(app_tab, textvariable=self.app_vars["folder_path"]).grid(row=1, column=1, sticky="ew", pady=4)
-		ttk.Button(app_tab, text="Browse...", command=self._browse_graphml_folder).grid(row=1, column=2, padx=(6, 0), pady=4)
+		ttk.Button(app_tab, text="Browse...", command=self._browse_graphml).grid(row=1, column=2, padx=(6, 0), pady=4)
 
 		ttk.Label(app_tab, text="Default File Name / Path:").grid(row=2, column=0, sticky="w", pady=4, padx=(0, 8))
 		self.app_vars["file_name"] = tk.StringVar(value=cfg.file_name)
@@ -641,6 +642,12 @@ class GraphMLExplorerApp(tk.Tk):
 		self.active_session: GameSession = None
 		self.prepared_game_data = None
 		self.current_diagram: GraphDiagramData = None
+		self.active_highlight: AnswerHighlight = None
+		self._hovered_answer_tag: str = None
+		self._answer_highlights: dict = {}
+		self._answer_tag_seq: int = 0
+		self._icon_photo_cache: dict = {}
+
 
 		self.output_queue: queue.Queue = queue.Queue()
 		self._orig_stdout = sys.stdout
@@ -791,10 +798,10 @@ class GraphMLExplorerApp(tk.Tk):
 		)
 		self.console.tag_configure("arrow_up", foreground="#6BCB77")
 		self.console.tag_configure("arrow_down", foreground="#FF6B6B")
+		self.console.bind("<Leave>", lambda _e: self._set_hovered_answer_tag(None))
 
 		v_scroll = ttk.Scrollbar(console_frame, orient=tk.VERTICAL, command=self.console.yview)
 		self.console.configure(yscrollcommand=v_scroll.set)
-
 		self.console.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 		v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
@@ -1159,6 +1166,9 @@ class GraphMLExplorerApp(tk.Tk):
 		def on_graph(diagram_data: GraphDiagramData):
 			self.output_queue.put(("graph", (session, diagram_data)))
 
+		def on_answer_output(text: str, highlight: AnswerHighlight):
+			self.output_queue.put(("answer_line", (session, text, highlight)))
+
 		def gui_input() -> str:
 			if session.cancel_event.is_set():
 				raise GameCancelledError()
@@ -1184,6 +1194,7 @@ class GraphMLExplorerApp(tk.Tk):
 					on_stats_update=on_stats,
 					prepared_data=prepared_ref,
 					on_graph_update=on_graph,
+					on_answer_output=on_answer_output
 				)
 				self.output_queue.put(("game_finished", session))
 			except GameCancelledError:
@@ -1220,10 +1231,6 @@ class GraphMLExplorerApp(tk.Tk):
 	# ------------------------------------------------------------------
 	def _update_graph_panel(self, diagram_data: GraphDiagramData):
 		self.current_diagram = diagram_data
-		if diagram_data is None:
-			self.lbl_graph_title.configure(text="Reveal an answer to view graph")
-		else:
-			self.lbl_graph_title.configure(text=diagram_data.title)
 		self._redraw_graph_canvas()
 
 	def _redraw_graph_canvas(self):
@@ -1300,6 +1307,8 @@ class GraphMLExplorerApp(tk.Tk):
 	# Terminal-like Console Widget Handling
 	# ------------------------------------------------------------------
 	def clear_console(self):
+		self._set_hovered_answer_tag(None)
+		self._answer_highlights.clear()
 		self.console.configure(state=tk.NORMAL)
 		self.console.delete("1.0", tk.END)
 		self.console.configure(state=tk.DISABLED)
@@ -1484,6 +1493,11 @@ class GraphMLExplorerApp(tk.Tk):
 					if session is self.active_session:
 						self._update_graph_panel(diagram_data)
 
+				elif kind == "answer_line":
+					session, text, highlight = payload
+					if session is self.active_session:
+						self._append_answer_line(text, highlight)
+
 		except queue.Empty:
 			pass
 		self.after(40, self._poll_output_queue)
@@ -1590,25 +1604,56 @@ class GraphMLExplorerApp(tk.Tk):
 	# ------------------------------------------------------------------
 	# Circular Graph Panel Rendering
 	# ------------------------------------------------------------------
-	def _update_graph_panel(self, diagram_data: GraphDiagramData):
-		self.current_diagram = diagram_data
-		if diagram_data is None:
-			self.lbl_graph_title.configure(text="Reveal an answer to view graph")
-		else:
-			self.lbl_graph_title.configure(text=diagram_data.title)
-		self._redraw_graph_canvas()
+
+	def _load_tk_cycle_icon(self, polarity: int, target_px: int):
+		icon_path = find_cycle_icon_path(polarity)
+		if not icon_path:
+			return None
+		cache_key = (icon_path, target_px)
+		if cache_key in self._icon_photo_cache:
+			return self._icon_photo_cache[cache_key]
+		photo = None
+		try:
+			from PIL import Image, ImageTk
+			img = Image.open(icon_path).convert("RGBA")
+			img = img.resize((target_px, target_px), Image.Resampling.LANCZOS)
+			photo = ImageTk.PhotoImage(img)
+		except Exception:
+			try:
+				raw = tk.PhotoImage(file=icon_path)
+				w_img = max(raw.width(), raw.height(), 1)
+				if w_img > target_px * 1.25:
+					factor = max(1, round(w_img / target_px))
+					photo = raw.subsample(factor, factor)
+				elif w_img < target_px * 0.75:
+					factor = max(1, round(target_px / w_img))
+					photo = raw.zoom(factor, factor)
+				else:
+					photo = raw
+			except Exception:
+				photo = None
+		self._icon_photo_cache[cache_key] = photo
+		return photo
+
 
 	def _redraw_graph_canvas(self):
 		canvas = getattr(self, "graph_canvas", None)
 		if canvas is None:
 			return
 		canvas.delete("all")
+
+		active_hl = self.active_highlight
+		diagram = active_hl.diagram if (active_hl is not None and active_hl.diagram is not None) else self.current_diagram
+		if diagram is None:
+			self.lbl_graph_title.configure(text="Reveal an answer to view graph")
+		else:
+			self.lbl_graph_title.configure(text=diagram.title)
+
 		w = canvas.winfo_width()
 		h = canvas.winfo_height()
 		if w < 40 or h < 40:
 			return
 
-		diagram = self.current_diagram
 		if diagram is None or not diagram.nodes:
 			canvas.create_text(
 				w / 2.0,
@@ -1621,7 +1666,6 @@ class GraphMLExplorerApp(tk.Tk):
 			)
 			return
 
-		font_spec = ("Segoe UI", 10)
 		node_sizes = {}
 		wrapped_labels = {}
 		node_fonts = {}
@@ -1641,20 +1685,66 @@ class GraphMLExplorerApp(tk.Tk):
 		rects = compute_circular_layout(diagram, float(w), float(h), node_sizes, margin=16.0, flip_y=False)
 		edges_geom = compute_edge_geometry(diagram, rects, parallel_offset=7.0, target_pad=1.0)
 
-		for edge, x1, y1, x2, y2, _ux, _uy in edges_geom:
+		hl_edges = active_hl.edges if active_hl is not None else set()
+		hl_nodes = active_hl.node_ids if active_hl is not None else set()
+
+		normal_edges = []
+		highlighted_edges = []
+		for item in edges_geom:
+			edge = item[0]
+			if (edge.source_id, edge.target_id) in hl_edges:
+				highlighted_edges.append(item)
+			else:
+				normal_edges.append(item)
+
+		# 1. Non-highlighted edges
+		for edge, x1, y1, x2, y2, _ux, _uy in normal_edges:
 			canvas.create_line(
-				x1,
-				y1,
-				x2,
-				y2,
+				x1, y1, x2, y2,
 				fill=edge.color,
 				width=1.8,
 				arrow=tk.LAST,
 				arrowshape=(10, 12, 4.5),
 			)
 
+		# 2. Highlighted edge glow + crisp highlighted arrow
+		for edge, x1, y1, x2, y2, ux, uy in highlighted_edges:
+			gx2 = x2 - ux * 10.0
+			gy2 = y2 - uy * 10.0
+			for gw, alpha in ((12.0, 0.24), (7.0, 0.48)):
+				canvas.create_line(
+					x1, y1, gx2, gy2,
+					fill=blend_hex_with_white(edge.color, alpha),
+					width=gw,
+					capstyle=tk.ROUND,
+				)
+			canvas.create_line(
+				x1, y1, x2, y2,
+				fill=edge.color,
+				width=3.0,
+				arrow=tk.LAST,
+				arrowshape=(12, 15, 5.5),
+			)
+
+		# 3. Highlighted node glow behind node boxes
+		for node in diagram.nodes:
+			if node.node_id not in hl_nodes:
+				continue
+			cx, cy, nw, nh = rects[node.node_id]
+			for pad, alpha in ((16.0, 0.28), (10.0, 0.50), (5.0, 0.78)):
+				canvas.create_rectangle(
+					cx - (nw + pad) / 2.0,
+					cy - (nh + pad) / 2.0,
+					cx + (nw + pad) / 2.0,
+					cy + (nh + pad) / 2.0,
+					fill=blend_hex_with_white(node.fill_color, alpha),
+					outline="",
+				)
+
+		# 4. Node boxes & labels
 		for node in diagram.nodes:
 			cx, cy, nw, nh = rects[node.node_id]
+			is_hl = node.node_id in hl_nodes
 			canvas.create_rectangle(
 				cx - nw / 2.0,
 				cy - nh / 2.0,
@@ -1662,16 +1752,47 @@ class GraphMLExplorerApp(tk.Tk):
 				cy + nh / 2.0,
 				fill=node.fill_color,
 				outline="#000000",
-				width=1.4,
+				width=2.2 if is_hl else 1.4,
 			)
 			canvas.create_text(
 				cx,
 				cy,
 				text=wrapped_labels[node.node_id],
 				fill=node.text_color,
-				font=font_spec,
+				font=node_fonts[node.node_id],
 				justify=tk.CENTER,
 			)
+
+		# 5. Cycle plus/minus icon in the middle of the path
+		if active_hl is not None and active_hl.is_cycle and active_hl.cycle_polarity in (1, -1):
+			center = compute_cycle_center(active_hl, rects)
+			if center is not None:
+				mid_x, mid_y = center
+				icon_sz = max(36, min(64, int(min(w, h) * 0.18)))
+				photo = self._load_tk_cycle_icon(active_hl.cycle_polarity, icon_sz)
+				if photo is not None:
+					canvas.create_image(mid_x, mid_y, image=photo)
+				else:
+					r_bg = icon_sz * 0.46
+					badge_col = "#1DB954" if active_hl.cycle_polarity > 0 else "#E53935"
+					canvas.create_oval(
+						mid_x - r_bg, mid_y - r_bg,
+						mid_x + r_bg, mid_y + r_bg,
+						fill="#FFFFFF",
+						outline=badge_col,
+						width=3.0,
+					)
+					arm = r_bg * 0.56
+					thick = max(4.0, r_bg * 0.24)
+					canvas.create_line(
+						mid_x - arm, mid_y, mid_x + arm, mid_y,
+						fill=badge_col, width=thick, capstyle=tk.ROUND,
+					)
+					if active_hl.cycle_polarity > 0:
+						canvas.create_line(
+							mid_x, mid_y - arm, mid_x, mid_y + arm,
+							fill=badge_col, width=thick, capstyle=tk.ROUND,
+						)
 
 	def open_appdata_folder(self):
 		folder = get_local_data_dir()
@@ -1684,3 +1805,58 @@ class GraphMLExplorerApp(tk.Tk):
 				subprocess.Popen(["xdg-open", folder])
 		except Exception as e:
 			messagebox.showerror("Open Folder Error", f"Could not open folder:\n{e}", parent=self)
+
+	def _set_hovered_answer_tag(self, tag_name: str):
+		if self._hovered_answer_tag == tag_name:
+			return
+		prev = self._hovered_answer_tag
+		if prev:
+			try:
+				self.console.tag_configure(prev, background="")
+			except tk.TclError:
+				pass
+		self._hovered_answer_tag = tag_name
+		if tag_name is not None:
+			try:
+				self.console.tag_configure(tag_name, background="#2B2E36")
+			except tk.TclError:
+				pass
+			self.console.configure(cursor="hand2")
+			self.active_highlight = self._answer_highlights.get(tag_name)
+		else:
+			self.console.configure(cursor="arrow")
+			self.active_highlight = None
+		self._redraw_graph_canvas()
+
+	def _append_answer_line(self, text: str, highlight: AnswerHighlight):
+		self.console.configure(state=tk.NORMAL)
+		start_idx = self.console.index("end-1c")
+		full_text = f"{text}\n"
+		self.console.insert("end-1c", full_text)
+		end_idx = self.console.index("end-2c")
+
+		if "↗" in full_text or "↘" in full_text:
+			for ch, tag in (("↗", "arrow_up"), ("↘", "arrow_down")):
+				offset = 0
+				while True:
+					pos = full_text.find(ch, offset)
+					if pos == -1:
+						break
+					self.console.tag_add(
+						tag,
+						f"{start_idx} + {pos} chars",
+						f"{start_idx} + {pos + 1} chars",
+					)
+					offset = pos + 1
+
+		if highlight is not None:
+			self._answer_tag_seq += 1
+			tag_name = f"ans_hl_{self._answer_tag_seq}"
+			self._answer_highlights[tag_name] = highlight
+			self.console.tag_add(tag_name, start_idx, end_idx)
+			self.console.tag_bind(tag_name, "<Enter>", lambda _e, t=tag_name: self._set_hovered_answer_tag(t))
+			self.console.tag_bind(tag_name, "<Leave>", lambda _e, t=tag_name: self._set_hovered_answer_tag(
+				None) if self._hovered_answer_tag == t else None)
+
+		self.console.configure(state=tk.DISABLED)
+		self.console.see("end-1c")

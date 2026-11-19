@@ -1,3 +1,4 @@
+import os
 import textwrap
 from dataclasses import dataclass
 import math
@@ -73,6 +74,58 @@ class GraphDiagramData:
 	nodes: List[DiagramNode]
 	edges: List[DiagramEdge]
 
+
+
+@dataclass
+class AnswerHighlight:
+	node_ids: Set[str]
+	edges: Set[Tuple[str, str]]
+	is_cycle: bool = False
+	cycle_polarity: Optional[int] = None  # +1 reinforcing (+), -1 balancing (-), None if ignored/neutral
+	cycle_node_ids: Optional[List[str]] = None
+	diagram: Optional[GraphDiagramData] = None
+
+
+def blend_hex_with_white(hex_color: str, alpha: float) -> str:
+	h = hex_color.lstrip('#')
+	if len(h) != 6:
+		return '#CCCCCC'
+	r = int(h[0:2], 16)
+	g = int(h[2:4], 16)
+	b = int(h[4:6], 16)
+	r_out = max(0, min(255, round(r * alpha + 255.0 * (1.0 - alpha))))
+	g_out = max(0, min(255, round(g * alpha + 255.0 * (1.0 - alpha))))
+	b_out = max(0, min(255, round(b * alpha + 255.0 * (1.0 - alpha))))
+	return f"#{r_out:02X}{g_out:02X}{b_out:02X}"
+
+
+def compute_cycle_center(
+	highlight: Optional[AnswerHighlight],
+	rects: Dict[str, Tuple[float, float, float, float]],
+) -> Optional[Tuple[float, float]]:
+	if highlight is None or not highlight.is_cycle:
+		return None
+	ids = highlight.cycle_node_ids if highlight.cycle_node_ids else list(highlight.node_ids)
+	coords = [rects[nid] for nid in ids if nid in rects]
+	if not coords:
+		return None
+	cx = sum(c[0] for c in coords) / len(coords)
+	cy = sum(c[1] for c in coords) / len(coords)
+	return cx, cy
+
+
+def find_cycle_icon_path(polarity: Optional[int]) -> Optional[str]:
+	if polarity not in (1, -1):
+		return None
+	src_dir = os.path.dirname(os.path.abspath(__file__))
+	root_dir = os.path.dirname(src_dir)
+	names = ('plus.png', 'cycle_plus.png', 'plus.jpg') if polarity > 0 else ('minus.png', 'cycle_minus.png', 'minus.jpg')
+	for base_dir in (os.path.join(src_dir, 'assets'), os.path.join(root_dir, 'assets')):
+		for name in names:
+			candidate = os.path.join(base_dir, name)
+			if os.path.isfile(candidate):
+				return candidate
+	return None
 
 def _make_diagram_node(
 	node_id: str,
