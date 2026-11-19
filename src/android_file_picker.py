@@ -3,8 +3,7 @@ import subprocess
 import sys
 import webbrowser
 from pathlib import Path
-from typing import Callable, List, Optional
-
+from typing import Callable, List, Optional, Tuple
 
 def is_android() -> bool:
 	return 'ANDROID_ARGUMENT' in os.environ
@@ -21,7 +20,11 @@ def has_all_files_access() -> bool:
 		from jnius import autoclass
 		BuildVersion = autoclass('android.os.Build$VERSION')
 		if BuildVersion.SDK_INT < 30:
-			return True
+			try:
+				from android.permissions import Permission, check_permission
+				return bool(check_permission(Permission.READ_EXTERNAL_STORAGE))
+			except Exception:
+				return True
 		Environment = autoclass('android.os.Environment')
 		return bool(Environment.isExternalStorageManager())
 	except Exception:
@@ -295,3 +298,82 @@ def pick_folder_desktop(initial_dir: str = "") -> Optional[str]:
 		return path or None
 	except Exception:
 		return None
+
+def request_storage_permissions(callback: Optional[Callable[[bool], None]] = None):
+	if not is_android():
+		if callback:
+			callback(True)
+		return
+	try:
+		from jnius import autoclass
+		BuildVersion = autoclass('android.os.Build$VERSION')
+		if BuildVersion.SDK_INT >= 30:
+			request_all_files_access()
+			if callback:
+				callback(has_all_files_access())
+			return
+
+		from android.permissions import Permission, request_permissions
+		from kivy.clock import Clock
+
+		def _on_perm(_perms, results):
+			if callback:
+				granted = bool(results) and all(results)
+				Clock.schedule_once(lambda dt: callback(granted), 0)
+
+		request_permissions(
+			[Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE],
+			_on_perm,
+		)
+	except Exception as exc:
+		print(f"Could not request storage permissions: {exc}")
+		if callback:
+			callback(False)
+
+
+def get_external_storage_root() -> str:
+	if not is_android():
+		return os.path.expanduser('~')
+	try:
+		from jnius import autoclass
+		Environment = autoclass('android.os.Environment')
+		path = Environment.getExternalStorageDirectory().getAbsolutePath()
+		if path and os.path.isdir(path):
+			return path
+	except Exception:
+		pass
+	if os.path.isdir('/storage/emulated/0'):
+		return '/storage/emulated/0'
+	return os.path.expanduser('~')
+
+
+def list_directory_entries(
+	folder_path: str,
+	show_all_files: bool = False,
+) -> Tuple[List[str], List[str], Optional[str]]:
+	"""Returns (sorted_dirs, sorted_files, error_code_or_msg)."""
+	if not folder_path or not os.path.isdir(folder_path):
+		return [], [], f"Folder not found: {folder_path}"
+	dirs: List[str] = []
+	files: List[str] = []
+	try:
+		with os.scandir(folder_path) as entries:
+			for entry in entries:
+				name = entry.name
+				if name.startswith('.'):
+					continue
+				try:
+					if entry.is_dir():
+						dirs.append(name)
+					elif entry.is_file():
+						if show_all_files or name.lower().endswith('.graphml'):
+							files.append(name)
+				except OSError:
+					continue
+		dirs.sort(key=str.lower)
+		files.sort(key=str.lower)
+		return dirs, files, None
+	except PermissionError:
+		return [], [], "permission_denied"
+	except OSError as exc:
+		return [], [], str(exc)

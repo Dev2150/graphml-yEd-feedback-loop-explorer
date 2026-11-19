@@ -1614,10 +1614,14 @@ class GraphMLExplorerApp(tk.Tk):
 		font_spec = ("Segoe UI", 10)
 		node_sizes = {}
 		wrapped_labels = {}
+		node_fonts = {}
 		for node in diagram.nodes:
 			wrapped = format_graph_node_label(node.label)
 			wrapped_labels[node.node_id] = wrapped
-			tid = canvas.create_text(0, 0, text=wrapped, font=font_spec, justify=tk.CENTER)
+			line_count = wrapped.count('\n') + 1
+			node_font = ("Segoe UI", 8) if line_count > 3 else ("Segoe UI", 10)
+			node_fonts[node.node_id] = node_font
+			tid = canvas.create_text(0, 0, text=wrapped, font=node_font, justify=tk.CENTER)
 			bbox = canvas.bbox(tid)
 			canvas.delete(tid)
 			tw = (bbox[2] - bbox[0]) if bbox else 60

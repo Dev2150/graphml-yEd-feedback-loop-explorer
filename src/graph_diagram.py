@@ -9,7 +9,7 @@ COLOR_WHITE = '#FFFFFF'
 COLOR_PINK = '#FF99CC'
 COLOR_BLUE = '#00CCFF'
 COLOR_RED = '#FF0000'
-NODE_WRAP_CHAR_THRESHOLD = 24
+NODE_WRAP_CHAR_THRESHOLD = 18
 
 
 def format_graph_node_label(label: str, max_chars_per_line: int = NODE_WRAP_CHAR_THRESHOLD) -> str:
@@ -407,7 +407,7 @@ def compute_circular_layout(
 	flip_y: bool = False,
 ) -> Dict[str, Tuple[float, float, float, float]]:
 	"""
-	Positions nodes on a circle centered in (width, height).
+	Positions nodes on a circle/ellipse centered in (width, height).
 	Returns node_id -> (cx, cy, w, h).
 	"""
 	nodes = diagram.nodes
@@ -420,7 +420,8 @@ def compute_circular_layout(
 
 	rx_avail = max(10.0, (width - max_w) / 2.0 - margin)
 	ry_avail = max(10.0, (height - max_h) / 2.0 - margin)
-	radius = min(rx_avail, ry_avail)
+	rx = min(rx_avail, ry_avail * 1.8)
+	ry = ry_avail
 
 	cx_center = width / 2.0
 	cy_center = height / 2.0
@@ -432,12 +433,12 @@ def compute_circular_layout(
 			cx, cy = cx_center, cy_center
 		elif n == 2:
 			angle = math.pi if idx == 0 else 0.0
-			cx = cx_center + radius * math.cos(angle)
+			cx = cx_center + rx_avail * math.cos(angle)
 			cy = cy_center
 		else:
 			angle = -math.pi / 2.0 + (2.0 * math.pi * idx) / n
-			cx = cx_center + radius * math.cos(angle)
-			dy = radius * math.sin(angle)
+			cx = cx_center + rx * math.cos(angle)
+			dy = ry * math.sin(angle)
 			cy = (cy_center - dy) if flip_y else (cy_center + dy)
 
 		cx = max(nw / 2.0 + margin * 0.5, min(width - nw / 2.0 - margin * 0.5, cx))
