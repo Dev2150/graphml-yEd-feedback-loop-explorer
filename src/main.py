@@ -1,14 +1,12 @@
 import os
 import sys
 
-import networkx as nx
-
-from src.gui_app import run_gui
-
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SRC_DIR)
 if ROOT_DIR not in sys.path:
 	sys.path.insert(0, ROOT_DIR)
+
+import networkx as nx
 
 from src.config import (
 	COUNTER_CONNECTION_TYPES,
@@ -17,6 +15,7 @@ from src.config import (
 	read_config_file,
 )
 from src.games.relationship_game import run_relationship_guessing_game
+from src.gui_app import run_gui
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import read_from_graph_xml
 from src.models import GraphContext

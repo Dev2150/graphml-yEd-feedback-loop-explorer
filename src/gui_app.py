@@ -44,20 +44,34 @@ ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
 
 def run_gui(input_file: str, output_folder: str):
 	app = GraphMLExplorerApp(input_file, output_folder)
-	app.mainloop()
+	try:
+		app.mainloop()
+	finally:
+		sys.stdout = app._orig_stdout
+		sys.stderr = app._orig_stderr
 
 
 class ConsoleRedirector:
-	def __init__(self, msg_queue: queue.Queue):
+	def __init__(self, msg_queue: queue.Queue, orig_stream=None):
 		self.msg_queue = msg_queue
+		self.orig_stream = orig_stream
 
 	def write(self, text: str):
 		if text:
+			if self.orig_stream is not None:
+				try:
+					self.orig_stream.write(text)
+				except Exception:
+					pass
 			clean = ANSI_ESCAPE_RE.sub('', text)
 			self.msg_queue.put(("text", clean))
 
 	def flush(self):
-		pass
+		if self.orig_stream is not None:
+			try:
+				self.orig_stream.flush()
+			except Exception:
+				pass
 
 	def isatty(self) -> bool:
 		return False
@@ -591,8 +605,8 @@ class GraphMLExplorerApp(tk.Tk):
 		self.output_queue: queue.Queue = queue.Queue()
 		self._orig_stdout = sys.stdout
 		self._orig_stderr = sys.stderr
-		sys.stdout = ConsoleRedirector(self.output_queue)
-		sys.stderr = ConsoleRedirector(self.output_queue)
+		sys.stdout = ConsoleRedirector(self.output_queue, self._orig_stdout)
+		sys.stderr = ConsoleRedirector(self.output_queue, self._orig_stderr)
 
 		self._build_menu()
 		self._build_layout()
@@ -626,8 +640,8 @@ class GraphMLExplorerApp(tk.Tk):
 		self.menubar.add_cascade(label="Tools", menu=tools_menu)
 
 		game_menu = tk.Menu(self.menubar, tearoff=0)
-		game_menu.add_command(label="Start / Restart Game", command=self.start_game)
-		game_menu.add_command(label="Reveal / Next", accelerator="Enter", command=self.send_reveal_next)
+		game_menu.add_command(label="Start / Restart Game", accelerator="Enter / Space", command=self.start_game)
+		game_menu.add_command(label="Reveal / Next", accelerator="Enter / Space", command=self.send_reveal_next)
 		game_menu.add_command(label="Stop Game (0)", command=self.send_stop_game)
 		self.menubar.add_cascade(label="Game", menu=game_menu)
 
@@ -638,22 +652,22 @@ class GraphMLExplorerApp(tk.Tk):
 		toolbar = ttk.Frame(self, padding=(8, 6))
 		toolbar.pack(fill=tk.X)
 
-		self.btn_open = ttk.Button(toolbar, text="📂 Open File...", command=self.open_file_dialog)
+		self.btn_open = ttk.Button(toolbar, text="📂 Open File...", command=self.open_file_dialog, takefocus=0)
 		self.btn_open.pack(side=tk.LEFT, padx=(0, 6))
 
-		self.btn_reload = ttk.Button(toolbar, text="🔄 Reload", command=self.reload_current_file)
+		self.btn_reload = ttk.Button(toolbar, text="🔄 Reload", command=self.reload_current_file, takefocus=0)
 		self.btn_reload.pack(side=tk.LEFT, padx=(0, 12))
 
-		self.btn_open_html = ttk.Button(toolbar, text="🌐 Open HTML", command=self.open_generated_html, state=tk.DISABLED)
+		self.btn_open_html = ttk.Button(toolbar, text="🌐 Open HTML", command=self.open_generated_html, state=tk.DISABLED, takefocus=0)
 		self.btn_open_html.pack(side=tk.LEFT, padx=(0, 6))
 
-		self.btn_open_folder = ttk.Button(toolbar, text="📁 Open HTML Folder", command=self.open_html_folder)
+		self.btn_open_folder = ttk.Button(toolbar, text="📁 Open HTML Folder", command=self.open_html_folder, takefocus=0)
 		self.btn_open_folder.pack(side=tk.LEFT, padx=(0, 6))
 
-		self.btn_regen = ttk.Button(toolbar, text="🔄 Regenerate HTML", command=self.regenerate_html)
+		self.btn_regen = ttk.Button(toolbar, text="🔄 Regenerate HTML", command=self.regenerate_html, takefocus=0)
 		self.btn_regen.pack(side=tk.LEFT, padx=(0, 6))
 
-		self.btn_config = ttk.Button(toolbar, text="⚙ Config", command=self.open_config_dialog)
+		self.btn_config = ttk.Button(toolbar, text="⚙ Config", command=self.open_config_dialog, takefocus=0)
 		self.btn_config.pack(side=tk.RIGHT)
 
 		info_bar = ttk.Frame(self, padding=(10, 2, 10, 4))
@@ -740,16 +754,18 @@ class GraphMLExplorerApp(tk.Tk):
 		bottom_bar = ttk.Frame(self, padding=(8, 0, 8, 8))
 		bottom_bar.pack(fill=tk.X)
 
-		self.btn_start_game = ttk.Button(bottom_bar, text="▶ Start Game (1)", command=self.start_game)
+		self.btn_start_game = ttk.Button(bottom_bar, text="▶ Start Game (Enter/Space)", command=self.start_game,
+										 takefocus=0)
 		self.btn_start_game.pack(side=tk.LEFT, padx=(0, 6))
 
-		self.btn_reveal = ttk.Button(bottom_bar, text="⏭ Reveal / Next (Enter)", command=self.send_reveal_next)
+		self.btn_reveal = ttk.Button(bottom_bar, text="⏭ Reveal / Next (Enter/Space)", command=self.send_reveal_next,
+									 takefocus=0)
 		self.btn_reveal.pack(side=tk.LEFT, padx=(0, 6))
 
-		self.btn_stop_game = ttk.Button(bottom_bar, text="⏹ Stop Game (0)", command=self.send_stop_game)
+		self.btn_stop_game = ttk.Button(bottom_bar, text="⏹ Stop Game (0)", command=self.send_stop_game, takefocus=0)
 		self.btn_stop_game.pack(side=tk.LEFT, padx=(0, 6))
 
-		ttk.Button(bottom_bar, text="🧹 Clear Console", command=self.clear_console).pack(side=tk.RIGHT)
+		ttk.Button(bottom_bar, text="🧹 Clear Console", command=self.clear_console, takefocus=0).pack(side=tk.RIGHT)
 
 	def _bind_shortcuts(self):
 		self.bind("<Control-o>", lambda e: self.open_file_dialog())
@@ -759,8 +775,9 @@ class GraphMLExplorerApp(tk.Tk):
 		self.bind("<Control-Shift-O>", lambda e: self.open_html_folder())
 		self.bind("<Control-comma>", lambda e: self.open_config_dialog())
 		self.bind("<F5>", lambda e: self.reload_current_file())
-		self.bind("<Return>", self._on_key_enter)
-		self.bind("<KP_Enter>", self._on_key_enter)
+		self.bind("<Return>", self._on_key_enter_or_space)
+		self.bind("<KP_Enter>", self._on_key_enter_or_space)
+		self.bind("<space>", self._on_key_enter_or_space)
 		self.bind("1", self._on_key_start)
 		self.bind("0", self._on_key_stop)
 
@@ -1063,6 +1080,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self.active_session = session
 		self.lbl_status.configure(text="Game running")
 		self._update_button_states()
+		self.focus_set()
 
 		ctx_ref = self.ctx
 		prepared_ref = self.prepared_game_data
@@ -1252,9 +1270,9 @@ class GraphMLExplorerApp(tk.Tk):
 					)
 					self.lbl_status.configure(text="Ready")
 					self._update_progress_table(stats)
-					self._append_console_text("Ready! Press '1' or click 'Start Game' to begin.\n")
+					self._append_console_text("Press Enter, Space, or click 'Start Game' to begin.\n")
 					self._update_button_states()
-					self.console.focus_set()
+					self.focus_set()
 
 				elif kind == "html_done":
 					self.last_html_path = payload or self.last_html_path
@@ -1322,7 +1340,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self.btn_regen.configure(state=tk.NORMAL if (not self.is_busy and has_ctx) else tk.DISABLED)
 
 		self.btn_start_game.configure(
-			text="🔄 Restart Game" if game_active else "▶ Start Game (1)",
+			text="🔄 Restart Game" if game_active else "▶ Start Game (Enter/Space)",
 			state=tk.NORMAL if (not self.is_busy and has_ctx) else tk.DISABLED,
 		)
 		self.btn_reveal.configure(state=tk.NORMAL if waiting else tk.DISABLED)
@@ -1378,9 +1396,12 @@ class GraphMLExplorerApp(tk.Tk):
 					tags=tags,
 				)
 
-	def _on_key_enter(self, event=None):
+	def _on_key_enter_or_space(self, event=None):
 		if self.active_session and self.active_session.waiting_for_input:
 			self.send_reveal_next()
+			return "break"
+		if not self.is_busy and self.ctx and self.active_session is None:
+			self.start_game()
 			return "break"
 		return None
 

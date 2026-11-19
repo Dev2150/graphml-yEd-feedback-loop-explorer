@@ -197,6 +197,7 @@ def open_html_viewer(html_path: str):
 		PythonActivity = autoclass('org.kivy.android.PythonActivity')
 		WebView = autoclass('android.webkit.WebView')
 		AlertDialogBuilder = autoclass('android.app.AlertDialog$Builder')
+		JavaString = autoclass('java.lang.String')
 
 		mActivity = PythonActivity.mActivity
 		webview = WebView(mActivity)
@@ -206,9 +207,9 @@ def open_html_viewer(html_path: str):
 		webview.loadDataWithBaseURL("file:///android_asset/", html_str, "text/html", "utf-8", None)
 
 		builder = AlertDialogBuilder(mActivity)
-		builder.setTitle(title)
+		builder.setTitle(JavaString(title))
 		builder.setView(webview)
-		builder.setPositiveButton("Close", None)
+		builder.setPositiveButton(JavaString("Close"), None)
 		builder.show()
 
 	_show()

@@ -189,6 +189,7 @@ class GraphMLAndroidApp(App):
 		self.output_queue: queue.Queue = queue.Queue()
 		self._pending_line_buf: str = ''
 		self._progress_visible: bool = True
+		self._progress_expanded_height: float = dp(164)
 		self._open_popups: list = []
 
 	def build(self):
@@ -284,7 +285,7 @@ class GraphMLAndroidApp(App):
 		tier_bar.add_widget(self.btn_toggle_progress)
 		root.add_widget(tier_bar)
 
-		self.progress_scroll = ScrollView(size_hint_y=None, height=dp(115))
+		self.progress_scroll = ScrollView(size_hint_y=None, height=0)
 		self.progress_grid = GridLayout(cols=5, size_hint_y=None, spacing=dp(2), padding=(dp(2), dp(2)))
 		self.progress_grid.bind(minimum_height=self.progress_grid.setter('height'))
 		self.progress_scroll.add_widget(self.progress_grid)
@@ -398,6 +399,15 @@ class GraphMLAndroidApp(App):
 	def _handle_hardware_back(self, window, key, *args):
 		if key == 27:  # Android Back button / Desktop Escape
 			return self.handle_back_press()
+		if self._open_popups or self.is_busy or not self.ctx:
+			return False
+		if key in (13, 271, 32):  # Enter, Numpad Enter, Space
+			if self.active_session and self.active_session.waiting_for_input:
+				self.send_reveal_next()
+				return True
+			if self.active_session is None:
+				self.start_game()
+				return True
 		return False
 
 	def _open_tracked_popup(self, popup: Popup):
@@ -1238,7 +1248,7 @@ class GraphMLAndroidApp(App):
 	def _toggle_progress(self):
 		self._progress_visible = not self._progress_visible
 		if self._progress_visible:
-			self.progress_scroll.height = dp(115)
+			self.progress_scroll.height = self._progress_expanded_height
 			self.progress_scroll.opacity = 1
 			self.btn_toggle_progress.text = 'Hide Stats'
 		else:
@@ -1246,11 +1256,15 @@ class GraphMLAndroidApp(App):
 			self.progress_scroll.opacity = 0
 			self.btn_toggle_progress.text = 'Show Stats'
 
+
 	def _update_progress_table(self, stats: dict):
 		self.progress_grid.clear_widgets()
 		if not stats or not stats.get('rows'):
 			self.lbl_current_tier.text = 'Current tier: —'
 			self.lbl_total_progress.text = ''
+			self._progress_expanded_height = 0
+			if self._progress_visible:
+				self.progress_scroll.height = 0
 			return
 
 		rows = stats['rows']
@@ -1289,6 +1303,12 @@ class GraphMLAndroidApp(App):
 					font_size=dp(12),
 					color=col,
 				))
+
+		# Header (22dp) + rows (20dp each) + spacing (2dp each) + padding (4dp) + 4dp margin
+		needed_height = dp(22 + 4 + len(rows) * 22 + 4)
+		self._progress_expanded_height = min(needed_height, dp(168))
+		if self._progress_visible:
+			self.progress_scroll.height = self._progress_expanded_height
 
 	def _poll_output_queue(self, dt):
 		try:
