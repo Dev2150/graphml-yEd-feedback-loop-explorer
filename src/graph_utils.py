@@ -1,4 +1,4 @@
-from typing import List, Any, Set
+from typing import List, Any, Set, Optional
 import networkx as nx
 
 
