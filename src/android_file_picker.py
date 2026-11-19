@@ -1,7 +1,9 @@
 import os
+import subprocess
+import sys
 import webbrowser
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 
 def is_android() -> bool:
@@ -10,6 +12,55 @@ def is_android() -> bool:
 
 _OPEN_DOC_REQ = 41001
 _SAVE_DOC_REQ = 41002
+
+
+def has_all_files_access() -> bool:
+	if not is_android():
+		return True
+	try:
+		from jnius import autoclass
+		BuildVersion = autoclass('android.os.Build$VERSION')
+		if BuildVersion.SDK_INT < 30:
+			return True
+		Environment = autoclass('android.os.Environment')
+		return bool(Environment.isExternalStorageManager())
+	except Exception:
+		return False
+
+
+def request_all_files_access():
+	if not is_android():
+		return
+	try:
+		from jnius import autoclass
+		PythonActivity = autoclass('org.kivy.android.PythonActivity')
+		Intent = autoclass('android.content.Intent')
+		Settings = autoclass('android.provider.Settings')
+		Uri = autoclass('android.net.Uri')
+		mActivity = PythonActivity.mActivity
+		try:
+			intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+			intent.setData(Uri.parse(f"package:{mActivity.getPackageName()}"))
+			mActivity.startActivity(intent)
+		except Exception:
+			intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+			mActivity.startActivity(intent)
+	except Exception as exc:
+		print(f"Could not request All Files Access: {exc}")
+
+def list_graphml_in_folder(folder_path: str) -> List[str]:
+	if not folder_path or not os.path.isdir(folder_path):
+		return []
+	try:
+		files = [
+			os.path.join(folder_path, name)
+			for name in os.listdir(folder_path)
+			if name.lower().endswith('.graphml') and os.path.isfile(os.path.join(folder_path, name))
+		]
+		files.sort(key=lambda p: os.path.basename(p).lower())
+		return files
+	except Exception:
+		return []
 
 
 def open_graphml_with_system_picker(
@@ -217,15 +268,30 @@ def open_html_viewer(html_path: str):
 
 def _desktop_open_fallback(callback: Callable[[Optional[str], Optional[str]], None]):
 	try:
-		import tkinter as tk
-		from tkinter import filedialog
-		root = tk.Tk()
-		root.withdraw()
-		path = filedialog.askopenfilename(
-			title="Open GraphML File",
-			filetypes=[("GraphML files", "*.graphml"), ("All files", "*.*")],
+		script = (
+			"import tkinter as tk; from tkinter import filedialog; "
+			"r = tk.Tk(); r.withdraw(); "
+			"p = filedialog.askopenfilename(title='Open GraphML File', "
+			"filetypes=[('GraphML files', '*.graphml'), ('All files', '*.*')]); "
+			"r.destroy(); print(p or '', end='')"
 		)
-		root.destroy()
+		res = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
+		path = res.stdout.strip()
 		callback(path or None, None)
 	except Exception as exc:
 		callback(None, str(exc))
+
+
+def pick_folder_desktop(initial_dir: str = "") -> Optional[str]:
+	try:
+		script = (
+			"import sys, tkinter as tk; from tkinter import filedialog; "
+			"r = tk.Tk(); r.withdraw(); "
+			"p = filedialog.askdirectory(title='Select Sync Folder', initialdir=sys.argv[1] or None); "
+			"r.destroy(); print(p or '', end='')"
+		)
+		res = subprocess.run([sys.executable, "-c", script, initial_dir or ""], capture_output=True, text=True, check=False)
+		path = res.stdout.strip()
+		return path or None
+	except Exception:
+		return None

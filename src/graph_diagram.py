@@ -1,3 +1,4 @@
+import textwrap
 from dataclasses import dataclass
 import math
 from typing import Dict, Iterable, List, Optional, Set, Tuple
@@ -8,6 +9,45 @@ COLOR_WHITE = '#FFFFFF'
 COLOR_PINK = '#FF99CC'
 COLOR_BLUE = '#00CCFF'
 COLOR_RED = '#FF0000'
+NODE_WRAP_CHAR_THRESHOLD = 24
+
+
+def format_graph_node_label(label: str, max_chars_per_line: int = NODE_WRAP_CHAR_THRESHOLD) -> str:
+	"""
+	Formats a graph node label for visual rendering:
+	- Any '→' starts on a new line beginning with '→'.
+	- Lines longer than `max_chars_per_line` wrap cleanly.
+	"""
+	text = str(label or "").strip()
+	if not text:
+		return ""
+
+	segments: List[str] = []
+	if '→' in text:
+		parts = text.split('→')
+		first = parts[0].strip()
+		if first:
+			segments.append(first)
+		for part in parts[1:]:
+			part_clean = part.strip()
+			segments.append(f"→ {part_clean}" if part_clean else "→")
+	else:
+		segments.append(text)
+
+	wrapped_lines: List[str] = []
+	for seg in segments:
+		if len(seg) > max_chars_per_line:
+			wrapped = textwrap.wrap(
+				seg,
+				width=max_chars_per_line,
+				break_long_words=True,
+				break_on_hyphens=True,
+			)
+			wrapped_lines.extend(wrapped if wrapped else [seg])
+		else:
+			wrapped_lines.append(seg)
+
+	return "\n".join(wrapped_lines)
 
 
 @dataclass

@@ -30,7 +30,7 @@ from src.games.relationship_game import (
 from src.graph_diagram import (
 	GraphDiagramData,
 	compute_circular_layout,
-	compute_edge_geometry,
+	compute_edge_geometry, format_graph_node_label,
 )
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import list_graph_elements_and_groups, read_from_graph_xml
@@ -41,7 +41,7 @@ from src.progress_storage import (
 	load_app_state,
 	load_graph_config,
 	record_recent_file,
-	save_graph_config,
+	save_graph_config, set_sync_folder, get_sync_folder, get_local_data_dir,
 )
 
 ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
@@ -205,7 +205,7 @@ class ConfigDialog(tk.Toplevel):
 		self.transient(parent)
 		self.grab_set()
 		self.resizable(True, True)
-		self.geometry("920x740")
+		self.geometry("920x1000")
 		self.minsize(720, 480)
 
 		self.app_vars = {}
@@ -458,10 +458,15 @@ class ConfigDialog(tk.Toplevel):
 		ttk.Entry(app_tab, textvariable=self.app_vars["file_name"]).grid(row=2, column=1, sticky="ew", pady=4)
 		ttk.Button(app_tab, text="Browse...", command=self._browse_graphml).grid(row=2, column=2, padx=(6, 0), pady=4)
 
+		btn_app_row = ttk.Frame(app_tab)
+		btn_app_row.grid(row=3, column=1, sticky="w", pady=(10, 4))
+
 		if self.on_open_file_callback is not None:
-			ttk.Button(app_tab, text="Open Default File Now", command=self._open_configured_file).grid(
-				row=3, column=1, sticky="w", pady=(10, 4)
+			ttk.Button(btn_app_row, text="Open Default File Now", command=self._open_configured_file).pack(
+				side=tk.LEFT, padx=(0, 8)
 			)
+
+		ttk.Button(btn_app_row, text="Open AppData Folder", command=self._open_appdata_folder).pack(side=tk.LEFT)
 
 		ttk.Label(
 			app_tab,
@@ -584,8 +589,31 @@ class ConfigDialog(tk.Toplevel):
 			messagebox.showerror("Invalid Configuration", str(e), parent=self)
 			return
 
+		sync_folder = self.app_vars["sync_folder"].get().strip() if "sync_folder" in self.app_vars else None
 		self.destroy()
-		self.on_apply_callback(new_base, new_local, mode=mode)
+		self.on_apply_callback(new_base, new_local, mode=mode, sync_folder=sync_folder)
+
+	def _browse_sync_folder(self):
+		current = self.app_vars["sync_folder"].get().strip()
+		path = filedialog.askdirectory(
+			parent=self,
+			title="Select Syncthing / Data Sync Folder",
+			initialdir=current if os.path.isdir(current) else os.getcwd(),
+		)
+		if path:
+			self.app_vars["sync_folder"].set(path)
+
+	def _open_appdata_folder(self):
+		folder = get_local_data_dir()
+		try:
+			if sys.platform.startswith("win"):
+				os.startfile(folder)
+			elif sys.platform == "darwin":
+				subprocess.Popen(["open", folder])
+			else:
+				subprocess.Popen(["xdg-open", folder])
+		except Exception as e:
+			messagebox.showerror("Open Folder Error", f"Could not open folder:\n{e}", parent=self)
 
 
 class GraphMLExplorerApp(tk.Tk):
@@ -643,13 +671,17 @@ class GraphMLExplorerApp(tk.Tk):
 		tools_menu.add_command(label="Open HTML Output Folder", accelerator="Ctrl+Shift+O", command=self.open_html_folder)
 		tools_menu.add_separator()
 		tools_menu.add_command(label="Configuration...", accelerator="Ctrl+,", command=self.open_config_dialog)
+		tools_menu.add_command(label="Open HTML Output Folder", accelerator="Ctrl+Shift+O",
+							   command=self.open_html_folder)
+		tools_menu.add_command(label="Open AppData Folder", command=self.open_appdata_folder)
 		self.menubar.add_cascade(label="Tools", menu=tools_menu)
 
 		game_menu = tk.Menu(self.menubar, tearoff=0)
-		game_menu.add_command(label="Start / Restart Game", accelerator="Enter / Space", command=self.start_game)
+		game_menu.add_command(label="Start Game", accelerator="Enter / Space", command=self.start_game)
 		game_menu.add_command(label="Reveal / Next", accelerator="Enter / Space", command=self.send_reveal_next)
 		game_menu.add_command(label="Stop Game (0)", command=self.send_stop_game)
 		self.menubar.add_cascade(label="Game", menu=game_menu)
+
 
 		self.config(menu=self.menubar)
 		self._refresh_recent_menu()
@@ -945,7 +977,7 @@ class GraphMLExplorerApp(tk.Tk):
 			try:
 				if cfg_snapshot.excluded_elements:
 					print(
-						f"Excluding {len(cfg_snapshot.excluded_elements)} element/group rule(s): "
+						f"Excluding {len(cfg_snapshot.excluded_elements)} element/group(s): "
 						f"{', '.join(cfg_snapshot.excluded_elements)}"
 					)
 
@@ -1053,12 +1085,14 @@ class GraphMLExplorerApp(tk.Tk):
 	# Configuration UI (only shown when requested or necessary)
 	# ------------------------------------------------------------------
 	def open_config_dialog(self):
-		def on_apply(new_base: Config, new_local: dict, mode: str = "session"):
+		def on_apply(new_base: Config, new_local: dict, mode: str = "session", sync_folder: str = None):
 			self.base_config = new_base
 			self.local_overrides = new_local
 
 			if mode == "save":
 				try:
+					if sync_folder is not None:
+						set_sync_folder(sync_folder)
 					save_config_file(self.input_file, new_base)
 					if self.current_graph_path:
 						save_graph_config(self.current_graph_path, new_local)
@@ -1457,10 +1491,20 @@ class GraphMLExplorerApp(tk.Tk):
 		self.btn_regen.configure(state=tk.NORMAL if (not self.is_busy and has_ctx) else tk.DISABLED)
 
 		self.btn_start_game.configure(
-			text="🔄 Restart Game" if game_active else "▶ Start Game (Enter/Space)",
 			state=tk.NORMAL if (not self.is_busy and has_ctx) else tk.DISABLED,
 		)
 		self.btn_reveal.configure(state=tk.NORMAL if waiting else tk.DISABLED)
+
+		if game_active:
+			if self.btn_start_game.winfo_manager():
+				self.btn_start_game.pack_forget()
+			if not self.btn_reveal.winfo_manager():
+				self.btn_reveal.pack(side=tk.LEFT, padx=(0, 6))
+		else:
+			if self.btn_reveal.winfo_manager():
+				self.btn_reveal.pack_forget()
+			if not self.btn_start_game.winfo_manager():
+				self.btn_start_game.pack(side=tk.LEFT, padx=(0, 6))
 
 	def _on_closing(self):
 		self._cancel_active_game()
@@ -1568,10 +1612,12 @@ class GraphMLExplorerApp(tk.Tk):
 			return
 
 		font_spec = ("Segoe UI", 10)
-		max_text_w = max(80, min(140, int(w * 0.28)))
 		node_sizes = {}
+		wrapped_labels = {}
 		for node in diagram.nodes:
-			tid = canvas.create_text(0, 0, text=node.label, font=font_spec, width=max_text_w, justify=tk.CENTER)
+			wrapped = format_graph_node_label(node.label)
+			wrapped_labels[node.node_id] = wrapped
+			tid = canvas.create_text(0, 0, text=wrapped, font=font_spec, justify=tk.CENTER)
 			bbox = canvas.bbox(tid)
 			canvas.delete(tid)
 			tw = (bbox[2] - bbox[0]) if bbox else 60
@@ -1607,9 +1653,20 @@ class GraphMLExplorerApp(tk.Tk):
 			canvas.create_text(
 				cx,
 				cy,
-				text=node.label,
+				text=wrapped_labels[node.node_id],
 				fill=node.text_color,
 				font=font_spec,
-				width=max_text_w,
 				justify=tk.CENTER,
 			)
+
+	def open_appdata_folder(self):
+		folder = get_local_data_dir()
+		try:
+			if sys.platform.startswith("win"):
+				os.startfile(folder)
+			elif sys.platform == "darwin":
+				subprocess.Popen(["open", folder])
+			else:
+				subprocess.Popen(["xdg-open", folder])
+		except Exception as e:
+			messagebox.showerror("Open Folder Error", f"Could not open folder:\n{e}", parent=self)

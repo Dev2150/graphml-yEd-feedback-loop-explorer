@@ -15,7 +15,7 @@ requirements = python3==3.11.9,kivy==2.3.1,filetype,networkx==3.3
 orientation = portrait, landscape, portrait-reverse, landscape-reverse
 fullscreen = 0
 
-android.permissions = READ_EXTERNAL_STORAGE
+android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,MANAGE_EXTERNAL_STORAGE
 android.api = 33
 android.minapi = 24
 android.ndk = 25b

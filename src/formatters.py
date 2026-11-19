@@ -5,8 +5,15 @@ def get_box_prefix(index: int) -> str:
 	return "🟦" if index % 2 == 0 else "🟥"
 
 
+def format_console_node_name(name: str) -> str:
+	name_str = str(name)
+	if '→' in name_str and not (name_str.startswith('(') and name_str.endswith(')')):
+		return f"({name_str})"
+	return name_str
+
+
 def format_node_name(node_id: str, nodes_dict: dict, index: int = 0, is_counter: bool = False) -> str:
-	name = nodes_dict.get(node_id, str(node_id))
+	name = format_console_node_name(nodes_dict.get(node_id, str(node_id)))
 	if is_counter:
 		return f"{get_box_prefix(index)} {name}"
 	return name

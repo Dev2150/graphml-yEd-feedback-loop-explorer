@@ -14,7 +14,7 @@ from src.family_utils import (
 )
 from src.formatters import (
 	format_path_string, get_path_net_effect_arrow, get_edge_arrow,
-	format_node_name, get_box_prefix, COUNTER_CONNECTION_TYPES
+	format_node_name, get_box_prefix, COUNTER_CONNECTION_TYPES, format_console_node_name
 )
 from src.graph_diagram import (
 	build_cycle_diagram,
@@ -125,14 +125,14 @@ def prepare_relationship_game_data(ctx: GraphContext) -> dict:
 		predecessors = list(g.predecessors(target))
 		if not predecessors:
 			continue
-		if target in terminal_nodes or any(p in root_nodes for p in predecessors):
+		if not leaf_only or target in terminal_nodes or any(p in root_nodes for p in predecessors):
 			leaf_sources_map[target] = predecessors
 
 	for source in g.nodes():
 		successors = list(g.successors(source))
 		if not successors:
 			continue
-		if source in root_nodes or any(s in terminal_nodes for s in successors):
+		if not leaf_only or source in root_nodes or any(s in terminal_nodes for s in successors):
 			leaf_dests_map[source] = successors
 
 	leaf_source_candidates = [n for n in leaf_sources_map.keys() if str(nodes.get(n, n)).lower() not in block_starting_node]
@@ -571,8 +571,9 @@ def run_relationship_guessing_game(
 		# Handle Leaf Source Question ([?] → Target)
 		elif itype == 'leaf_src':
 			target_node = data
-			target_name = nodes.get(target_node, str(target_node))
-			leaf_key = f"leaf_src:{target_name}"
+			raw_target_name = nodes.get(target_node, str(target_node))
+			target_name = format_console_node_name(raw_target_name)
+			leaf_key = f"leaf_src:{raw_target_name}"
 			current_counter = progress_data[game2_key].get(leaf_key, 0)
 
 			if is_counter:
@@ -592,7 +593,7 @@ def run_relationship_guessing_game(
 			found_leaves = sorted(leaf_sources_map[target_node], key=lambda x: str(nodes.get(x, x)).lower())
 			if len(found_leaves) == 1:
 				p_nid = found_leaves[0]
-				p_name = nodes.get(p_nid, str(p_nid))
+				p_name = format_console_node_name(nodes.get(p_nid, str(p_nid)))
 				if is_family:
 					p_term = get_parent_term(detect_gender(node_colors.get(p_nid, '')))
 					print(f"{p_name} ({p_term}) → {target_name}")
@@ -601,7 +602,7 @@ def run_relationship_guessing_game(
 			else:
 				print("Answer(s):")
 				for s in found_leaves:
-					s_name = nodes.get(s, str(s))
+					s_name = format_console_node_name(nodes.get(s, str(s)))
 					if is_family:
 						p_term = get_parent_term(detect_gender(node_colors.get(s, '')))
 						print(f"  • {s_name} ({p_term}) → {target_name}")
@@ -627,8 +628,9 @@ def run_relationship_guessing_game(
 		# Handle Leaf Destination Question (Source → [?])
 		elif itype == 'leaf_dst':
 			source_node = data
-			source_name = nodes.get(source_node, str(source_node))
-			leaf_key = f"leaf_dst:{source_name}"
+			raw_source_name = nodes.get(source_node, str(source_node))
+			source_name = format_console_node_name(raw_source_name)
+			leaf_key = f"leaf_dst:{raw_source_name}"
 			current_counter = progress_data[game2_key].get(leaf_key, 0)
 
 			if is_counter:
@@ -648,7 +650,7 @@ def run_relationship_guessing_game(
 			found_leaves = sorted(leaf_dests_map[source_node], key=lambda x: str(nodes.get(x, x)).lower())
 			if len(found_leaves) == 1:
 				c_nid = found_leaves[0]
-				c_name = nodes.get(c_nid, str(c_nid))
+				c_name = format_console_node_name(nodes.get(c_nid, str(c_nid)))
 				if is_family:
 					c_term = get_child_term(detect_gender(node_colors.get(c_nid, '')))
 					print(f"{source_name} → {c_name} ({c_term})")
@@ -656,7 +658,7 @@ def run_relationship_guessing_game(
 					print(f"{format_path_string([source_node, c_nid], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}")
 			else:
 				for d in found_leaves:
-					d_name = nodes.get(d, str(d))
+					d_name = format_console_node_name(nodes.get(d, str(d)))
 					if is_family:
 						c_term = get_child_term(detect_gender(node_colors.get(d, '')))
 						print(f"  • {source_name} → {d_name} ({c_term})")
@@ -685,8 +687,8 @@ def run_relationship_guessing_game(
 			if random.random() > 0.5:
 				u, v = v, u
 
-			u_name = nodes.get(u, str(u))
-			v_name = nodes.get(v, str(v))
+			u_name = format_console_node_name(nodes.get(u, str(u)))
+			v_name = format_console_node_name(nodes.get(v, str(v)))
 
 			print(f"Question {question_num}: {u_name} [?] {v_name}", end=' ')
 
@@ -756,11 +758,11 @@ def run_relationship_guessing_game(
 
 				if is_counter:
 					for s in shared_srcs:
-						s_name = nodes.get(s, s)
+						s_name = format_console_node_name(nodes.get(s, s))
 						connection_lines.append(f"{text_shared_source}: 🟦 {s_name} → 🟥 {u_name} & 🟥 {v_name}")
 
 					for d in shared_dsts:
-						d_name = nodes.get(d, d)
+						d_name = format_console_node_name(nodes.get(d, d))
 						connection_lines.append(f"{text_shared_dest}: 🟦 {u_name} & 🟦 {v_name} → 🟥 {d_name}")
 				else:
 					for s in shared_srcs:
@@ -768,20 +770,22 @@ def run_relationship_guessing_game(
 						val_v = edge_values.get((s, v), 1)
 						arr_u = get_edge_arrow(val_u)
 						arr_v = get_edge_arrow(val_v)
+						s_name = format_console_node_name(nodes.get(s, s))
 						if arr_u == arr_v:
-							connection_lines.append(f"{text_shared_source}: {nodes.get(s, s)} {arr_u}")
+							connection_lines.append(f"{text_shared_source}: {s_name} {arr_u}")
 						else:
-							connection_lines.append(f"{text_shared_source}: {nodes.get(s, s)} {arr_u} {nodes.get(u, u)} + {arr_v} {nodes.get(v, v)}")
+							connection_lines.append(f"{text_shared_source}: {s_name} {arr_u} {u_name} + {arr_v} {v_name}")
 
 					for d in shared_dsts:
 						val_u = edge_values.get((u, d), 1)
 						val_v = edge_values.get((v, d), 1)
 						arr_u = get_edge_arrow(val_u)
 						arr_v = get_edge_arrow(val_v)
+						d_name = format_console_node_name(nodes.get(d, d))
 						if arr_u == arr_v:
-							connection_lines.append(f"{text_shared_dest}: {arr_u} {nodes.get(d, d)}")
+							connection_lines.append(f"{text_shared_dest}: {arr_u} {d_name}")
 						else:
-							connection_lines.append(f"{text_shared_dest}: {nodes.get(u, u)} ({arr_u}) + {nodes.get(v, v)} ({arr_v}) → {nodes.get(d, d)}")
+							connection_lines.append(f"{text_shared_dest}: {u_name} ({arr_u}) + {v_name} ({arr_v}) → {d_name}")
 
 				if is_direct:
 					if direct_u_v and direct_v_u:
@@ -791,9 +795,9 @@ def run_relationship_guessing_game(
 						lbl2 = edge_labels.get((v, u), '') if edge_labels else ''
 						lbl_lines = []
 						if lbl1:
-							lbl_lines.append(f"      ({nodes.get(u, u)} → {nodes.get(v, v)}: {lbl1})")
+							lbl_lines.append(f"      ({u_name} → {v_name}: {lbl1})")
 						if lbl2:
-							lbl_lines.append(f"      ({nodes.get(v, v)} → {nodes.get(u, u)}: {lbl2})")
+							lbl_lines.append(f"      ({v_name} → {u_name}: {lbl2})")
 						lbl_suffix = ("\n" + "\n".join(lbl_lines)) if lbl_lines else ""
 						connection_lines.append(f"Direct (⟳): {p1_str} ↔ {p2_str}{lbl_suffix}")
 					elif direct_u_v:

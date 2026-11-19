@@ -4,7 +4,6 @@ import queue
 import re
 import shutil
 import sys
-import textwrap
 import threading
 from kivy.core.text import Label as CoreLabel, LabelBase
 from kivy.graphics import Color, Line, Rectangle, Triangle
@@ -79,8 +78,7 @@ from kivy.uix.textinput import TextInput
 from src.android_file_picker import (
 	export_file_with_system_picker,
 	open_graphml_with_system_picker,
-	open_html_viewer,
-)
+	open_html_viewer, has_all_files_access, request_all_files_access, )
 from src.config import (
 	COUNTER_CONNECTION_TYPES,
 	GRAPH_SETTING_KEYS,
@@ -99,18 +97,17 @@ from src.games.relationship_game import (
 from src.graph_diagram import (
 	GraphDiagramData,
 	compute_circular_layout,
-	compute_edge_geometry,
+	compute_edge_geometry, format_graph_node_label,
 )
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import list_graph_elements_and_groups, read_from_graph_xml
 from src.models import GraphContext
 from src.progress_storage import (
 	clear_recent_files,
-	delete_graph_config,
 	load_app_state,
 	load_graph_config,
 	record_recent_file,
-	save_graph_config,
+	save_graph_config, set_sync_folder, get_sync_folder,
 )
 
 ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
@@ -163,23 +160,16 @@ class CircularGraphWidget(StencilView):
 		self._redraw()
 
 	def _build_node_texture(self, text: str, text_rgba, max_text_w: float):
+		formatted = format_graph_node_label(text)
+		has_multiline = '\n' in formatted
 		lbl = CoreLabel(
-			text=text,
-			font_size=dp(11),
+			text=formatted,
+			font_size=dp(10.5) if has_multiline else dp(11),
 			font_name=self.font_name,
 			color=text_rgba,
+			halign='center',
 		)
 		lbl.refresh()
-		if lbl.texture.width > max_text_w and ' ' in text:
-			lines = textwrap.wrap(text, width=14) or [text]
-			lbl = CoreLabel(
-				text='\n'.join(lines),
-				font_size=dp(10.5),
-				font_name=self.font_name,
-				color=text_rgba,
-				halign='center',
-			)
-			lbl.refresh()
 		return lbl.texture
 
 	def _redraw(self, *_):
@@ -465,7 +455,7 @@ class GraphMLAndroidApp(App):
 		root.add_widget(self.console_scroll)
 
 		# --- Bottom Game Controls ---
-		bottom_bar = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
+		self.bottom_bar = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
 		self.btn_start_game = Button(
 			text='Start Game',
 			background_color=(0.18, 0.52, 0.32, 1),
@@ -478,9 +468,8 @@ class GraphMLAndroidApp(App):
 			disabled=True,
 		)
 
-		bottom_bar.add_widget(self.btn_start_game)
-		bottom_bar.add_widget(self.btn_reveal)
-		root.add_widget(bottom_bar)
+		self.bottom_bar.add_widget(self.btn_start_game)
+		root.add_widget(self.bottom_bar)
 
 		# Redirect stdout/stderr into UI queue (while still forwarding to logcat)
 		self._orig_stdout = sys.stdout
@@ -490,6 +479,11 @@ class GraphMLAndroidApp(App):
 
 		# Hook Android hardware back button (and Esc on desktop)
 		Window.bind(on_keyboard=self._handle_hardware_back)
+		if IS_DESKTOP:
+			Window.bind(on_request_close=self._on_request_close)
+
+		self._cleaned_up = False
+		self._poll_event = Clock.schedule_interval(self._poll_output_queue, 0.05)
 
 		Clock.schedule_interval(self._poll_output_queue, 0.05)
 		Clock.schedule_once(lambda dt: self._startup(), 0.1)
@@ -535,10 +529,40 @@ class GraphMLAndroidApp(App):
 		Clock.schedule_once(_force_redraw, 0.05)
 		Clock.schedule_once(_force_redraw, 0.2)
 
-	def on_stop(self):
+	def _on_request_close(self, *args):
+		self._cleanup_on_exit()
+		return False
+
+	def _cleanup_on_exit(self):
+		if getattr(self, '_cleaned_up', False):
+			return
+		self._cleaned_up = True
+		if getattr(self, '_poll_event', None) is not None:
+			self._poll_event.cancel()
+			self._poll_event = None
+		try:
+			Window.unbind(on_keyboard=self._handle_hardware_back)
+			if IS_DESKTOP:
+				Window.unbind(on_request_close=self._on_request_close)
+		except Exception:
+			pass
+		for p in list(self._open_popups):
+			try:
+				p.dismiss()
+			except Exception:
+				pass
+		self._open_popups.clear()
+		session = self.active_session
 		self._cancel_active_game()
-		sys.stdout = self._orig_stdout
-		sys.stderr = self._orig_stderr
+		if session is not None and session.thread is not None and session.thread.is_alive():
+			session.thread.join(timeout=0.3)
+		if hasattr(self, '_orig_stdout'):
+			sys.stdout = self._orig_stdout
+		if hasattr(self, '_orig_stderr'):
+			sys.stderr = self._orig_stderr
+
+	def on_stop(self):
+		self._cleanup_on_exit()
 
 	def handle_back_press(self) -> bool:
 		if self._open_popups:
@@ -755,7 +779,7 @@ class GraphMLAndroidApp(App):
 			try:
 				if cfg_snapshot.excluded_elements:
 					print(
-						f"Excluding {len(cfg_snapshot.excluded_elements)} element/group rule(s): "
+						f"Excluding {len(cfg_snapshot.excluded_elements)} element/group(s): "
 						f"{', '.join(cfg_snapshot.excluded_elements)}"
 					)
 
@@ -1164,6 +1188,23 @@ class GraphMLAndroidApp(App):
 		ti_app_file = TextInput(text=g_cfg.file_name, multiline=False, size_hint_y=None, height=dp(40))
 		app_form.add_widget(ti_app_file)
 
+		app_form.add_widget(Label(
+			text='Sync Folder (for Syncthing):',
+			size_hint_y=None,
+			height=dp(24),
+			halign='left',
+			font_size=dp(12),
+		))
+		ti_sync_folder = TextInput(
+			text=get_sync_folder(),
+			hint_text='/storage/emulated/0/Syncthing/GraphML',
+			multiline=False,
+			size_hint_y=None,
+			height=dp(40),
+		)
+		app_form.add_widget(ti_sync_folder)
+
+
 		def _show_tab(tab_name: str):
 			content_area.clear_widgets()
 			if tab_name == 'graph':
@@ -1235,6 +1276,10 @@ class GraphMLAndroidApp(App):
 
 			if mode == 'save':
 				try:
+					sync_path = ti_sync_folder.text.strip()
+					set_sync_folder(sync_path)
+					if sync_path and not IS_DESKTOP and not has_all_files_access():
+						request_all_files_access()
 					save_config_file(self.input_file, new_base)
 					if has_file:
 						save_graph_config(self.current_graph_path, new_local)
@@ -1556,9 +1601,13 @@ class GraphMLAndroidApp(App):
 		self.btn_html.disabled = not has_html
 		self.btn_config.disabled = self.is_busy
 
-		self.btn_start_game.text = 'Restart' if game_active else 'Start Game'
 		self.btn_start_game.disabled = self.is_busy or not has_ctx
 		self.btn_reveal.disabled = not waiting
+
+		target_btn = self.btn_reveal if game_active else self.btn_start_game
+		if target_btn.parent is not self.bottom_bar:
+			self.bottom_bar.clear_widgets()
+			self.bottom_bar.add_widget(target_btn)
 
 	def _show_message(self, title: str, msg: str):
 		box = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(10))
@@ -1571,8 +1620,18 @@ class GraphMLAndroidApp(App):
 
 
 def run_android_app():
-	GraphMLAndroidApp().run()
-
+	app = GraphMLAndroidApp()
+	try:
+		app.run()
+	finally:
+		app._cleanup_on_exit()
+		if IS_DESKTOP:
+			try:
+				sys.stdout.flush()
+				sys.stderr.flush()
+			except Exception:
+				pass
+			os._exit(0)
 
 if __name__ == '__main__':
 	run_android_app()
