@@ -37,6 +37,7 @@ GRAPH_SETTING_KEYS = (
 	'max_cycle_length_game',
 	'max_indirectness_game',
 	'leaf_only',
+	'include_secondary_cycles',
 )
 
 
@@ -64,7 +65,7 @@ class Config:
 	leaf_only: bool = False
 	ignore_edge_colors: bool = False
 	connection_type: str = "correlation"
-
+	include_secondary_cycles: bool = True
 
 def _parse_list_setting(raw: str, lowercase: bool = False) -> List[str]:
 	raw = (raw or "").strip()
@@ -116,6 +117,7 @@ def config_to_graph_dict(cfg: Config) -> Dict[str, Any]:
 		'leaf_only': bool(cfg.leaf_only),
 		'ignore_edge_colors': bool(cfg.ignore_edge_colors),
 		'connection_type': cfg.connection_type,
+		'include_secondary_cycles': bool(cfg.include_secondary_cycles),
 	}
 
 
@@ -168,6 +170,8 @@ def apply_graph_dict_to_config(base_cfg: Config, data: Dict[str, Any]) -> Config
 		cfg.connection_type = str(data['connection_type'] or 'correlation').strip().lower()
 	if 'ignore_edge_colors' in data:
 		cfg.ignore_edge_colors = bool(data['ignore_edge_colors'])
+	if 'include_secondary_cycles' in data:
+		cfg.include_secondary_cycles = bool(data['include_secondary_cycles'])
 
 	return cfg
 
@@ -235,6 +239,7 @@ def read_config_file(p_input_file: str) -> Config:
 	leaf_only = config.getboolean(SECTION, 'leaf_only', fallback=False)
 	connection_type = config.get(SECTION, 'connection_type', fallback='correlation').strip().lower()
 	ignore_edge_colors = config.getboolean(SECTION, 'ignore_edge_colors', fallback=False)
+	include_secondary_cycles = config.getboolean(SECTION, 'include_secondary_cycles', fallback=True)
 
 	if ',' in file_name_raw:
 		parts = file_name_raw.split(',')
@@ -268,6 +273,8 @@ def read_config_file(p_input_file: str) -> Config:
 						chance_irrelevant /= 100.0
 				elif key == 'excluded_elements':
 					excluded_elements = [x.strip() for x in val.split(';') if x.strip()]
+				elif key == 'include_secondary_cycles':
+					include_secondary_cycles = val.lower() in ('true', '1', 'yes')
 				else:
 					print(f"Warning: unknown inline override '{key}' ignored.")
 			except ValueError:
@@ -298,6 +305,7 @@ def read_config_file(p_input_file: str) -> Config:
 		leaf_only=leaf_only,
 		ignore_edge_colors=ignore_edge_colors,
 		connection_type=connection_type,
+		include_secondary_cycles=include_secondary_cycles,
 	)
 
 
@@ -324,6 +332,7 @@ CHANCE_IRRELEVANT=0.20
 MAX_INDIRECTNESS=1
 MAX_INDIRECTNESS_GAME=2
 LEAF_ONLY=False
+INCLUDE_SECONDARY_CYCLES=True
 CONNECTION_TYPE=correlation
 """
 	try:
@@ -361,6 +370,7 @@ def save_config_file(p_input_file: str, cfg: Config):
 		'MAX_INDIRECTNESS': str(cfg.max_indirectness),
 		'MAX_INDIRECTNESS_GAME': str(cfg.max_indirectness_game),
 		'LEAF_ONLY': str(cfg.leaf_only),
+		'INCLUDE_SECONDARY_CYCLES': str(cfg.include_secondary_cycles),
 		'IGNORE_EDGE_COLORS': str(cfg.ignore_edge_colors),
 		'CONNECTION_TYPE': cfg.connection_type,
 	}

@@ -31,7 +31,7 @@ from src.graph_diagram import (
 	GraphDiagramData,
 	compute_circular_layout,
 	compute_edge_geometry, format_graph_node_label, AnswerHighlight, find_cycle_icon_path, compute_cycle_center,
-	blend_hex_with_white,
+	blend_hex_with_white, compute_diagram_cycle_centers,
 )
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import list_graph_elements_and_groups, read_from_graph_xml
@@ -436,6 +436,8 @@ class ConfigDialog(tk.Toplevel):
 		add_entry_pair("max_cycle_length_game", "Max Cycle Length (Game)", cfg.max_cycle_length_game, loc.get("max_cycle_length_game"))
 		add_entry_pair("max_indirectness_game", "Max Indirectness (Game)", cfg.max_indirectness_game, loc.get("max_indirectness_game"))
 		add_check_pair("leaf_only", "Leaf Nodes Only", cfg.leaf_only, loc.get("leaf_only"))
+		add_check_pair("include_secondary_cycles", "Include Secondary Cycles", cfg.include_secondary_cycles,
+					   loc.get("include_secondary_cycles"))
 
 		# ------------------------------------------------------------------
 		# Tab 2: App Settings (Startup / Default File, separate from Graph Settings)
@@ -571,6 +573,7 @@ class ConfigDialog(tk.Toplevel):
 		out["block_starting_node"] = [x.strip().lower() for x in block_raw.split(",") if x.strip()]
 		out["excluded_elements"] = [line.strip() for line in excl_widget.get("1.0", tk.END).splitlines() if line.strip()]
 		out["leaf_only"] = bool(vars_map["leaf_only"].get())
+		out["include_secondary_cycles"] = bool(vars_map["include_secondary_cycles"].get())
 		return out
 
 	def _build_configs(self):
@@ -1231,78 +1234,11 @@ class GraphMLExplorerApp(tk.Tk):
 	# ------------------------------------------------------------------
 	def _update_graph_panel(self, diagram_data: GraphDiagramData):
 		self.current_diagram = diagram_data
-		self._redraw_graph_canvas()
-
-	def _redraw_graph_canvas(self):
-		canvas = getattr(self, "graph_canvas", None)
-		if canvas is None:
-			return
-		canvas.delete("all")
-		w = canvas.winfo_width()
-		h = canvas.winfo_height()
-		if w < 40 or h < 40:
-			return
-
-		diagram = self.current_diagram
-		if diagram is None or not diagram.nodes:
-			canvas.create_text(
-				w / 2.0,
-				h / 2.0,
-				text="Reveal an answer to generate the circular graph.",
-				fill="#777777",
-				font=("Segoe UI", 10),
-				width=max(120, w - 32),
-				justify=tk.CENTER,
-			)
-			return
-
-		font_spec = ("Segoe UI", 10)
-		max_text_w = max(80, min(140, int(w * 0.28)))
-		node_sizes = {}
-		for node in diagram.nodes:
-			tid = canvas.create_text(0, 0, text=node.label, font=font_spec, width=max_text_w, justify=tk.CENTER)
-			bbox = canvas.bbox(tid)
-			canvas.delete(tid)
-			tw = (bbox[2] - bbox[0]) if bbox else 60
-			th = (bbox[3] - bbox[1]) if bbox else 20
-			node_sizes[node.node_id] = (max(60.0, tw + 20.0), max(32.0, th + 12.0))
-
-		rects = compute_circular_layout(diagram, float(w), float(h), node_sizes, margin=16.0, flip_y=False)
-		edges_geom = compute_edge_geometry(diagram, rects, parallel_offset=7.0, target_pad=1.0)
-
-		for edge, x1, y1, x2, y2, _ux, _uy in edges_geom:
-			canvas.create_line(
-				x1,
-				y1,
-				x2,
-				y2,
-				fill=edge.color,
-				width=1.8,
-				arrow=tk.LAST,
-				arrowshape=(10, 12, 4.5),
-			)
-
-		for node in diagram.nodes:
-			cx, cy, nw, nh = rects[node.node_id]
-			canvas.create_rectangle(
-				cx - nw / 2.0,
-				cy - nh / 2.0,
-				cx + nw / 2.0,
-				cy + nh / 2.0,
-				fill=node.fill_color,
-				outline="#000000",
-				width=1.4,
-			)
-			canvas.create_text(
-				cx,
-				cy,
-				text=node.label,
-				fill=node.text_color,
-				font=font_spec,
-				width=max_text_w,
-				justify=tk.CENTER,
-			)
-
+		if self._hovered_answer_tag is not None:
+			self._set_hovered_answer_tag(None)
+		else:
+			self.active_highlight = None
+			self._redraw_graph_canvas()
 	# ------------------------------------------------------------------
 	# Terminal-like Console Widget Handling
 	# ------------------------------------------------------------------
@@ -1763,36 +1699,88 @@ class GraphMLExplorerApp(tk.Tk):
 				justify=tk.CENTER,
 			)
 
-		# 5. Cycle plus/minus icon in the middle of the path
+		# 5. Feedback loop icons (always drawn for every cycle; highlighted when hovered)
+		cycles_to_draw = list(getattr(diagram, "cycles", []) or [])
 		if active_hl is not None and active_hl.is_cycle and active_hl.cycle_polarity in (1, -1):
-			center = compute_cycle_center(active_hl, rects)
-			if center is not None:
-				mid_x, mid_y = center
-				icon_sz = max(36, min(64, int(min(w, h) * 0.18)))
-				photo = self._load_tk_cycle_icon(active_hl.cycle_polarity, icon_sz)
+			if not any(c.edges == active_hl.edges for c in cycles_to_draw):
+				from src.graph_diagram import DiagramCycle
+				cycles_to_draw.append(DiagramCycle(
+					node_ids=list(active_hl.cycle_node_ids or active_hl.node_ids),
+					edges=set(active_hl.edges),
+					polarity=active_hl.cycle_polarity,
+				))
+
+		if cycles_to_draw:
+			icon_sz = max(34, min(56, int(min(w, h) * 0.16)))
+			centers = compute_diagram_cycle_centers(cycles_to_draw, rects, min_sep=icon_sz * 1.15)
+
+			def _draw_cycle_icon(mid_x: float, mid_y: float, polarity: int, is_hl_cyc: bool):
+				badge_col = "#1DB954" if polarity > 0 else "#E53935"
+				draw_sz = int(round(icon_sz * (1.22 if is_hl_cyc else 1.0)))
+				if is_hl_cyc:
+					r_glow = draw_sz * 0.46
+					for pad, alpha in ((18.0, 0.22), (11.0, 0.42), (5.0, 0.72)):
+						canvas.create_oval(
+							mid_x - r_glow - pad / 2.0,
+							mid_y - r_glow - pad / 2.0,
+							mid_x + r_glow + pad / 2.0,
+							mid_y + r_glow + pad / 2.0,
+							fill=blend_hex_with_white(badge_col, alpha),
+							outline="",
+						)
+				photo = self._load_tk_cycle_icon(polarity, draw_sz)
 				if photo is not None:
 					canvas.create_image(mid_x, mid_y, image=photo)
+					if is_hl_cyc:
+						r_ring = draw_sz * 0.50
+						canvas.create_oval(
+							mid_x - r_ring, mid_y - r_ring,
+							mid_x + r_ring, mid_y + r_ring,
+							outline=badge_col,
+							width=3.0,
+						)
 				else:
-					r_bg = icon_sz * 0.46
-					badge_col = "#1DB954" if active_hl.cycle_polarity > 0 else "#E53935"
+					r_bg = draw_sz * 0.44
 					canvas.create_oval(
 						mid_x - r_bg, mid_y - r_bg,
 						mid_x + r_bg, mid_y + r_bg,
 						fill="#FFFFFF",
 						outline=badge_col,
-						width=3.0,
+						width=4.0 if is_hl_cyc else 2.6,
 					)
 					arm = r_bg * 0.56
-					thick = max(4.0, r_bg * 0.24)
+					thick = max(3.5, r_bg * (0.28 if is_hl_cyc else 0.22))
 					canvas.create_line(
 						mid_x - arm, mid_y, mid_x + arm, mid_y,
 						fill=badge_col, width=thick, capstyle=tk.ROUND,
 					)
-					if active_hl.cycle_polarity > 0:
+					if polarity > 0:
 						canvas.create_line(
 							mid_x, mid_y - arm, mid_x, mid_y + arm,
 							fill=badge_col, width=thick, capstyle=tk.ROUND,
 						)
+
+			normal_items = []
+			hl_items = []
+			for idx, cyc in enumerate(cycles_to_draw):
+				if idx not in centers or cyc.polarity not in (1, -1):
+					continue
+				is_hl_cyc = bool(
+					active_hl is not None
+					and active_hl.is_cycle
+					and active_hl.edges == cyc.edges
+				)
+				if is_hl_cyc:
+					hl_items.append((idx, cyc))
+				else:
+					normal_items.append((idx, cyc))
+
+			for idx, cyc in normal_items:
+				mx, my = centers[idx]
+				_draw_cycle_icon(mx, my, cyc.polarity, False)
+			for idx, cyc in hl_items:
+				mx, my = centers[idx]
+				_draw_cycle_icon(mx, my, cyc.polarity, True)
 
 	def open_appdata_folder(self):
 		folder = get_local_data_dir()

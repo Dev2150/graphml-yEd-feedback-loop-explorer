@@ -1,6 +1,6 @@
 import os
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
@@ -67,13 +67,19 @@ class DiagramEdge:
 	correlation: int  # +1 -> black arrow, -1 -> red arrow
 	color: str
 
+@dataclass
+class DiagramCycle:
+	node_ids: List[str]
+	edges: Set[Tuple[str, str]]
+	polarity: Optional[int]  # +1 reinforcing (+), -1 balancing (-), None if ignored/neutral
+	is_secondary: bool = False
 
 @dataclass
 class GraphDiagramData:
 	title: str
 	nodes: List[DiagramNode]
 	edges: List[DiagramEdge]
-
+	cycles: List[DiagramCycle] = field(default_factory=list)
 
 
 @dataclass
@@ -113,6 +119,88 @@ def compute_cycle_center(
 	cy = sum(c[1] for c in coords) / len(coords)
 	return cx, cy
 
+
+def compute_diagram_cycle_centers(
+	cycles: List[DiagramCycle],
+	rects: Dict[str, Tuple[float, float, float, float]],
+	min_sep: float = 40.0,
+) -> Dict[int, Tuple[float, float]]:
+	"""
+	Computes (cx, cy) icon positions for each cycle in `cycles`, gently separating
+	cycles whose node centroids overlap (e.g. opposite-direction cycles on the same nodes).
+	"""
+	raw: Dict[int, List[float]] = {}
+	for idx, cyc in enumerate(cycles):
+		if cyc.polarity not in (1, -1):
+			continue
+		coords = [rects[nid] for nid in cyc.node_ids if nid in rects]
+		if not coords:
+			continue
+		raw[idx] = [
+			sum(c[0] for c in coords) / len(coords),
+			sum(c[1] for c in coords) / len(coords),
+		]
+
+	if len(raw) <= 1:
+		return {idx: (pos[0], pos[1]) for idx, pos in raw.items()}
+
+	keys = list(raw.keys())
+
+	# Pre-spread exact/near-identical centroids deterministically
+	groups: List[List[int]] = []
+	assigned: Set[int] = set()
+	for i in keys:
+		if i in assigned:
+			continue
+		grp = [i]
+		assigned.add(i)
+		xi, yi = raw[i]
+		for j in keys:
+			if j in assigned:
+				continue
+			xj, yj = raw[j]
+			if math.hypot(xj - xi, yj - yi) < 2.0:
+				grp.append(j)
+				assigned.add(j)
+		groups.append(grp)
+
+	for grp in groups:
+		if len(grp) == 2:
+			off = min_sep * 0.55
+			raw[grp[0]][0] -= off
+			raw[grp[1]][0] += off
+		elif len(grp) > 2:
+			rad = min_sep * 0.65
+			for k, idx in enumerate(grp):
+				ang = (2.0 * math.pi * k) / len(grp)
+				raw[idx][0] += rad * math.cos(ang)
+				raw[idx][1] += rad * math.sin(ang)
+
+	# Repulsion pass for close non-identical centers
+	for _ in range(10):
+		moved = False
+		for a_i in range(len(keys)):
+			i = keys[a_i]
+			for b_i in range(a_i + 1, len(keys)):
+				j = keys[b_i]
+				dx = raw[j][0] - raw[i][0]
+				dy = raw[j][1] - raw[i][1]
+				dist = math.hypot(dx, dy)
+				if dist < min_sep:
+					moved = True
+					if dist < 1e-3:
+						ux, uy = 1.0, 0.0
+					else:
+						ux, uy = dx / dist, dy / dist
+					push = (min_sep - dist) / 2.0
+					raw[i][0] -= ux * push
+					raw[i][1] -= uy * push
+					raw[j][0] += ux * push
+					raw[j][1] += uy * push
+		if not moved:
+			break
+
+	return {idx: (pos[0], pos[1]) for idx, pos in raw.items()}
 
 def find_cycle_icon_path(polarity: Optional[int]) -> Optional[str]:
 	if polarity not in (1, -1):
@@ -196,6 +284,7 @@ def _assemble_diagram(
 	nodes_dict: Dict[str, str],
 	edge_values: Dict[Tuple[str, str], int],
 	ignore_edge_colors: bool = False,
+	cycles: Optional[List[DiagramCycle]] = None,
 ) -> GraphDiagramData:
 	seen_edges: Set[Tuple[str, str]] = set()
 	dedup_edges: List[Tuple[str, str]] = []
@@ -230,7 +319,12 @@ def _assemble_diagram(
 		arrow_color = COLOR_BLACK if corr > 0 else COLOR_RED
 		diagram_edges.append(DiagramEdge(u, v, corr, arrow_color))
 
-	return GraphDiagramData(title=title, nodes=diagram_nodes, edges=diagram_edges)
+	return GraphDiagramData(
+		title=title,
+		nodes=diagram_nodes,
+		edges=diagram_edges,
+		cycles=list(cycles or []),
+	)
 
 
 def build_pair_diagram(
@@ -243,12 +337,15 @@ def build_pair_diagram(
 	paths_u_v: List[List[str]],
 	paths_v_u: List[List[str]],
 	pair_cycles: List[List[str]],
+	secondary_cycles: Optional[List[List[str]]] = None,
 	ignore_edge_colors: bool = False,
 	question_num: int = 0,
 ) -> GraphDiagramData:
 	target_ids = {u, v}
 	common_source_ids = set(shared_srcs) - target_ids
 	common_effect_ids = set(shared_dsts) - target_ids
+
+	sec_cycles = secondary_cycles or []
 
 	edge_pairs: List[Tuple[str, str]] = []
 	for s in shared_srcs:
@@ -257,9 +354,24 @@ def build_pair_diagram(
 	for d in shared_dsts:
 		edge_pairs.append((u, d))
 		edge_pairs.append((v, d))
-	for path in paths_u_v + paths_v_u + pair_cycles:
+	for path in paths_u_v + paths_v_u + pair_cycles + sec_cycles:
 		for k in range(len(path) - 1):
 			edge_pairs.append((path[k], path[k + 1]))
+
+	diagram_cycles: List[DiagramCycle] = []
+	seen_edge_sets: Set[frozenset] = set()
+	for cyc in pair_cycles:
+		dc = _build_diagram_cycle(cyc, edge_values, ignore_edge_colors, is_secondary=False)
+		key = frozenset(dc.edges)
+		if key not in seen_edge_sets:
+			seen_edge_sets.add(key)
+			diagram_cycles.append(dc)
+	for cyc in sec_cycles:
+		dc = _build_diagram_cycle(cyc, edge_values, ignore_edge_colors, is_secondary=True)
+		key = frozenset(dc.edges)
+		if key not in seen_edge_sets:
+			seen_edge_sets.add(key)
+			diagram_cycles.append(dc)
 
 	u_name = nodes_dict.get(u, str(u))
 	v_name = nodes_dict.get(v, str(v))
@@ -276,6 +388,7 @@ def build_pair_diagram(
 		nodes_dict=nodes_dict,
 		edge_values=edge_values,
 		ignore_edge_colors=ignore_edge_colors,
+		cycles=diagram_cycles,
 	)
 
 
@@ -289,12 +402,21 @@ def build_cycle_diagram(
 ) -> GraphDiagramData:
 	edge_pairs: List[Tuple[str, str]] = []
 	node_ids: List[str] = []
+	diagram_cycles: List[DiagramCycle] = []
+	seen_edge_sets: Set[frozenset] = set()
+
 	for path in paths:
 		for nid in path:
 			if nid not in node_ids:
 				node_ids.append(nid)
 		for k in range(len(path) - 1):
 			edge_pairs.append((path[k], path[k + 1]))
+		if len(path) >= 3 and path[0] == path[-1]:
+			dc = _build_diagram_cycle(path, edge_values, ignore_edge_colors, is_secondary=False)
+			key = frozenset(dc.edges)
+			if key not in seen_edge_sets:
+				seen_edge_sets.add(key)
+				diagram_cycles.append(dc)
 
 	prefix = f"Q{question_num}: " if question_num else ""
 	ans_names = ", ".join(str(nodes_dict.get(nid, nid)) for nid in sorted(answer_node_ids, key=lambda x: str(nodes_dict.get(x, x)).lower()))
@@ -310,6 +432,7 @@ def build_cycle_diagram(
 		nodes_dict=nodes_dict,
 		edge_values=edge_values,
 		ignore_edge_colors=ignore_edge_colors,
+		cycles=diagram_cycles,
 	)
 
 
@@ -614,3 +737,89 @@ def compute_edge_geometry(
 		result.append((edge, x1, y1, x2, y2, ux, uy))
 
 	return result
+
+def _build_diagram_cycle(
+	cyc: List[str],
+	edge_values: Dict[Tuple[str, str], int],
+	ignore_edge_colors: bool,
+	is_secondary: bool = False,
+) -> DiagramCycle:
+	cyc_edges = {(cyc[k], cyc[k + 1]) for k in range(len(cyc) - 1)}
+	if ignore_edge_colors:
+		polarity = None
+	else:
+		corr = 1
+		for k in range(len(cyc) - 1):
+			corr *= edge_values.get((cyc[k], cyc[k + 1]), 1)
+		polarity = 1 if corr > 0 else -1
+	return DiagramCycle(
+		node_ids=list(dict.fromkeys(cyc)),
+		edges=cyc_edges,
+		polarity=polarity,
+		is_secondary=is_secondary,
+	)
+
+
+def build_pair_diagram(
+	u: str,
+	v: str,
+	nodes_dict: Dict[str, str],
+	edge_values: Dict[Tuple[str, str], int],
+	shared_srcs: List[str],
+	shared_dsts: List[str],
+	paths_u_v: List[List[str]],
+	paths_v_u: List[List[str]],
+	pair_cycles: List[List[str]],
+	secondary_cycles: Optional[List[List[str]]] = None,
+	ignore_edge_colors: bool = False,
+	question_num: int = 0,
+) -> GraphDiagramData:
+	target_ids = {u, v}
+	common_source_ids = set(shared_srcs) - target_ids
+	common_effect_ids = set(shared_dsts) - target_ids
+
+	sec_cycles = secondary_cycles or []
+
+	edge_pairs: List[Tuple[str, str]] = []
+	for s in shared_srcs:
+		edge_pairs.append((s, u))
+		edge_pairs.append((s, v))
+	for d in shared_dsts:
+		edge_pairs.append((u, d))
+		edge_pairs.append((v, d))
+	for path in paths_u_v + paths_v_u + pair_cycles + sec_cycles:
+		for k in range(len(path) - 1):
+			edge_pairs.append((path[k], path[k + 1]))
+
+	diagram_cycles: List[DiagramCycle] = []
+	seen_edge_sets: Set[frozenset] = set()
+	for cyc in pair_cycles:
+		dc = _build_diagram_cycle(cyc, edge_values, ignore_edge_colors, is_secondary=False)
+		key = frozenset(dc.edges)
+		if key not in seen_edge_sets:
+			seen_edge_sets.add(key)
+			diagram_cycles.append(dc)
+	for cyc in sec_cycles:
+		dc = _build_diagram_cycle(cyc, edge_values, ignore_edge_colors, is_secondary=True)
+		key = frozenset(dc.edges)
+		if key not in seen_edge_sets:
+			seen_edge_sets.add(key)
+			diagram_cycles.append(dc)
+
+	u_name = nodes_dict.get(u, str(u))
+	v_name = nodes_dict.get(v, str(v))
+	prefix = f"Q{question_num}: " if question_num else ""
+	title = f"{prefix}{u_name} ↔ {v_name}"
+
+	return _assemble_diagram(
+		title=title,
+		node_ids=[u, v] + list(shared_srcs) + list(shared_dsts),
+		edge_pairs=edge_pairs,
+		target_ids=target_ids,
+		common_source_ids=common_source_ids,
+		common_effect_ids=common_effect_ids,
+		nodes_dict=nodes_dict,
+		edge_values=edge_values,
+		ignore_edge_colors=ignore_edge_colors,
+		cycles=diagram_cycles,
+	)

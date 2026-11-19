@@ -104,7 +104,7 @@ from src.graph_diagram import (
 	compute_cycle_center,
 	compute_edge_geometry,
 	find_cycle_icon_path,
-	format_graph_node_label,
+	format_graph_node_label, DiagramCycle, compute_diagram_cycle_centers,
 )
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import list_graph_elements_and_groups, read_from_graph_xml
@@ -384,33 +384,76 @@ class CircularGraphWidget(StencilView):
 					size=tex.size,
 				)
 
-			# 5. Cycle plus/minus icon in the middle of the cycle path
+			# 5. Feedback loop icons (always drawn for every cycle; highlighted when selected)
+			cycles_to_draw = list(getattr(active_diagram, 'cycles', []) or [])
 			if active_hl is not None and active_hl.is_cycle and active_hl.cycle_polarity in (1, -1):
-				center = compute_cycle_center(active_hl, rects)
-				if center is not None:
-					mid_x = ox + center[0]
-					mid_y = oy + center[1]
-					icon_sz = max(dp(34), min(dp(56), min(self.width, self.height) * 0.22))
-					icon_tex = self._load_cycle_icon_texture(active_hl.cycle_polarity)
+				if not any(c.edges == active_hl.edges for c in cycles_to_draw):
+					cycles_to_draw.append(DiagramCycle(
+						node_ids=list(active_hl.cycle_node_ids or active_hl.node_ids),
+						edges=set(active_hl.edges),
+						polarity=active_hl.cycle_polarity,
+					))
+
+			if cycles_to_draw:
+				icon_sz = max(dp(30), min(dp(50), min(self.width, self.height) * 0.20))
+				centers = compute_diagram_cycle_centers(cycles_to_draw, rects, min_sep=icon_sz * 1.15)
+
+				def _draw_kivy_cycle_icon(mid_x: float, mid_y: float, polarity: int, is_hl_cyc: bool):
+					draw_sz = icon_sz * (1.22 if is_hl_cyc else 1.0)
+					badge_rgba = (0.11, 0.73, 0.33, 1) if polarity > 0 else (0.90, 0.22, 0.21, 1)
+					br, bg, bb, _ = badge_rgba
+					if is_hl_cyc:
+						r_glow = draw_sz * 0.46
+						for pad, alpha in ((dp(14), 0.22), (dp(9), 0.42), (dp(4), 0.68)):
+							Color(br, bg, bb, alpha)
+							Ellipse(
+								pos=(mid_x - r_glow - pad / 2.0, mid_y - r_glow - pad / 2.0),
+								size=(r_glow * 2.0 + pad, r_glow * 2.0 + pad),
+							)
+					icon_tex = self._load_cycle_icon_texture(polarity)
 					if icon_tex is not None:
 						Color(1, 1, 1, 1)
 						Rectangle(
 							texture=icon_tex,
-							pos=(mid_x - icon_sz / 2.0, mid_y - icon_sz / 2.0),
-							size=(icon_sz, icon_sz),
+							pos=(mid_x - draw_sz / 2.0, mid_y - draw_sz / 2.0),
+							size=(draw_sz, draw_sz),
 						)
+						if is_hl_cyc:
+							Color(*badge_rgba)
+							Line(circle=(mid_x, mid_y, draw_sz * 0.50), width=dp(2.4))
 					else:
-						r_bg = icon_sz * 0.46
-						badge_rgba = (0.11, 0.73, 0.33, 1) if active_hl.cycle_polarity > 0 else (0.90, 0.22, 0.21, 1)
-						Color(1, 1, 1, 0.92)
+						r_bg = draw_sz * 0.44
+						Color(1, 1, 1, 0.94)
 						Ellipse(pos=(mid_x - r_bg, mid_y - r_bg), size=(r_bg * 2.0, r_bg * 2.0))
 						Color(*badge_rgba)
-						Line(circle=(mid_x, mid_y, r_bg), width=dp(2.2))
+						Line(circle=(mid_x, mid_y, r_bg), width=dp(3.0) if is_hl_cyc else dp(2.0))
 						arm = r_bg * 0.54
-						half_t = max(dp(2.2), r_bg * 0.14)
+						half_t = max(dp(2.0), r_bg * (0.16 if is_hl_cyc else 0.13))
 						Rectangle(pos=(mid_x - arm, mid_y - half_t), size=(arm * 2.0, half_t * 2.0))
-						if active_hl.cycle_polarity > 0:
+						if polarity > 0:
 							Rectangle(pos=(mid_x - half_t, mid_y - arm), size=(half_t * 2.0, arm * 2.0))
+
+						normal_items = []
+						hl_items = []
+						for idx, cyc in enumerate(cycles_to_draw):
+							if idx not in centers or cyc.polarity not in (1, -1):
+								continue
+							is_hl_cyc = bool(
+								active_hl is not None
+								and active_hl.is_cycle
+								and active_hl.edges == cyc.edges
+							)
+							if is_hl_cyc:
+								hl_items.append((idx, cyc))
+							else:
+								normal_items.append((idx, cyc))
+
+						for idx, cyc in normal_items:
+							cx_i, cy_i = centers[idx]
+							_draw_kivy_cycle_icon(ox + cx_i, oy + cy_i, cyc.polarity, False)
+						for idx, cyc in hl_items:
+							cx_i, cy_i = centers[idx]
+							_draw_kivy_cycle_icon(ox + cx_i, oy + cy_i, cyc.polarity, True)
 
 
 class ConsoleRedirector:
@@ -1547,6 +1590,7 @@ class GraphMLAndroidApp(App):
 		add_text_pair('max_indirectness_game', 'Max Indirectness (Game)', g_cfg.max_indirectness_game,
 					  loc.get('max_indirectness_game'))
 		add_bool_pair('leaf_only', 'Leaf Nodes Only', g_cfg.leaf_only, loc.get('leaf_only'))
+		add_bool_pair('include_secondary_cycles', 'Include Secondary Cycles', g_cfg.include_secondary_cycles, loc.get('include_secondary_cycles'))
 
 		# ------------------------------------------------------------------
 		# View 2: App Settings
@@ -1671,6 +1715,7 @@ class GraphMLAndroidApp(App):
 			out['excluded_elements'] = [line.strip() for line in fmap['excluded_elements'].text.splitlines() if
 										line.strip()]
 			out['leaf_only'] = bool(fmap['leaf_only'].active)
+			out['include_secondary_cycles'] = bool(fmap['include_secondary_cycles'].active)
 			return out
 
 		def _apply(mode: str):
@@ -1765,6 +1810,9 @@ class GraphMLAndroidApp(App):
 		def on_graph(diagram_data: GraphDiagramData):
 			self.output_queue.put(('graph', (session, diagram_data)))
 
+		def on_answer_output(text: str, highlight: AnswerHighlight):
+			self.output_queue.put(('answer_line', (session, text, highlight)))
+
 		def gui_input() -> str:
 			if session.cancel_event.is_set():
 				raise GameCancelledError()
@@ -1790,6 +1838,7 @@ class GraphMLAndroidApp(App):
 					on_stats_update=on_stats,
 					prepared_data=prepared_ref,
 					on_graph_update=on_graph,
+					on_answer_output=on_answer_output
 				)
 				self.output_queue.put(('game_finished', session))
 			except GameCancelledError:

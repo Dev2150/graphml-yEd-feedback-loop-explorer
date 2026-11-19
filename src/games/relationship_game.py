@@ -357,6 +357,7 @@ def run_relationship_guessing_game(
 	max_indirectness_game = config.max_indirectness_game
 	chance_irrelevant = config.chance_irrelevant
 	max_cycle_length_game = config.max_cycle_length_game
+	include_secondary_cycles = getattr(config, 'include_secondary_cycles', True)
 
 	if prepared_data is None:
 		prepared_data = prepare_relationship_game_data(ctx)
@@ -967,6 +968,88 @@ def run_relationship_guessing_game(
 							),
 						))
 
+				# Find secondary cycles (cycles among plotted nodes that do not contain both u and v)
+				secondary_cycles = []
+				if include_secondary_cycles:
+					base_nodes = {u, v} | set(shared_srcs) | set(shared_dsts)
+					base_edges = set()
+					for s in shared_srcs:
+						base_edges.add((s, u))
+						base_edges.add((s, v))
+					for d in shared_dsts:
+						base_edges.add((u, d))
+						base_edges.add((v, d))
+					for p in paths_u_v + paths_v_u + pair_cycles:
+						base_nodes.update(p)
+						for k in range(len(p) - 1):
+							base_edges.add((p[k], p[k + 1]))
+
+					raw_sec_cycles = []
+					if max_cycle_length_game >= 2 and len(base_nodes) >= 2:
+						sub_g = g.subgraph(base_nodes)
+						raw_sec_cycles.extend(find_bounded_cycles(sub_g, max_cycle_length_game))
+
+					base_g = nx.DiGraph()
+					base_g.add_nodes_from(base_nodes)
+					base_g.add_edges_from(base_edges)
+					drawn_bound = max(max_cycle_length_game, max_indirectness_game + 2)
+					if drawn_bound >= 2:
+						raw_sec_cycles.extend(find_bounded_cycles(base_g, drawn_bound))
+
+					seen_sec_cycles = set()
+					for cyc_nodes in raw_sec_cycles:
+						if len(cyc_nodes) < 2:
+							continue
+						cyc_set = set(cyc_nodes)
+						# Exclude primary cycles that contain both u and v
+						if u in cyc_set and v in cyc_set:
+							continue
+						# Safety check: every node must already be referenced
+						if not cyc_set.issubset(base_nodes):
+							continue
+						canonical = tuple(get_canonical_cycle_tuple(cyc_nodes, nodes))
+						if canonical in seen_sec_cycles:
+							continue
+						seen_sec_cycles.add(canonical)
+
+						if u in cyc_set:
+							idx = cyc_nodes.index(u)
+							rotated = cyc_nodes[idx:] + cyc_nodes[:idx]
+						elif v in cyc_set:
+							idx = cyc_nodes.index(v)
+							rotated = cyc_nodes[idx:] + cyc_nodes[:idx]
+						else:
+							rotated = list(canonical)
+
+						secondary_cycles.append(rotated + [rotated[0]])
+
+					secondary_cycles.sort(key=lambda c: (len(c), [str(nodes.get(n, n)).lower() for n in c]))
+
+					for cyc in secondary_cycles:
+						formatted_cyc = format_path_string(cyc, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+						cyc_len = len(cyc) - 1
+						if is_counter or ignore_edge_colors:
+							polarity = None
+							line = f"Secondary cycle ({cyc_len}): {formatted_cyc}"
+						else:
+							cycle_corr = 1
+							for k in range(len(cyc) - 1):
+								cycle_corr *= edge_values.get((cyc[k], cyc[k + 1]), 1)
+							polarity = 1 if cycle_corr > 0 else -1
+							polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
+							line = f"Secondary cycle ({cyc_len}) {polarity_icon}: {formatted_cyc}"
+
+						connection_entries.append((
+							line,
+							AnswerHighlight(
+								node_ids=set(cyc),
+								edges={(cyc[k], cyc[k + 1]) for k in range(len(cyc) - 1)},
+								is_cycle=True,
+								cycle_polarity=polarity,
+								cycle_node_ids=list(dict.fromkeys(cyc)),
+							),
+						))
+
 				diagram = build_pair_diagram(
 					u=u,
 					v=v,
@@ -977,6 +1060,22 @@ def run_relationship_guessing_game(
 					paths_u_v=paths_u_v,
 					paths_v_u=paths_v_u,
 					pair_cycles=pair_cycles,
+					secondary_cycles=secondary_cycles,
+					ignore_edge_colors=is_counter or ignore_edge_colors,
+					question_num=question_num,
+				)
+
+				diagram = build_pair_diagram(
+					u=u,
+					v=v,
+					nodes_dict=nodes,
+					edge_values=edge_values,
+					shared_srcs=shared_srcs,
+					shared_dsts=shared_dsts,
+					paths_u_v=paths_u_v,
+					paths_v_u=paths_v_u,
+					pair_cycles=pair_cycles,
+					secondary_cycles=secondary_cycles,  # <-- make sure this is passed
 					ignore_edge_colors=is_counter or ignore_edge_colors,
 					question_num=question_num,
 				)
