@@ -59,7 +59,7 @@ class DiagramNode:
 	role: str  # 'target', 'common_source', 'common_effect', 'default'
 	fill_color: str
 	text_color: str
-
+	outline_color: str = COLOR_BLACK
 
 @dataclass
 class DiagramEdge:
@@ -220,21 +220,56 @@ def find_cycle_icon_path(polarity: Optional[int]) -> Optional[str]:
 				return candidate
 	return None
 
+def _normalize_hex_color(color: Optional[str], fallback: str = COLOR_WHITE) -> str:
+	if not color:
+		return fallback
+	c = str(color).strip()
+	if c.startswith('#'):
+		c = c[1:]
+	if len(c) == 6:
+		try:
+			int(c, 16)
+			return f"#{c.upper()}"
+		except ValueError:
+			return fallback
+	return fallback
+
+
+def _contrasting_text_color(hex_color: str) -> str:
+	h = hex_color.lstrip('#')
+	if len(h) != 6:
+		return COLOR_BLACK
+	try:
+		r = int(h[0:2], 16)
+		g = int(h[2:4], 16)
+		b = int(h[4:6], 16)
+	except ValueError:
+		return COLOR_BLACK
+	luminance = 0.299 * r + 0.587 * g + 0.114 * b
+	return COLOR_WHITE if luminance < 128.0 else COLOR_BLACK
+
+
 def _make_diagram_node(
 	node_id: str,
 	label: str,
 	target_ids: Set[str],
 	common_source_ids: Set[str],
 	common_effect_ids: Set[str],
+	node_colors: Optional[Dict[str, str]] = None,
 ) -> DiagramNode:
-	if node_id in target_ids:
-		return DiagramNode(node_id, label, 'target', COLOR_BLACK, COLOR_WHITE)
-	if node_id in common_source_ids:
-		return DiagramNode(node_id, label, 'common_source', COLOR_PINK, COLOR_BLACK)
-	if node_id in common_effect_ids:
-		return DiagramNode(node_id, label, 'common_effect', COLOR_BLUE, COLOR_BLACK)
-	return DiagramNode(node_id, label, 'default', COLOR_GOLD, COLOR_BLACK)
+	if node_colors is not None and node_id in node_colors:
+		fill_color = _normalize_hex_color(node_colors.get(node_id), fallback=COLOR_WHITE)
+	else:
+		fill_color = COLOR_GOLD
+	text_color = _contrasting_text_color(fill_color)
 
+	if node_id in target_ids:
+		return DiagramNode(node_id, label, 'target', fill_color, text_color, outline_color=COLOR_BLACK)
+	if node_id in common_source_ids:
+		return DiagramNode(node_id, label, 'common_source', fill_color, text_color, outline_color=COLOR_PINK)
+	if node_id in common_effect_ids:
+		return DiagramNode(node_id, label, 'common_effect', fill_color, text_color, outline_color=COLOR_BLUE)
+	return DiagramNode(node_id, label, 'default', fill_color, text_color, outline_color=COLOR_BLACK)
 
 def _score_circular_order(
 	order: List[int],
@@ -514,6 +549,7 @@ def _assemble_diagram(
 	cycles: Optional[List[DiagramCycle]] = None,
 	bidirectional_edges: Optional[Set[Tuple[str, str]]] = None,
 	default_highlight: Optional[AnswerHighlight] = None,
+	node_colors: Optional[Dict[str, str]] = None
 ) -> GraphDiagramData:
 	seen_edges: Set[Tuple[str, str]] = set()
 	dedup_edges: List[Tuple[str, str]] = []
@@ -539,6 +575,7 @@ def _assemble_diagram(
 			target_ids,
 			common_source_ids,
 			common_effect_ids,
+			node_colors
 		)
 		for nid in ordered_ids
 	]
@@ -566,6 +603,7 @@ def build_cycle_diagram(
 	edge_values: Dict[Tuple[str, str], int],
 	ignore_edge_colors: bool = False,
 	question_num: int = 0,
+	node_colors: Optional[Dict[str, str]] = None
 ) -> GraphDiagramData:
 	edge_pairs: List[Tuple[str, str]] = []
 	node_ids: List[str] = []
@@ -600,6 +638,7 @@ def build_cycle_diagram(
 		edge_values=edge_values,
 		ignore_edge_colors=ignore_edge_colors,
 		cycles=diagram_cycles,
+		node_colors=node_colors
 	)
 
 
@@ -611,6 +650,7 @@ def build_leaf_diagram(
 	edge_values: Dict[Tuple[str, str], int],
 	ignore_edge_colors: bool = False,
 	question_num: int = 0,
+	node_colors: Optional[Dict[str, str]] = None
 ) -> GraphDiagramData:
 	if is_source_question:
 		edge_pairs = [(s, anchor_node) for s in leaf_nodes]
@@ -631,6 +671,7 @@ def build_leaf_diagram(
 		nodes_dict=nodes_dict,
 		edge_values=edge_values,
 		ignore_edge_colors=ignore_edge_colors,
+		node_colors=node_colors
 	)
 
 
@@ -683,6 +724,7 @@ def build_family_pair_diagram(
 	ancestor_paths: dict,
 	ancestor_dist: dict,
 	question_num: int = 0,
+	node_colors: Optional[Dict[str, str]] = None
 ) -> GraphDiagramData:
 	target_ids = {u, v}
 	common_source_ids: Set[str] = set()
@@ -777,6 +819,7 @@ def build_family_pair_diagram(
 		edge_values={},
 		ignore_edge_colors=True,
 		bidirectional_edges=spouse_pairs,
+		node_colors=node_colors
 	)
 
 
@@ -983,6 +1026,7 @@ def build_pair_diagram(
 	secondary_cycles: Optional[List[List[str]]] = None,
 	ignore_edge_colors: bool = False,
 	question_num: int = 0,
+	node_colors: Optional[Dict[str, str]] = None,
 ) -> GraphDiagramData:
 	target_ids = {u, v}
 	common_source_ids = set(shared_srcs) - target_ids
@@ -1032,4 +1076,5 @@ def build_pair_diagram(
 		edge_values=edge_values,
 		ignore_edge_colors=ignore_edge_colors,
 		cycles=diagram_cycles,
+		node_colors=node_colors
 	)

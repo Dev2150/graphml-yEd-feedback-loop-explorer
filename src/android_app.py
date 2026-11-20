@@ -385,10 +385,17 @@ class CircularGraphWidget(StencilView):
 				bx = ox + cx - nw / 2.0
 				by = oy + cy - nh / 2.0
 				is_first_blue = (node.node_id in first_hl_nodes)
-				nr, ng, nb, _ = (0.118, 0.565, 1.0, 1.0) if is_first_blue else _hex_to_rgba(node.fill_color)
-				steps = ((dp(16), 0.30), (dp(10), 0.54), (dp(5), 0.82)) if is_first_blue else ((dp(14), 0.25),
-																							   (dp(9), 0.45),
-																							   (dp(4.5), 0.72))
+				if is_first_blue:
+					nr, ng, nb, _ = (0.118, 0.565, 1.0, 1.0)
+				elif node.role in ('common_source', 'common_effect'):
+					nr, ng, nb, _ = _hex_to_rgba(node.outline_color)
+				elif node.fill_color == '#FFFFFF':
+					nr, ng, nb = (0.6, 0.6, 0.6)
+				else:
+					nr, ng, nb, _ = _hex_to_rgba(node.fill_color)
+				steps = ((dp(16), 0.30), (dp(10), 0.54), (dp(5), 0.82)) if is_first_blue else (
+					(dp(14), 0.25), (dp(9), 0.45), (dp(4.5), 0.72)
+				)
 				for pad, alpha in steps:
 					Color(nr, ng, nb, alpha)
 					Rectangle(pos=(bx - pad / 2.0, by - pad / 2.0), size=(nw + pad, nh + pad))
@@ -405,8 +412,18 @@ class CircularGraphWidget(StencilView):
 				Color(*_hex_to_rgba(node.fill_color))
 				Rectangle(pos=(bx, by), size=(nw, nh))
 
-				Color(*(0.0, 0.40, 1.0, 1.0) if is_first_blue else (0, 0, 0, 1))
-				Line(rectangle=(bx, by, nw, nh), width=2.2 if is_first_blue else (1.6 if is_hl else 1.05))
+				if node.role == 'target':
+					outline_rgba = _hex_to_rgba(node.outline_color)
+					outline_w = dp(3.0)
+				elif node.role in ('common_source', 'common_effect'):
+					outline_rgba = _hex_to_rgba(node.outline_color)
+					outline_w = dp(2.0) if is_hl else dp(1.7)
+				else:
+					outline_rgba = (0.0, 0.40, 1.0, 1.0) if is_first_blue else _hex_to_rgba(node.outline_color)
+					outline_w = dp(2.0) if is_first_blue else (dp(1.5) if is_hl else dp(1.0))
+
+				Color(*outline_rgba)
+				Line(rectangle=(bx, by, nw, nh), width=outline_w)
 
 				Color(1, 1, 1, 1)
 				Rectangle(

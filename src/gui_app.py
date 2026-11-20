@@ -1715,7 +1715,12 @@ class GraphMLExplorerApp(tk.Tk):
 				continue
 			cx, cy, nw, nh = rects[node.node_id]
 			is_first_blue = (node.node_id in first_hl_nodes)
-			glow_base = COLOR_GLOW_FIRST if is_first_blue else node.fill_color
+			if is_first_blue:
+				glow_base = COLOR_GLOW_FIRST
+			elif node.role in ('common_source', 'common_effect'):
+				glow_base = node.outline_color
+			else:
+				glow_base = node.fill_color if node.fill_color != "#FFFFFF" else "#999999"
 			glow_steps = (GLOW_STEP_FIRST if is_first_blue else GLOW_STEP_NOT_FIRST)
 			for pad, alpha in glow_steps:
 				canvas.create_rectangle(
@@ -1732,14 +1737,23 @@ class GraphMLExplorerApp(tk.Tk):
 			cx, cy, nw, nh = rects[node.node_id]
 			is_hl = node.node_id in hl_nodes
 			is_first_hl = (node.node_id in first_hl_nodes)
+			if node.role == 'target':
+				outline_col = node.outline_color
+				outline_w = 4.0
+			elif node.role in ('common_source', 'common_effect'):
+				outline_col = node.outline_color
+				outline_w = 2.8 if is_hl else 2.4
+			else:
+				outline_col = COLOR_OUTLINE_FIRST if is_first_hl else node.outline_color
+				outline_w = 2.8 if is_first_hl else (2.2 if is_hl else 1.4)
 			canvas.create_rectangle(
 				cx - nw / 2.0,
 				cy - nh / 2.0,
 				cx + nw / 2.0,
 				cy + nh / 2.0,
 				fill=node.fill_color,
-				outline=COLOR_OUTLINE_FIRST if is_first_hl else COLOR_BLACK,
-				width=2.8 if is_first_hl else (2.2 if is_hl else 1.4),
+				outline=outline_col,
+				width=outline_w,
 			)
 			canvas.create_text(
 				cx,

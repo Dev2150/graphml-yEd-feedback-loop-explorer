@@ -1122,21 +1122,7 @@ def run_relationship_guessing_game(
 					secondary_cycles=secondary_cycles,
 					ignore_edge_colors=is_counter or ignore_edge_colors,
 					question_num=question_num,
-				)
-
-				diagram = build_pair_diagram(
-					u=u,
-					v=v,
-					nodes_dict=nodes,
-					edge_values=edge_values,
-					shared_srcs=shared_srcs,
-					shared_dsts=shared_dsts,
-					paths_u_v=paths_u_v,
-					paths_v_u=paths_v_u,
-					pair_cycles=pair_cycles,
-					secondary_cycles=secondary_cycles,  # <-- make sure this is passed
-					ignore_edge_colors=is_counter or ignore_edge_colors,
-					question_num=question_num,
+					node_colors=node_colors
 				)
 
 				for _, hl in connection_entries:
