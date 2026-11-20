@@ -236,6 +236,94 @@ def _make_diagram_node(
 	return DiagramNode(node_id, label, 'default', COLOR_GOLD, COLOR_BLACK)
 
 
+def _score_circular_order(
+	order: List[int],
+	undirected_edges: List[Tuple[int, int]],
+	n: int,
+) -> Tuple[int, int]:
+	pos = [0] * n
+	for idx, node in enumerate(order):
+		pos[node] = idx
+
+	ep: List[Tuple[int, int]] = []
+	total_dist = 0
+	for u, v in undirected_edges:
+		pu, pv = pos[u], pos[v]
+		if pu > pv:
+			pu, pv = pv, pu
+		ep.append((pu, pv))
+		d = pv - pu
+		total_dist += d if d <= n - d else n - d
+
+	ep.sort()
+	crossings = 0
+	m = len(ep)
+	for i in range(m):
+		a, b = ep[i]
+		for j in range(i + 1, m):
+			c, d = ep[j]
+			if c >= b:
+				break
+			if a < c and b < d:
+				crossings += 1
+	return crossings, total_dist
+
+
+def _normalize_cycle_order(order: List[int], anchor: int = 0) -> List[int]:
+	if not order or anchor not in order:
+		return list(order)
+	idx = order.index(anchor)
+	rotated = order[idx:] + order[:idx]
+	if len(rotated) >= 3 and rotated[1] > rotated[-1]:
+		rotated = [rotated[0]] + list(reversed(rotated[1:]))
+	return rotated
+
+
+def _improve_circular_order(
+	initial_order: List[int],
+	undirected_edges: List[Tuple[int, int]],
+	n: int,
+) -> Tuple[Tuple[int, int], List[int]]:
+	order = list(initial_order)
+	best_score = _score_circular_order(order, undirected_edges, n)
+	max_passes = 20 if n <= 30 else 5
+
+	for _ in range(max_passes):
+		improved = False
+
+		# Relocate single node to best position
+		for i in range(n):
+			node = order[i]
+			base = order[:i] + order[i + 1:]
+			best_cand = None
+			for j in range(n):
+				if j == i:
+					continue
+				cand = base[:j] + [node] + base[j:]
+				sc = _score_circular_order(cand, undirected_edges, n)
+				if sc < best_score:
+					best_score = sc
+					best_cand = cand
+			if best_cand is not None:
+				order = best_cand
+				improved = True
+
+		# 2-opt segment reversals
+		for i in range(n - 1):
+			for j in range(i + 1, n):
+				cand = order[:i] + list(reversed(order[i:j + 1])) + order[j + 1:]
+				sc = _score_circular_order(cand, undirected_edges, n)
+				if sc < best_score:
+					best_score = sc
+					order = cand
+					improved = True
+
+		if not improved:
+			break
+
+	return best_score, _normalize_cycle_order(order, 0)
+
+
 def _compute_circular_order(
 	node_ids: Iterable[str],
 	edge_pairs: List[Tuple[str, str]],
@@ -243,41 +331,175 @@ def _compute_circular_order(
 	nodes_dict: Dict[str, str],
 ) -> List[str]:
 	unique_ids = list(dict.fromkeys(node_ids))
-	if len(unique_ids) <= 2:
+	n = len(unique_ids)
+	if n <= 2:
 		return unique_ids
 
-	adj: Dict[str, List[str]] = {nid: [] for nid in unique_ids}
-	for u, v in edge_pairs:
-		if u in adj and v in adj and u != v:
-			if v not in adj[u]:
-				adj[u].append(v)
-			if u not in adj[v]:
-				adj[v].append(u)
-
-	for nid in adj:
-		adj[nid].sort(key=lambda x: str(nodes_dict.get(x, x)).lower())
-
-	remaining = sorted(
+	base_nodes = sorted(
 		unique_ids,
-		key=lambda x: (0 if x in target_ids else 1, str(nodes_dict.get(x, x)).lower()),
+		key=lambda x: (0 if x in target_ids else 1, str(nodes_dict.get(x, x)).lower(), str(x)),
 	)
+	id_to_idx = {nid: idx for idx, nid in enumerate(base_nodes)}
 
-	ordered: List[str] = []
-	visited: Set[str] = set()
+	edge_set: Set[Tuple[int, int]] = set()
+	adj: List[List[int]] = [[] for _ in range(n)]
+	for u, v in edge_pairs:
+		if u in id_to_idx and v in id_to_idx and u != v:
+			iu, iv = id_to_idx[u], id_to_idx[v]
+			pair = (iu, iv) if iu < iv else (iv, iu)
+			if pair not in edge_set:
+				edge_set.add(pair)
+				adj[iu].append(iv)
+				adj[iv].append(iu)
 
-	def dfs(curr: str):
+	for lst in adj:
+		lst.sort()
+
+	undirected_edges = sorted(edge_set)
+	if len(undirected_edges) <= 1:
+		return base_nodes
+
+	# Candidate 1: DFS order
+	dfs_order: List[int] = []
+	visited: Set[int] = set()
+
+	def dfs(curr: int):
 		visited.add(curr)
-		ordered.append(curr)
+		dfs_order.append(curr)
 		for nxt in adj[curr]:
 			if nxt not in visited:
 				dfs(nxt)
 
-	for start in remaining:
+	for start in range(n):
 		if start not in visited:
 			dfs(start)
 
-	return ordered
+	# Candidate 2: BFS order
+	bfs_order: List[int] = []
+	visited_bfs: Set[int] = set()
+	for start in range(n):
+		if start in visited_bfs:
+			continue
+		visited_bfs.add(start)
+		q = deque([start])
+		while q:
+			curr = q.popleft()
+			bfs_order.append(curr)
+			for nxt in adj[curr]:
+				if nxt not in visited_bfs:
+					visited_bfs.add(nxt)
+					q.append(nxt)
 
+	# Candidate 3: Greedy min-crossing insertion
+	deg_order = sorted(range(n), key=lambda x: (-len(adj[x]), x))
+	greedy_order = [0]
+	for node in deg_order:
+		if node == 0:
+			continue
+		placed_set = set(greedy_order) | {node}
+		sub_edges = [(u, v) for (u, v) in undirected_edges if u in placed_set and v in placed_set]
+		best_pos = len(greedy_order)
+		best_sub_score = None
+		cur_len = len(greedy_order) + 1
+		for pos_idx in range(cur_len):
+			cand = greedy_order[:pos_idx] + [node] + greedy_order[pos_idx:]
+			remap = {nid: idx for idx, nid in enumerate(cand)}
+			remapped_edges = [(remap[u], remap[v]) for u, v in sub_edges]
+			sc = _score_circular_order(list(range(cur_len)), remapped_edges, cur_len)
+			if best_sub_score is None or sc < best_sub_score:
+				best_sub_score = sc
+				best_pos = pos_idx
+		greedy_order.insert(best_pos, node)
+
+	best_score = None
+	best_order = list(range(n))
+	seen_starts: Set[Tuple[int, ...]] = set()
+	for start_cand in (greedy_order, dfs_order, bfs_order, list(range(n))):
+		norm_start = tuple(_normalize_cycle_order(start_cand, 0))
+		if norm_start in seen_starts:
+			continue
+		seen_starts.add(norm_start)
+		sc, imp = _improve_circular_order(list(norm_start), undirected_edges, n)
+		if best_score is None or sc < best_score:
+			best_score = sc
+			best_order = imp
+
+	# Exact branch-and-bound for small graphs (fixes node 0 at index 0, breaks mirror symmetry)
+	if 3 <= n <= 10 and best_score > (0, len(undirected_edges)):
+		steps = 0
+		steps_limit = 60000
+		order = [0] * n
+		pos = [-1] * n
+		pos[0] = 0
+		rem_deg = [len(adj[i]) for i in range(n)]
+		for nb in adj[0]:
+			rem_deg[nb] -= 1
+		completed_edges: List[Tuple[int, int]] = []
+
+		def bnb(k: int, cross_so_far: int):
+			nonlocal steps, best_score, best_order
+			if steps >= steps_limit:
+				return
+			if k == n:
+				sc = _score_circular_order(order, undirected_edges, n)
+				if sc < best_score:
+					best_score = sc
+					best_order = list(order)
+				return
+
+			for w in range(1, n):
+				if pos[w] != -1:
+					continue
+				if k == 1 and w == n - 1:
+					continue
+				if k == n - 1 and w <= order[1]:
+					continue
+
+				steps += 1
+				if steps > steps_limit:
+					return
+
+				placed_nbr_pos = [pos[nb] for nb in adj[w] if pos[nb] != -1]
+				added_cross = 0
+				for p in placed_nbr_pos:
+					for a, b in completed_edges:
+						if a < p < b:
+							added_cross += 1
+
+				next_cross = cross_so_far + added_cross
+				if next_cross > best_score[0]:
+					continue
+
+				order[k] = w
+				pos[w] = k
+				for nb in adj[w]:
+					rem_deg[nb] -= 1
+
+				new_edges = [(p, k) for p in placed_nbr_pos]
+				pref = [0] * (k + 2)
+				for x in range(k + 1):
+					pref[x + 1] = pref[x] + rem_deg[order[x]]
+
+				lb_future = 0
+				for a, b in completed_edges:
+					lb_future += pref[b] - pref[a + 1]
+				for p, _k in new_edges:
+					lb_future += pref[k] - pref[p + 1]
+
+				if next_cross + lb_future <= best_score[0]:
+					completed_edges.extend(new_edges)
+					bnb(k + 1, next_cross)
+					if new_edges:
+						del completed_edges[-len(new_edges):]
+
+				for nb in adj[w]:
+					rem_deg[nb] += 1
+				pos[w] = -1
+
+		bnb(1, 0)
+		best_order = _normalize_cycle_order(best_order, 0)
+
+	return [base_nodes[i] for i in best_order]
 
 def _assemble_diagram(
 	title: str,

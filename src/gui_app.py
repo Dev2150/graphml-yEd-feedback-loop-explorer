@@ -658,7 +658,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self._hovered_icon_edges = None
 		self._hovered_icon_highlight: AnswerHighlight = None
 		self._synced_console_tags: list = []
-
+		self._progress_visible: bool = True
 
 		self.output_queue: queue.Queue = queue.Queue()
 		self._orig_stdout = sys.stdout
@@ -729,8 +729,36 @@ class GraphMLExplorerApp(tk.Tk):
 		self.btn_regen = ttk.Button(toolbar, text="🔄 Regenerate HTML", command=self.regenerate_html, takefocus=0)
 		self.btn_regen.pack(side=tk.LEFT, padx=(0, 6))
 
+		ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=(4, 10))
+
+		self.game_btn_slot = ttk.Frame(toolbar)
+		self.game_btn_slot.pack(side=tk.LEFT)
+
+		self.btn_start_game = ttk.Button(
+			self.game_btn_slot,
+			text="▶ Start Game (Enter/Space)",
+			command=self.start_game,
+			takefocus=0,
+		)
+		self.btn_start_game.pack(side=tk.LEFT)
+
+		self.btn_reveal = ttk.Button(
+			self.game_btn_slot,
+			text="⏭ Reveal / Next (Enter/Space)",
+			command=self.send_reveal_next,
+			takefocus=0,
+		)
+
 		self.btn_config = ttk.Button(toolbar, text="⚙ Config", command=self.open_config_dialog, takefocus=0)
 		self.btn_config.pack(side=tk.RIGHT)
+
+		self.btn_toggle_progress = ttk.Button(
+			toolbar,
+			text="Hide Progress",
+			command=self._toggle_progress,
+			takefocus=0,
+		)
+		self.btn_toggle_progress.pack(side=tk.RIGHT, padx=(0, 6))
 
 		info_bar = ttk.Frame(self, padding=(10, 2, 10, 4))
 		info_bar.pack(fill=tk.X)
@@ -741,10 +769,16 @@ class GraphMLExplorerApp(tk.Tk):
 		self.lbl_status = ttk.Label(info_bar, text="Idle", foreground="#555555")
 		self.lbl_status.pack(side=tk.RIGHT)
 
-		progress_frame = ttk.LabelFrame(self, text="Category Progress", padding=8)
-		progress_frame.pack(fill=tk.X, padx=8, pady=(0, 6))
+		main_pane = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+		main_pane.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
-		tier_bar = ttk.Frame(progress_frame)
+		left_pane = ttk.Frame(main_pane)
+		main_pane.add(left_pane, weight=3)
+
+		self.progress_frame = ttk.LabelFrame(left_pane, text="Category Progress", padding=8)
+		self.progress_frame.pack(fill=tk.X, pady=(0, 6))
+
+		tier_bar = ttk.Frame(self.progress_frame)
 		tier_bar.pack(fill=tk.X, pady=(0, 6))
 
 		self.lbl_current_tier = ttk.Label(
@@ -757,7 +791,7 @@ class GraphMLExplorerApp(tk.Tk):
 		)
 		self.lbl_total_progress.pack(side=tk.RIGHT)
 
-		table_frame = ttk.Frame(progress_frame)
+		table_frame = ttk.Frame(self.progress_frame)
 		table_frame.pack(fill=tk.X)
 
 		columns = ("category", "done", "total", "pct", "tier", "left")
@@ -785,14 +819,11 @@ class GraphMLExplorerApp(tk.Tk):
 		self.progress_tree.pack(anchor="w")
 		self.progress_tree.tag_configure("complete", foreground="#1B7A34")
 
-		main_pane = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
-		main_pane.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 6))
-
-		console_frame = ttk.Frame(main_pane)
-		main_pane.add(console_frame, weight=3)
+		self.console_frame = ttk.Frame(left_pane)
+		self.console_frame.pack(fill=tk.BOTH, expand=True)
 
 		self.console = tk.Text(
-			console_frame,
+			self.console_frame,
 			wrap=tk.WORD,
 			bg="#1E1F22",
 			fg="#E8EAED",
@@ -811,7 +842,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self.console.tag_configure("arrow_down", foreground="#FF6B6B")
 		self.console.bind("<Leave>", lambda _e: self._set_hovered_answer_tag(None))
 
-		v_scroll = ttk.Scrollbar(console_frame, orient=tk.VERTICAL, command=self.console.yview)
+		v_scroll = ttk.Scrollbar(self.console_frame, orient=tk.VERTICAL, command=self.console.yview)
 		self.console.configure(yscrollcommand=v_scroll.set)
 		self.console.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 		v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -834,19 +865,6 @@ class GraphMLExplorerApp(tk.Tk):
 
 		self.graph_canvas.bind("<Motion>", self._on_graph_canvas_motion)
 		self.graph_canvas.bind("<Leave>", lambda _e: self._clear_hovered_cycle_icon())
-
-		bottom_bar = ttk.Frame(self, padding=(8, 0, 8, 8))
-		bottom_bar.pack(fill=tk.X)
-
-		self.btn_start_game = ttk.Button(bottom_bar, text="▶ Start Game (Enter/Space)", command=self.start_game,
-										 takefocus=0)
-		self.btn_start_game.pack(side=tk.LEFT, padx=(0, 6))
-
-		self.btn_reveal = ttk.Button(bottom_bar, text="⏭ Reveal / Next (Enter/Space)", command=self.send_reveal_next,
-									 takefocus=0)
-		self.btn_reveal.pack(side=tk.LEFT, padx=(0, 6))
-
-		ttk.Button(bottom_bar, text="🧹 Clear Console", command=self.clear_console, takefocus=0).pack(side=tk.RIGHT)
 
 	def _bind_shortcuts(self):
 		self.bind("<Control-o>", lambda e: self.open_file_dialog())
@@ -1473,12 +1491,12 @@ class GraphMLExplorerApp(tk.Tk):
 			if self.btn_start_game.winfo_manager():
 				self.btn_start_game.pack_forget()
 			if not self.btn_reveal.winfo_manager():
-				self.btn_reveal.pack(side=tk.LEFT, padx=(0, 6))
+				self.btn_reveal.pack(side=tk.LEFT)
 		else:
 			if self.btn_reveal.winfo_manager():
 				self.btn_reveal.pack_forget()
 			if not self.btn_start_game.winfo_manager():
-				self.btn_start_game.pack(side=tk.LEFT, padx=(0, 6))
+				self.btn_start_game.pack(side=tk.LEFT)
 
 	def _on_closing(self):
 		self._cancel_active_game()
@@ -1941,3 +1959,12 @@ class GraphMLExplorerApp(tk.Tk):
 
 		self.graph_canvas.configure(cursor="hand2")
 		self._redraw_graph_canvas()
+
+	def _toggle_progress(self):
+		self._progress_visible = not self._progress_visible
+		if self._progress_visible:
+			self.progress_frame.pack(fill=tk.X, pady=(0, 6), before=self.console_frame)
+			self.btn_toggle_progress.configure(text="Hide Progress")
+		else:
+			self.progress_frame.pack_forget()
+			self.btn_toggle_progress.configure(text="Show Progress")
