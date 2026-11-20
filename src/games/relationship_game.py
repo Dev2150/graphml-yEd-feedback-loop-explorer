@@ -993,11 +993,13 @@ def run_relationship_guessing_game(
 								_add_pair_cycle(p1[:-1] + p2)
 
 				# Also detect cycles formed directly by the plotted u->v and v->u paths
-				for p1 in paths_u_v:
-					mid1 = set(p1[1:-1])
-					for p2 in paths_v_u:
-						if mid1.isdisjoint(p2[1:-1]):
-							_add_pair_cycle(p1[:-1] + p2)
+				if max_cycle_length_game >= 2:
+					for p1 in paths_u_v:
+						mid1 = set(p1[1:-1])
+						for p2 in paths_v_u:
+							total_nodes = (len(p1) - 1) + (len(p2) - 1)
+							if total_nodes <= max_cycle_length_game and mid1.isdisjoint(p2[1:-1]):
+								_add_pair_cycle(p1[:-1] + p2)
 
 				# Build plotted subgraph to catch any remaining cycles visible in the diagram
 				base_nodes = {u, v} | set(shared_srcs) | set(shared_dsts)
@@ -1016,11 +1018,10 @@ def run_relationship_guessing_game(
 				base_g = nx.DiGraph()
 				base_g.add_nodes_from(base_nodes)
 				base_g.add_edges_from(base_edges)
-				drawn_bound = max(max_cycle_length_game, min(len(base_nodes), 12))
-				drawn_cycles = find_bounded_cycles(base_g, drawn_bound) if drawn_bound >= 2 else []
+				drawn_cycles = find_bounded_cycles(base_g, max_cycle_length_game) if max_cycle_length_game >= 2 else []
 
 				for cyc_nodes in drawn_cycles:
-					if len(cyc_nodes) >= 2 and u in cyc_nodes and v in cyc_nodes:
+					if 2 <= len(cyc_nodes) <= max_cycle_length_game and u in cyc_nodes and v in cyc_nodes:
 						idx = cyc_nodes.index(u)
 						rotated = cyc_nodes[idx:] + cyc_nodes[:idx]
 						_add_pair_cycle(rotated + [rotated[0]])
@@ -1062,7 +1063,7 @@ def run_relationship_guessing_game(
 
 					seen_sec_cycles = set()
 					for cyc_nodes in raw_sec_cycles:
-						if len(cyc_nodes) < 2:
+						if len(cyc_nodes) < 2 or len(cyc_nodes) > max_cycle_length_game:
 							continue
 						cyc_set = set(cyc_nodes)
 						# Exclude primary cycles that contain both u and v
