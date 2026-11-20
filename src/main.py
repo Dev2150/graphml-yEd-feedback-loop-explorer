@@ -14,7 +14,7 @@ from src.config import (
 	create_input_file,
 	read_config_file,
 )
-from src.games.relationship_game import run_relationship_guessing_game
+from src.games.relationship.runner import run_relationship_guessing_game
 from src.gui_app import run_gui
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import read_from_graph_xml
