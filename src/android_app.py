@@ -1843,7 +1843,7 @@ class GraphMLAndroidApp(App):
 				self.lbl_file.text = f"{os.path.basename(norm_path)} ({len(ctx.nodes)}N / {len(ctx.edges)}E | {conn_mode})"
 				self.lbl_status.text = 'Ready'
 				self._update_progress_table(stats)
-				self._update_graph_panel(None)
+				self.graph_canvas.set_diagram(None)
 				self._append_console_text('Ready! Tap "Start Game" to begin.\n')
 				self._update_button_states()
 
@@ -1853,7 +1853,7 @@ class GraphMLAndroidApp(App):
 
 			elif kind == 'load_error':
 				self._update_progress_table(None)
-				self._update_graph_panel(None)
+				self.graph_canvas.set_diagram(None)
 				self.lbl_status.text = 'Load Error'
 				self._append_console_text(f'\nERROR: {payload}\n')
 				self._update_button_states()
@@ -1877,7 +1877,7 @@ class GraphMLAndroidApp(App):
 				self._update_progress_table(payload)
 
 			elif kind == 'graph':
-				self._update_graph_panel(payload)
+				self.graph_canvas.set_diagram(payload)
 
 	def _update_button_states(self):
 		c = self.controller
