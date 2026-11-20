@@ -1,10 +1,7 @@
-import copy
 import os
-import queue
-import re
 import shutil
 import sys
-import threading
+import types
 from kivy.core.image import Image as CoreImage
 from kivy.core.text import Label as CoreLabel, LabelBase
 from kivy.graphics import Color, Ellipse, Line, Rectangle, Triangle
@@ -26,10 +23,7 @@ if IS_DESKTOP:
 	KivyConfig.set('graphics', 'width', '405')
 	KivyConfig.set('graphics', 'height', '878')
 	KivyConfig.set('graphics', 'resizable', '1')
-
-# I have to run this before `import networkx as nx` to prevent error `ModuleNotFoundError: No module named '_bz2'`
-import types
-
+# Must run before `import networkx` (imported via src.app_controller) to avoid missing _bz2/_lzma on Android
 
 def _ensure_optional_stdlib_stubs():
 	try:
@@ -60,7 +54,7 @@ def _ensure_optional_stdlib_stubs():
 
 _ensure_optional_stdlib_stubs()
 
-import networkx as nx
+import copy
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
@@ -77,47 +71,35 @@ from kivy.uix.stencilview import StencilView
 from kivy.uix.textinput import TextInput
 
 from src.android_file_picker import (
-	export_file_with_system_picker,
+	get_external_storage_root,
+	has_all_files_access,
+	list_directory_entries,
 	open_graphml_with_system_picker,
-	open_html_viewer, has_all_files_access, request_all_files_access, get_external_storage_root,
-	list_directory_entries, request_storage_permissions,
+	open_html_viewer,
+	request_all_files_access,
+	request_storage_permissions,
 )
-from src.config import (
-	COUNTER_CONNECTION_TYPES,
-	GRAPH_SETTING_KEYS,
-	Config,
-	build_effective_config,
-	create_input_file,
-	read_config_file,
-	save_config_file,
-)
-from src.games.relationship_game import (
-	GameCancelledError,
-	compute_relationship_stats,
-	prepare_relationship_game_data,
-	run_relationship_guessing_game,
-)
+from src.app_controller import AppController, parse_graph_settings_dict
+from src.config import Config, GRAPH_SETTING_KEYS, build_effective_config
 from src.graph_diagram import (
 	AnswerHighlight,
+	DiagramCycle,
 	GraphDiagramData,
 	compute_circular_layout,
-	compute_cycle_center,
+	compute_diagram_cycle_centers,
 	compute_edge_geometry,
 	find_cycle_icon_path,
-	format_graph_node_label, DiagramCycle, compute_diagram_cycle_centers,
+	format_graph_node_label,
 )
-from src.html_exporter import generate_html_and_graphml
-from src.io_graphml import list_graph_elements_and_groups, read_from_graph_xml
-from src.models import GraphContext
+from src.io_graphml import list_graph_elements_and_groups
 from src.progress_storage import (
 	clear_recent_files,
+	get_show_progress,
+	get_sync_folder,
 	load_app_state,
-	load_graph_config,
-	record_recent_file,
-	save_graph_config, set_sync_folder, get_sync_folder, get_show_progress, set_show_progress,
+	set_show_progress,
 )
 
-ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
 MAX_CONSOLE_LINES = 250
 
 
@@ -127,7 +109,6 @@ def _hex_to_rgba(hex_color: str):
 
 
 def _format_console_markup(text: str) -> str:
-	# Escape Kivy markup characters first so [?], [V], [=], etc. render literally
 	safe = text.replace('&', '&amp;').replace('[', '&bl;').replace(']', '&br;')
 	# Replace emojis missing from DejaVuSans with colored ASCII badges
 	safe = (
@@ -384,7 +365,7 @@ class CircularGraphWidget(StencilView):
 				cx, cy, nw, nh = rects[node.node_id]
 				bx = ox + cx - nw / 2.0
 				by = oy + cy - nh / 2.0
-				is_earliest_generation = (node.node_id in first_hl_nodes)
+				is_earliest_generation = node.node_id in first_hl_nodes
 				if is_earliest_generation:
 					nr, ng, nb, _ = (0.533, 0.533, 0.533, 1.0)
 				elif node.role in ('common_source', 'common_effect'):
@@ -407,7 +388,7 @@ class CircularGraphWidget(StencilView):
 				bx = ox + cx - nw / 2.0
 				by = oy + cy - nh / 2.0
 				is_hl = node.node_id in hl_nodes
-				is_earliest_generation = (node.node_id in first_hl_nodes)
+				is_earliest_generation = node.node_id in first_hl_nodes
 
 				Color(*_hex_to_rgba(node.fill_color))
 				Rectangle(pos=(bx, by), size=(nw, nh))
@@ -419,8 +400,7 @@ class CircularGraphWidget(StencilView):
 					outline_rgba = _hex_to_rgba(node.outline_color)
 					outline_w = dp(2.0) if is_hl else dp(1.7)
 				else:
-					outline_rgba = (0.333, 0.333, 0.333, 1.0) if is_earliest_generation else _hex_to_rgba(
-						node.outline_color)
+					outline_rgba = (0.333, 0.333, 0.333, 1.0) if is_earliest_generation else _hex_to_rgba(node.outline_color)
 					outline_w = dp(2.0) if is_earliest_generation else (dp(1.5) if is_hl else dp(1.0))
 
 				Color(*outline_rgba)
@@ -530,55 +510,11 @@ class CircularGraphWidget(StencilView):
 		return super().on_touch_down(touch)
 
 
-class ConsoleRedirector:
-	encoding = 'utf-8'
-
-	def __init__(self, msg_queue: queue.Queue, orig_stream=None):
-		self.msg_queue = msg_queue
-		self.orig_stream = orig_stream
-
-	def write(self, text: str):
-		if text:
-			if self.orig_stream is not None:
-				try:
-					self.orig_stream.write(text)
-				except Exception:
-					pass
-			clean = ANSI_ESCAPE_RE.sub('', text)
-			self.msg_queue.put(('text', clean))
-
-	def flush(self):
-		if self.orig_stream is not None:
-			try:
-				self.orig_stream.flush()
-			except Exception:
-				pass
-
-	def isatty(self) -> bool:
-		return False
-
-
-class GameSession:
-	def __init__(self):
-		self.input_queue: queue.Queue = queue.Queue()
-		self.cancel_event: threading.Event = threading.Event()
-		self.thread: threading.Thread = None
-		self.waiting_for_input: bool = False
-
-
 class GraphMLAndroidApp(App):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 		self.title = 'GraphML Feedback Loop Explorer'
-		self.base_config: Config = Config()
-		self.config_obj: Config = Config()
-		self.ctx: GraphContext = None
-		self.current_graph_path: str = ''
-		self.last_html_path: str = ''
-		self.is_busy: bool = False
-		self.active_session: GameSession = None
-		self.prepared_game_data = None
-		self.output_queue: queue.Queue = queue.Queue()
+		self.controller: AppController = None
 		self._pending_line_buf: str = ''
 		self._selected_answer_lbl: ConsoleAnswerLabel = None
 		self._progress_visible: bool = True
@@ -588,7 +524,6 @@ class GraphMLAndroidApp(App):
 		self._open_popups: list = []
 		self._last_browse_dir: str = ''
 		self._on_resume_refresh = None
-		self._progress_visible: bool = get_show_progress()
 
 	def build(self):
 		Window.clearcolor = (0.118, 0.122, 0.133, 1)  # #1E1F22
@@ -596,6 +531,7 @@ class GraphMLAndroidApp(App):
 		data_dir = self.user_data_dir
 		os.makedirs(data_dir, exist_ok=True)
 		os.environ['GRAPHML_EXPLORER_DATA_DIR'] = data_dir
+		self._progress_visible = get_show_progress()
 
 		self.input_file = os.path.join(data_dir, 'input.txt')
 		self.output_folder = os.path.join(data_dir, 'output')
@@ -611,6 +547,7 @@ class GraphMLAndroidApp(App):
 			except Exception:
 				pass
 
+		self.controller = AppController(self.input_file, self.output_folder)
 		self.console_font = _resolve_console_font()
 
 		root = BoxLayout(orientation='vertical', padding=dp(8), spacing=dp(6))
@@ -750,11 +687,7 @@ class GraphMLAndroidApp(App):
 		self.bottom_bar.add_widget(self.btn_start_game)
 		root.add_widget(self.bottom_bar)
 
-		# Redirect stdout/stderr into UI queue (while still forwarding to logcat)
-		self._orig_stdout = sys.stdout
-		self._orig_stderr = sys.stderr
-		sys.stdout = ConsoleRedirector(self.output_queue, self._orig_stdout)
-		sys.stderr = ConsoleRedirector(self.output_queue, self._orig_stderr)
+		self.controller.install_console_redirect()
 
 		# Hook Android hardware back button (and Esc on desktop)
 		Window.bind(on_keyboard=self._handle_hardware_back)
@@ -831,14 +764,8 @@ class GraphMLAndroidApp(App):
 			except Exception:
 				pass
 		self._open_popups.clear()
-		session = self.active_session
-		self._cancel_active_game()
-		if session is not None and session.thread is not None and session.thread.is_alive():
-			session.thread.join(timeout=0.3)
-		if hasattr(self, '_orig_stdout'):
-			sys.stdout = self._orig_stdout
-		if hasattr(self, '_orig_stderr'):
-			sys.stderr = self._orig_stderr
+		if self.controller is not None:
+			self.controller.cleanup(join_timeout=0.3)
 
 	def on_stop(self):
 		self._cleanup_on_exit()
@@ -851,15 +778,15 @@ class GraphMLAndroidApp(App):
 		return False
 
 	def _handle_hardware_back(self, window, key, *args):
-		if key == 27:  # Android Back button / Desktop Escape
+		if key == 27:
 			return self.handle_back_press()
-		if self._open_popups or self.is_busy or not self.ctx:
+		if self._open_popups or self.controller.is_busy or not self.controller.ctx:
 			return False
-		if key in (13, 271, 32):  # Enter, Numpad Enter, Space
-			if self.active_session and self.active_session.waiting_for_input:
+		if key in (13, 271, 32):
+			if self.controller.active_session and self.controller.active_session.waiting_for_input:
 				self.send_reveal_next()
 				return True
-			if self.active_session is None:
+			if self.controller.active_session is None:
 				self.start_game()
 				return True
 		return False
@@ -875,26 +802,11 @@ class GraphMLAndroidApp(App):
 		popup.open()
 
 	# ------------------------------------------------------------------
-	# Startup & Path Resolution
+	# Startup
 	# ------------------------------------------------------------------
 	def _startup(self):
 		try:
-			if not os.path.exists(self.input_file):
-				create_input_file(self.input_file)
-
-			self.base_config = read_config_file(self.input_file)
-			self.config_obj = copy.deepcopy(self.base_config)
-			app_state = load_app_state()
-			last_file = app_state.get('last_file', '')
-
-			candidate = ''
-			if last_file and os.path.isfile(last_file):
-				candidate = last_file
-			else:
-				cfg_path = self._resolve_graph_path_from_config(self.base_config)
-				if cfg_path and os.path.isfile(cfg_path):
-					candidate = os.path.abspath(cfg_path)
-
+			_created, candidate = self.controller.initialize_startup()
 			if candidate:
 				self.load_graph_file(candidate)
 			else:
@@ -907,19 +819,6 @@ class GraphMLAndroidApp(App):
 			import traceback
 			self._append_console_text(f'\nStartup Error:\n{traceback.format_exc()}\n')
 			self._update_button_states()
-
-	def _resolve_graph_path_from_config(self, cfg: Config) -> str:
-		if not cfg.file_name:
-			return ''
-		if '/' in cfg.file_name or '\\' in cfg.file_name or os.path.isabs(cfg.file_name):
-			return cfg.file_name if cfg.file_name.endswith('.graphml') else cfg.file_name + '.graphml'
-		return os.path.join(cfg.folder_path, cfg.file_name + ('' if cfg.file_name.endswith('.graphml') else '.graphml'))
-
-	def _resolve_effective_config(self, filepath: str):
-		norm_path = os.path.abspath(filepath)
-		saved_dict = load_graph_config(norm_path) or {}
-		local_overrides = {k: v for k, v in saved_dict.items() if k in GRAPH_SETTING_KEYS}
-		return build_effective_config(self.base_config, local_overrides, norm_path), local_overrides
 
 	# ------------------------------------------------------------------
 	# File Opening, Recent & HTML Menu
@@ -935,20 +834,21 @@ class GraphMLAndroidApp(App):
 		open_graphml_with_system_picker(self.imported_dir, on_picked)
 
 	def open_file_dialog(self):
-		if self.is_busy:
+		if self.controller.is_busy:
 			return
 
-		graphml_dir = self.base_config.folder_path.strip()
+		graphml_dir = self.controller.base_config.folder_path.strip()
+		cur_path = self.controller.current_graph_path
 		sync_dir = get_sync_folder()
 		start_dir = ''
 		for candidate in (
-				self._last_browse_dir,
-				os.path.dirname(self.current_graph_path)
-				if self.current_graph_path and os.path.dirname(self.current_graph_path) != self.imported_dir
-				else '',
-				graphml_dir,
-				sync_dir,
-				get_external_storage_root(),
+			self._last_browse_dir,
+			os.path.dirname(cur_path)
+			if cur_path and os.path.dirname(cur_path) != self.imported_dir
+			else '',
+			graphml_dir,
+			sync_dir,
+			get_external_storage_root(),
 		):
 			if candidate and os.path.isdir(candidate):
 				start_dir = os.path.abspath(candidate)
@@ -1120,8 +1020,9 @@ class GraphMLAndroidApp(App):
 		self.load_graph_file(filepath)
 
 	def reload_current_file(self):
-		if self.current_graph_path and os.path.isfile(self.current_graph_path):
-			self.load_graph_file(self.current_graph_path)
+		cur = self.controller.current_graph_path
+		if cur and os.path.isfile(cur):
+			self.load_graph_file(cur)
 		else:
 			self.open_file_dialog()
 
@@ -1161,10 +1062,11 @@ class GraphMLAndroidApp(App):
 		self._open_tracked_popup(popup)
 
 	def open_generated_html(self):
-		if not self.last_html_path or not os.path.isfile(self.last_html_path):
+		html_path = self.controller.last_html_path
+		if not html_path or not os.path.isfile(html_path):
 			self._show_message('No HTML Yet', 'Load or reload a GraphML file first.')
 			return
-		err = open_html_viewer(self.last_html_path)
+		err = open_html_viewer(html_path)
 		if err:
 			self._show_message('Open HTML Error', err)
 
@@ -1176,8 +1078,14 @@ class GraphMLAndroidApp(App):
 		state = {'dir': os.path.abspath(start_dir)}
 
 		content = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(8))
-		lbl_path = Label(text=state['dir'], size_hint_y=None, height=dp(32), halign='left', valign='middle',
-						 font_size=dp(11))
+		lbl_path = Label(
+			text=state['dir'],
+			size_hint_y=None,
+			height=dp(32),
+			halign='left',
+			valign='middle',
+			font_size=dp(11),
+		)
 		lbl_path.bind(size=lambda inst, sz: setattr(inst, 'text_size', sz))
 		content.add_widget(lbl_path)
 
@@ -1210,8 +1118,14 @@ class GraphMLAndroidApp(App):
 				return
 			for d in dirs:
 				full_d = os.path.join(state['dir'], d)
-				btn = Button(text=f'[DIR] {d}', size_hint_y=None, height=dp(40), halign='left', valign='middle',
-							 font_size=dp(12))
+				btn = Button(
+					text=f'[DIR] {d}',
+					size_hint_y=None,
+					height=dp(40),
+					halign='left',
+					valign='middle',
+					font_size=dp(12),
+				)
 				btn.bind(size=lambda inst, sz: setattr(inst, 'text_size', (max(0, sz[0] - dp(12)), sz[1])))
 				btn.bind(on_release=lambda _b, p=full_d: _go(p))
 				lst.add_widget(btn)
@@ -1241,138 +1155,39 @@ class GraphMLAndroidApp(App):
 	# ------------------------------------------------------------------
 	# Graph Loading & HTML Generation
 	# ------------------------------------------------------------------
-	def _cancel_active_game(self):
-		if self.active_session is not None:
-			self.active_session.cancel_event.set()
-			self.active_session.input_queue.put(None)
-			self.active_session.waiting_for_input = False
-			self.active_session = None
-
 	def load_graph_file(self, filepath: str, override_config: Config = None, override_local: dict = None):
-		self.prepared_game_data = None
-		self._cancel_active_game()
 		if self._selected_answer_lbl is not None:
 			self._selected_answer_lbl.set_selected(False)
 			self._selected_answer_lbl = None
-		norm_path = os.path.abspath(filepath)
-		self.current_graph_path = norm_path
-		if override_local is not None:
-			self.local_overrides = copy.deepcopy(override_local)
-		else:
-			saved_dict = load_graph_config(norm_path) or {}
-			self.local_overrides = {k: v for k, v in saved_dict.items() if k in GRAPH_SETTING_KEYS}
-
-		self.config_obj = (
-			copy.deepcopy(override_config)
-			if override_config is not None
-			else build_effective_config(self.base_config, self.local_overrides, norm_path)
-		)
-		self.is_busy = True
+		norm_path = self.controller.load_graph_file(filepath, override_config, override_local)
 		self.lbl_status.text = 'Loading...'
 		self.lbl_file.text = f'Loading: {os.path.basename(norm_path)}'
 		self._update_button_states()
-
-		record_recent_file(norm_path)
-		cfg_snapshot = copy.deepcopy(self.config_obj)
 		self._append_console_text(f"\nLoading: {os.path.basename(norm_path)}\n")
 
-		def worker():
-			try:
-				if cfg_snapshot.excluded_elements:
-					print(
-						f"Excluding {len(cfg_snapshot.excluded_elements)} element/group(s): "
-						f"{', '.join(cfg_snapshot.excluded_elements)}"
-					)
-
-				nodes, edges, edge_values, node_values, edge_labels, node_colors = read_from_graph_xml(
-					norm_path, cfg_snapshot.color_threshold, cfg_snapshot.excluded_elements
-				)
-
-				if cfg_snapshot.ignore_edge_colors or cfg_snapshot.connection_type in COUNTER_CONNECTION_TYPES:
-					edge_values = {k: 1 for k in edge_values}
-					node_values = {k: 0 for k in node_values}
-					print('Note: edge colors ignored — all edge values set to +1.')
-
-				g = nx.DiGraph()
-				g.add_nodes_from(nodes.keys())
-				g.add_edges_from(edges)
-
-				src_id = (
-					next((nid for nid, label in nodes.items() if label.lower() == cfg_snapshot.source_node), None)
-					if cfg_snapshot.source_node
-					else None
-				)
-				tgt_id = (
-					next((nid for nid, label in nodes.items() if label.lower() == cfg_snapshot.target_node), None)
-					if cfg_snapshot.target_node
-					else None
-				)
-
-				if cfg_snapshot.source_node and not src_id:
-					raise ValueError(f"Could not find source node '{cfg_snapshot.source_node}' in this graph.")
-				if cfg_snapshot.target_node and not tgt_id:
-					raise ValueError(f"Could not find target node '{cfg_snapshot.target_node}' in this graph.")
-
-				ctx = GraphContext(
-					graph=g,
-					nodes=nodes,
-					node_values=node_values,
-					edges=edges,
-					edge_values=edge_values,
-					config=cfg_snapshot,
-					source_node_id=src_id,
-					target_node_id=tgt_id,
-					edge_labels=edge_labels,
-					node_colors=node_colors,
-				)
-
-				html_path = generate_html_and_graphml(ctx, self.output_folder, norm_path)
-				prepared = prepare_relationship_game_data(ctx)
-				stats = compute_relationship_stats(ctx, prepared)
-				self.output_queue.put(('loaded', (ctx, html_path, norm_path, prepared, stats)))
-			except Exception as exc:
-				self.output_queue.put(('load_error', str(exc)))
-
-		threading.Thread(target=worker, daemon=True).start()
-
 	def regenerate_html(self):
-		if self.is_busy or not self.ctx or not self.current_graph_path:
-			return
-		self._cancel_active_game()
-		self.is_busy = True
-		self.lbl_status.text = 'Generating HTML...'
-		self._update_button_states()
-
-		ctx_ref = self.ctx
-		ctx_ref.nodes_printed.clear()
-		graph_path = self.current_graph_path
-
-		def worker():
-			try:
-				html_path = generate_html_and_graphml(ctx_ref, self.output_folder, graph_path)
-				self.output_queue.put(('html_done', html_path))
-			except Exception as exc:
-				self.output_queue.put(('load_error', str(exc)))
-
-		threading.Thread(target=worker, daemon=True).start()
+		if self.controller.regenerate_html():
+			self.lbl_status.text = 'Generating HTML...'
+			self._update_button_states()
 
 	# ------------------------------------------------------------------
 	# Configuration Popup & Exclusion Picker
 	# ------------------------------------------------------------------
 	def _open_exclusion_picker(self, ti_excluded: TextInput):
-		if not self.current_graph_path or not os.path.isfile(self.current_graph_path):
+		cur_path = self.controller.current_graph_path
+		if not cur_path or not os.path.isfile(cur_path):
 			self._show_message('No Graph Loaded', 'Load a GraphML file first to pick elements or groups.')
 			return
 
 		try:
-			groups, elements = list_graph_elements_and_groups(self.current_graph_path)
+			groups, elements = list_graph_elements_and_groups(cur_path)
 		except Exception as exc:
 			self._show_message('Inspect Error', f'Could not read GraphML elements:\n{exc}')
 			return
 
 		all_items = [('Group', g) for g in groups] + [('Node', e) for e in elements]
 		current_lower = {line.strip().lower(): line.strip() for line in ti_excluded.text.splitlines() if line.strip()}
-		selected_map = {}
+		selected_map = {(kind, name): (name.lower() in current_lower) for kind, name in all_items}
 
 		content = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(8))
 		search_ti = TextInput(hint_text='Filter groups / nodes...', multiline=False, size_hint_y=None, height=dp(38))
@@ -1384,9 +1199,6 @@ class GraphMLAndroidApp(App):
 		sv.add_widget(lst)
 		content.add_widget(sv)
 
-		for kind, name in all_items:
-			selected_map[(kind, name)] = (name.lower() in current_lower)
-
 		def _render_rows(*_):
 			lst.clear_widgets()
 			q = search_ti.text.strip().lower()
@@ -1396,12 +1208,7 @@ class GraphMLAndroidApp(App):
 				row_box = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(6))
 				cb = CheckBox(active=selected_map[(kind, name)], size_hint_x=None, width=dp(36))
 				cb.bind(active=lambda _inst, val, k=(kind, name): selected_map.__setitem__(k, bool(val)))
-				lbl = Label(
-					text=f'[{kind}] {name}',
-					halign='left',
-					valign='middle',
-					font_size=dp(13),
-				)
+				lbl = Label(text=f'[{kind}] {name}', halign='left', valign='middle', font_size=dp(13))
 				lbl.bind(size=lambda inst, v: setattr(inst, 'text_size', v))
 				row_box.add_widget(cb)
 				row_box.add_widget(lbl)
@@ -1415,7 +1222,7 @@ class GraphMLAndroidApp(App):
 		def _confirm(*_):
 			seen = set()
 			result = []
-			for (kind, name), is_checked in selected_map.items():
+			for (_kind, name), is_checked in selected_map.items():
 				if is_checked and name.lower() not in seen:
 					seen.add(name.lower())
 					result.append(name)
@@ -1440,14 +1247,15 @@ class GraphMLAndroidApp(App):
 		self._open_tracked_popup(popup)
 
 	def open_config_dialog(self):
-		g_cfg = self.base_config
-		loc = getattr(self, 'local_overrides', {})
-		has_file = bool(self.current_graph_path and os.path.isfile(self.current_graph_path))
+		g_cfg = self.controller.base_config
+		loc = self.controller.local_overrides
+		cur_path = self.controller.current_graph_path
+		has_file = bool(cur_path and os.path.isfile(cur_path))
 
 		outer = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(8))
 		if has_file:
 			active_count = sum(1 for k in GRAPH_SETTING_KEYS if k in loc)
-			status_text = f"{os.path.basename(self.current_graph_path)} ({active_count}/{len(GRAPH_SETTING_KEYS)} local)"
+			status_text = f"{os.path.basename(cur_path)} ({active_count}/{len(GRAPH_SETTING_KEYS)} local)"
 		else:
 			status_text = 'No file loaded — Global & App Settings only'
 
@@ -1473,7 +1281,7 @@ class GraphMLAndroidApp(App):
 		outer.add_widget(content_area)
 
 		# ------------------------------------------------------------------
-		# View 1: Graph Settings (Global + Local Checkbox + Local)
+		# View 1: Graph Settings
 		# ------------------------------------------------------------------
 		graph_scroll = ScrollView()
 		form = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(8), padding=dp(4))
@@ -1497,8 +1305,7 @@ class GraphMLAndroidApp(App):
 			hdr.add_widget(lbl)
 
 			is_local = has_file and (key in loc)
-			hdr.add_widget(
-				Label(text='Local', size_hint_x=None, width=dp(38), font_size=dp(11), color=(0.75, 0.85, 1.0, 1)))
+			hdr.add_widget(Label(text='Local', size_hint_x=None, width=dp(38), font_size=dp(11), color=(0.75, 0.85, 1.0, 1)))
 			en_cb = CheckBox(active=is_local, disabled=not has_file, size_hint_x=None, width=dp(34))
 			en_cb.bind(active=lambda _inst, _val, k=key: update_local_state(k))
 			local_enabled_cbs[key] = en_cb
@@ -1586,23 +1393,17 @@ class GraphMLAndroidApp(App):
 			local_widgets[key] = [l_cb]
 			update_local_state(key)
 
-		add_spinner_pair('connection_type', 'Connection Type', g_cfg.connection_type, loc.get('connection_type'),
-						 ('correlation', 'counter', 'family'))
+		add_spinner_pair('connection_type', 'Connection Type', g_cfg.connection_type, loc.get('connection_type'), ('correlation', 'counter', 'family'))
 		add_bool_pair('ignore_edge_colors', 'Ignore Edge Colors', g_cfg.ignore_edge_colors, loc.get('ignore_edge_colors'))
 		add_text_pair('color_threshold', 'Color Threshold', g_cfg.color_threshold, loc.get('color_threshold'))
-		add_bool_pair('show_connections_list', 'Show Connections List', g_cfg.show_connections_list,
-					  loc.get('show_connections_list'))
-		add_text_pair('connections_skipped', 'Connections Skipped', g_cfg.connections_skipped,
-					  loc.get('connections_skipped'))
+		add_bool_pair('show_connections_list', 'Show Connections List', g_cfg.show_connections_list, loc.get('show_connections_list'))
+		add_text_pair('connections_skipped', 'Connections Skipped', g_cfg.connections_skipped, loc.get('connections_skipped'))
 		add_bool_pair('show_only_edges', 'Show Only Edges', g_cfg.show_only_edges, loc.get('show_only_edges'))
 		add_bool_pair('show_edge_labels', 'Show Edge Labels', g_cfg.show_edge_labels, loc.get('show_edge_labels'))
-		add_bool_pair('enable_non_cycle_printing', 'Non-Cycle Printing', g_cfg.enable_non_cycle_printing,
-					  loc.get('enable_non_cycle_printing'))
+		add_bool_pair('enable_non_cycle_printing', 'Non-Cycle Printing', g_cfg.enable_non_cycle_printing, loc.get('enable_non_cycle_printing'))
 		add_bool_pair('sort_by_len', 'Sort Cycles by Length', g_cfg.sort_by_len, loc.get('sort_by_len'))
-		add_bool_pair('sort_connections_alphabetically', 'Sort Connections Alpha', g_cfg.sort_connections_alphabetically,
-					  loc.get('sort_connections_alphabetically'))
-		add_text_pair('max_cycle_length_html', 'Max Cycle Len (HTML)', g_cfg.max_cycle_length_html,
-					  loc.get('max_cycle_length_html'))
+		add_bool_pair('sort_connections_alphabetically', 'Sort Connections Alpha', g_cfg.sort_connections_alphabetically, loc.get('sort_connections_alphabetically'))
+		add_text_pair('max_cycle_length_html', 'Max Cycle Len (HTML)', g_cfg.max_cycle_length_html, loc.get('max_cycle_length_html'))
 		add_text_pair('max_indirectness', 'Max Indirectness (HTML)', g_cfg.max_indirectness, loc.get('max_indirectness'))
 		add_text_pair('source_node', 'Source Node', g_cfg.source_node, loc.get('source_node'))
 		add_text_pair('target_node', 'Target Node', g_cfg.target_node, loc.get('target_node'))
@@ -1664,10 +1465,8 @@ class GraphMLAndroidApp(App):
 		update_local_state('excluded_elements')
 
 		add_text_pair('chance_irrelevant', 'Chance Irrelevant', g_cfg.chance_irrelevant, loc.get('chance_irrelevant'))
-		add_text_pair('max_cycle_length_game', 'Max Cycle Len (Game)', g_cfg.max_cycle_length_game,
-					  loc.get('max_cycle_length_game'))
-		add_text_pair('max_indirectness_game', 'Max Indirectness (Game)', g_cfg.max_indirectness_game,
-					  loc.get('max_indirectness_game'))
+		add_text_pair('max_cycle_length_game', 'Max Cycle Len (Game)', g_cfg.max_cycle_length_game, loc.get('max_cycle_length_game'))
+		add_text_pair('max_indirectness_game', 'Max Indirectness (Game)', g_cfg.max_indirectness_game, loc.get('max_indirectness_game'))
 		add_bool_pair('leaf_only', 'Leaf Nodes Only', g_cfg.leaf_only, loc.get('leaf_only'))
 		add_bool_pair('include_secondary_cycles', 'Include Secondary Cycles', g_cfg.include_secondary_cycles, loc.get('include_secondary_cycles'))
 
@@ -1691,8 +1490,7 @@ class GraphMLAndroidApp(App):
 		app_info.bind(size=lambda inst, v: setattr(inst, 'text_size', v))
 		app_form.add_widget(app_info)
 
-		app_form.add_widget(
-			Label(text='Default GraphML Folder:', size_hint_y=None, height=dp(24), halign='left', font_size=dp(12)))
+		app_form.add_widget(Label(text='Default GraphML Folder:', size_hint_y=None, height=dp(24), halign='left', font_size=dp(12)))
 		row_gml = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(6))
 		ti_app_folder = TextInput(
 			text=g_cfg.folder_path,
@@ -1713,8 +1511,7 @@ class GraphMLAndroidApp(App):
 		))
 		app_form.add_widget(row_gml)
 
-		app_form.add_widget(
-			Label(text='Default File Name / Path:', size_hint_y=None, height=dp(24), halign='left', font_size=dp(12)))
+		app_form.add_widget(Label(text='Default File Name / Path:', size_hint_y=None, height=dp(24), halign='left', font_size=dp(12)))
 		ti_app_file = TextInput(text=g_cfg.file_name, multiline=False, size_hint_y=None, height=dp(40))
 		app_form.add_widget(ti_app_file)
 
@@ -1760,47 +1557,19 @@ class GraphMLAndroidApp(App):
 		btn_tab_app.bind(on_release=lambda *_: _show_tab('app'))
 		_show_tab('graph')
 
-		popup_title = f'Config — {os.path.basename(self.current_graph_path)}' if has_file else 'Configuration'
+		popup_title = f'Config — {os.path.basename(cur_path)}' if has_file else 'Configuration'
 		popup = Popup(title=popup_title, content=outer, size_hint=(0.96, 0.92))
 
-		def _parse_fields(fmap: dict, scope_label: str) -> dict:
-			out = {}
-			out['connection_type'] = fmap['connection_type'].text.strip().lower() or 'correlation'
-			out['ignore_edge_colors'] = bool(fmap['ignore_edge_colors'].active)
-			try:
-				out['color_threshold'] = int(fmap['color_threshold'].text.strip())
-				out['connections_skipped'] = int(fmap['connections_skipped'].text.strip())
-				out['max_cycle_length_html'] = int(fmap['max_cycle_length_html'].text.strip())
-				out['max_indirectness'] = int(fmap['max_indirectness'].text.strip())
-				out['max_cycle_length_game'] = int(fmap['max_cycle_length_game'].text.strip())
-				out['max_indirectness_game'] = int(fmap['max_indirectness_game'].text.strip())
-				chance = float(fmap['chance_irrelevant'].text.strip())
-			except ValueError as exc:
-				raise ValueError(f"[{scope_label}] Check numeric fields:\n{exc}") from exc
-
-			if chance > 1.0:
-				chance /= 100.0
-			out['chance_irrelevant'] = chance
-			out['show_connections_list'] = bool(fmap['show_connections_list'].active)
-			out['show_only_edges'] = bool(fmap['show_only_edges'].active)
-			out['show_edge_labels'] = bool(fmap['show_edge_labels'].active)
-			out['enable_non_cycle_printing'] = bool(fmap['enable_non_cycle_printing'].active)
-			out['sort_by_len'] = bool(fmap['sort_by_len'].active)
-			out['sort_connections_alphabetically'] = bool(fmap['sort_connections_alphabetically'].active)
-			out['source_node'] = fmap['source_node'].text.strip().lower()
-			out['target_node'] = fmap['target_node'].text.strip().lower()
-			block_raw = fmap['block_starting_node'].text.strip()
-			out['block_starting_node'] = [x.strip().lower() for x in block_raw.split(',') if x.strip()]
-			out['excluded_elements'] = [line.strip() for line in fmap['excluded_elements'].text.splitlines() if
-										line.strip()]
-			out['leaf_only'] = bool(fmap['leaf_only'].active)
-			out['include_secondary_cycles'] = bool(fmap['include_secondary_cycles'].active)
-			return out
+		def _collect_raw(fmap: dict) -> dict:
+			return {
+				k: (w.active if isinstance(w, CheckBox) else w.text)
+				for k, w in fmap.items()
+			}
 
 		def _apply(mode: str):
 			try:
-				global_dict = _parse_fields(global_fields, 'Global')
-				new_base = copy.deepcopy(self.base_config)
+				global_dict = parse_graph_settings_dict(_collect_raw(global_fields), 'Global')
+				new_base = copy.deepcopy(self.controller.base_config)
 				new_base.folder_path = ti_app_folder.text.strip()
 				new_base.file_name = ti_app_file.text.strip()
 				for k, v in global_dict.items():
@@ -1808,7 +1577,7 @@ class GraphMLAndroidApp(App):
 
 				new_local = {}
 				if has_file:
-					local_parsed = _parse_fields(local_fields, 'Local')
+					local_parsed = parse_graph_settings_dict(_collect_raw(local_fields), 'Local')
 					for k in GRAPH_SETTING_KEYS:
 						if local_enabled_cbs[k].active:
 							new_local[k] = local_parsed[k]
@@ -1816,35 +1585,28 @@ class GraphMLAndroidApp(App):
 				self._show_message('Invalid Value', str(exc))
 				return
 
-			if mode == 'save':
-				try:
-					sync_path = ti_sync_folder.text.strip()
-					set_sync_folder(sync_path)
-					if sync_path and not IS_DESKTOP and not has_all_files_access():
-						request_all_files_access()
-					save_config_file(self.input_file, new_base)
-					if has_file:
-						save_graph_config(self.current_graph_path, new_local)
-				except Exception as exc:
-					self._show_message('Save Error', str(exc))
-					return
+			sync_path = ti_sync_folder.text.strip()
+			if mode == 'save' and sync_path and not IS_DESKTOP and not has_all_files_access():
+				request_all_files_access()
 
-			self.base_config = new_base
-			self.local_overrides = new_local
+			try:
+				action, path = self.controller.apply_config(
+					new_base,
+					new_local,
+					mode=mode,
+					sync_folder=sync_path,
+				)
+			except Exception as exc:
+				self._show_message('Save Error', str(exc))
+				return
+
 			popup.dismiss()
 
-			if has_file:
-				effective = build_effective_config(self.base_config, self.local_overrides, self.current_graph_path)
-				self.load_graph_file(
-					self.current_graph_path,
-					override_config=effective,
-					override_local=self.local_overrides,
-				)
-			else:
-				self.config_obj = copy.deepcopy(self.base_config)
-				cfg_path = self._resolve_graph_path_from_config(self.base_config)
-				if cfg_path and os.path.isfile(cfg_path):
-					self.load_graph_file(os.path.abspath(cfg_path))
+			if action == 'reload_current' and path:
+				effective = build_effective_config(self.controller.base_config, self.controller.local_overrides, path)
+				self.load_graph_file(path, override_config=effective, override_local=self.controller.local_overrides)
+			elif action == 'load_default' and path:
+				self.load_graph_file(path)
 
 		def _clear_all_local(*_):
 			for k, cb in local_enabled_cbs.items():
@@ -1868,71 +1630,18 @@ class GraphMLAndroidApp(App):
 	# Relationship Game Controls
 	# ------------------------------------------------------------------
 	def start_game(self):
-		if self.is_busy:
+		if self.controller.is_busy:
 			return
-		if not self.ctx:
+		if not self.controller.ctx:
 			self._show_message('No Graph Loaded', 'Tap "Open" to load a GraphML file first.')
 			return
-
-		self._cancel_active_game()
-		session = GameSession()
-		self.active_session = session
-		self.lbl_status.text = 'Game running'
-		self._update_button_states()
-
-		ctx_ref = self.ctx
-		prepared_ref = self.prepared_game_data
-
-		def on_stats(stats_dict: dict):
-			self.output_queue.put(('stats', (session, stats_dict)))
-
-		def on_graph(diagram_data: GraphDiagramData):
-			self.output_queue.put(('graph', (session, diagram_data)))
-
-		def on_answer_output(text: str, highlight: AnswerHighlight):
-			self.output_queue.put(('answer_line', (session, text, highlight)))
-
-		def gui_input() -> str:
-			if session.cancel_event.is_set():
-				raise GameCancelledError()
-			self.output_queue.put(('waiting_input', (session, True)))
-			while True:
-				if session.cancel_event.is_set():
-					raise GameCancelledError()
-				try:
-					val = session.input_queue.get(timeout=0.1)
-					if val is None or session.cancel_event.is_set():
-						raise GameCancelledError()
-					self.output_queue.put(('waiting_input', (session, False)))
-					return val
-				except queue.Empty:
-					continue
-
-		def game_worker():
-			try:
-				run_relationship_guessing_game(
-					ctx_ref,
-					input_fn=gui_input,
-					exit_on_finish=False,
-					on_stats_update=on_stats,
-					prepared_data=prepared_ref,
-					on_graph_update=on_graph,
-					on_answer_output=on_answer_output
-				)
-				self.output_queue.put(('game_finished', session))
-			except GameCancelledError:
-				pass
-			except Exception as exc:
-				self.output_queue.put(('game_error', (session, str(exc))))
-
-		session.thread = threading.Thread(target=game_worker, daemon=True)
-		session.thread.start()
+		if self.controller.start_game():
+			self.lbl_status.text = 'Game running'
+			self._update_button_states()
 
 	def send_reveal_next(self):
-		if self.active_session and self.active_session.waiting_for_input:
+		if self.controller.send_reveal_next():
 			self._append_console_text('\n')
-			self.active_session.waiting_for_input = False
-			self.active_session.input_queue.put('')
 			self._update_button_states()
 
 	# ------------------------------------------------------------------
@@ -2081,8 +1790,7 @@ class GraphMLAndroidApp(App):
 		self.lbl_total_progress.text = f'{total_answered} / {total_items} ({overall_pct}%)'
 
 		for idx, hdr in enumerate(('Category', 'Done', '%', 'Tier', 'Left')):
-			kw = {'size_hint_x': None, 'width': dp(98), 'halign': 'left',
-				  'text_size': (dp(94), None)} if idx == 0 else {}
+			kw = {'size_hint_x': None, 'width': dp(98), 'halign': 'left', 'text_size': (dp(94), None)} if idx == 0 else {}
 			self.progress_grid.add_widget(Label(
 				text=hdr,
 				bold=True,
@@ -2103,8 +1811,7 @@ class GraphMLAndroidApp(App):
 				str(r['left']),
 			)
 			for idx, v in enumerate(vals):
-				kw = {'size_hint_x': None, 'width': dp(98), 'halign': 'left',
-					  'text_size': (dp(94), None)} if idx == 0 else {}
+				kw = {'size_hint_x': None, 'width': dp(98), 'halign': 'left', 'text_size': (dp(94), None)} if idx == 0 else {}
 				self.progress_grid.add_widget(Label(
 					text=v,
 					size_hint_y=None,
@@ -2121,98 +1828,71 @@ class GraphMLAndroidApp(App):
 			self.progress_scroll.height = self._progress_expanded_height
 
 	def _poll_output_queue(self, dt):
-		try:
-			while True:
-				kind, payload = self.output_queue.get_nowait()
+		for kind, payload in self.controller.poll_events():
+			if kind == 'text':
+				self._append_console_text(payload)
 
-				if kind == 'text':
-					self._append_console_text(payload)
+			elif kind == 'answer_line':
+				text, highlight = payload
+				self._flush_partial_line()
+				self._add_answer_line(text, highlight)
 
-				elif kind == 'answer_line':
-					session, text, highlight = payload
-					if session is self.active_session:
-						self._flush_partial_line()
-						self._add_answer_line(text, highlight)
+			elif kind == 'loaded':
+				ctx, _html_path, norm_path, _prepared, stats = payload
+				conn_mode = ctx.config.connection_type
+				self.lbl_file.text = f"{os.path.basename(norm_path)} ({len(ctx.nodes)}N / {len(ctx.edges)}E | {conn_mode})"
+				self.lbl_status.text = 'Ready'
+				self._update_progress_table(stats)
+				self._update_graph_panel(None)
+				self._append_console_text('Ready! Tap "Start Game" to begin.\n')
+				self._update_button_states()
 
-				elif kind == 'loaded':
-					ctx, html_path, norm_path, prepared, stats = payload
-					self.ctx = ctx
-					self.prepared_game_data = prepared
-					self.last_html_path = html_path or ''
-					self.is_busy = False
-					conn_mode = ctx.config.connection_type
-					self.lbl_file.text = f"{os.path.basename(norm_path)} ({len(ctx.nodes)}N / {len(ctx.edges)}E | {conn_mode})"
-					self.lbl_status.text = 'Ready'
-					self._update_progress_table(stats)
-					self._update_graph_panel(None)
-					self._append_console_text('Ready! Tap "Start Game" to begin.\n')
-					self._update_button_states()
+			elif kind == 'html_done':
+				self.lbl_status.text = 'Ready'
+				self._update_button_states()
 
-				elif kind == 'html_done':
-					self.last_html_path = payload or self.last_html_path
-					self.is_busy = False
-					self.lbl_status.text = 'Ready'
-					self._update_button_states()
+			elif kind == 'load_error':
+				self._update_progress_table(None)
+				self._update_graph_panel(None)
+				self.lbl_status.text = 'Load Error'
+				self._append_console_text(f'\nERROR: {payload}\n')
+				self._update_button_states()
+				self._show_message('Load Error', payload)
 
-				elif kind == 'load_error':
-					self.is_busy = False
-					self.prepared_game_data = None
-					self._update_progress_table(None)
-					self._update_graph_panel(None)
-					self.lbl_status.text = 'Load Error'
-					self._append_console_text(f'\nERROR: {payload}\n')
-					self._update_button_states()
-					self._show_message('Load Error', payload)
+			elif kind == 'waiting_input':
+				self.lbl_status.text = 'Waiting for input' if payload else 'Processing...'
+				self._update_button_states()
 
-				elif kind == 'waiting_input':
-					session, is_waiting = payload
-					if session is self.active_session:
-						session.waiting_for_input = is_waiting
-						self.lbl_status.text = 'Waiting for input' if is_waiting else 'Processing...'
-						self._update_button_states()
+			elif kind == 'game_finished':
+				self.lbl_status.text = 'Ready'
+				self._append_console_text('\nTap "Start Game" to play again.\n')
+				self._update_button_states()
 
-				elif kind == 'game_finished':
-					session = payload
-					if session is self.active_session:
-						self.active_session = None
-						self.lbl_status.text = 'Ready'
-						self._append_console_text('\nTap "Start Game" to play again.\n')
-						self._update_button_states()
+			elif kind == 'game_error':
+				self.lbl_status.text = 'Game Error'
+				self._append_console_text(f'\nGame Error: {payload}\n')
+				self._update_button_states()
 
-				elif kind == 'game_error':
-					session, err_msg = payload
-					if session is self.active_session:
-						self.active_session = None
-						self.lbl_status.text = 'Game Error'
-						self._append_console_text(f'\nGame Error: {err_msg}\n')
-						self._update_button_states()
+			elif kind == 'stats':
+				self._update_progress_table(payload)
 
-				elif kind == 'stats':
-					session, stats_dict = payload
-					if session is self.active_session:
-						self._update_progress_table(stats_dict)
-
-				elif kind == 'graph':
-					session, diagram_data = payload
-					if session is self.active_session:
-						self._update_graph_panel(diagram_data)
-
-		except queue.Empty:
-			pass
+			elif kind == 'graph':
+				self._update_graph_panel(payload)
 
 	def _update_button_states(self):
-		has_ctx = self.ctx is not None
-		has_html = bool(self.last_html_path and os.path.isfile(self.last_html_path))
-		game_active = self.active_session is not None
-		waiting = bool(game_active and self.active_session.waiting_for_input)
+		c = self.controller
+		has_ctx = c.ctx is not None
+		has_html = bool(c.last_html_path and os.path.isfile(c.last_html_path))
+		game_active = c.active_session is not None
+		waiting = bool(game_active and c.active_session.waiting_for_input)
 
-		self.btn_open.disabled = self.is_busy
-		self.btn_recent.disabled = self.is_busy
-		self.btn_reload.disabled = self.is_busy or not self.current_graph_path
+		self.btn_open.disabled = c.is_busy
+		self.btn_recent.disabled = c.is_busy
+		self.btn_reload.disabled = c.is_busy or not c.current_graph_path
 		self.btn_html.disabled = not has_html
-		self.btn_config.disabled = self.is_busy
+		self.btn_config.disabled = c.is_busy
 
-		self.btn_start_game.disabled = self.is_busy or not has_ctx
+		self.btn_start_game.disabled = c.is_busy or not has_ctx
 		self.btn_reveal.disabled = not waiting
 
 		target_btn = self.btn_reveal if game_active else self.btn_start_game

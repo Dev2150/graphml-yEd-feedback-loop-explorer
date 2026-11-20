@@ -1,98 +1,47 @@
 import copy
 import os
-import queue
-import re
 import subprocess
 import sys
-import threading
 import tkinter as tk
 import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-import networkx as nx
-
-from src.config import (
-	Config,
-	COUNTER_CONNECTION_TYPES,
-	GRAPH_SETTING_KEYS,
-	build_effective_config,
-	create_input_file,
-	read_config_file,
-	save_config_file,
-)
-from src.games.relationship_game import (
-	GameCancelledError,
-	run_relationship_guessing_game,
-	prepare_relationship_game_data,
-	compute_relationship_stats,
-)
+from src.app_controller import AppController, parse_graph_settings_dict
+from src.config import Config, GRAPH_SETTING_KEYS, build_effective_config
 from src.graph_diagram import (
+	AnswerHighlight,
 	GraphDiagramData,
+	blend_hex_with_white,
 	compute_circular_layout,
-	compute_edge_geometry, format_graph_node_label, AnswerHighlight, find_cycle_icon_path, compute_cycle_center,
-	blend_hex_with_white, compute_diagram_cycle_centers,
+	compute_diagram_cycle_centers,
+	compute_edge_geometry,
+	find_cycle_icon_path,
+	format_graph_node_label,
 )
-from src.html_exporter import generate_html_and_graphml
-from src.io_graphml import list_graph_elements_and_groups, read_from_graph_xml
-from src.models import GraphContext
+from src.io_graphml import list_graph_elements_and_groups
 from src.progress_storage import (
 	clear_recent_files,
-	delete_graph_config,
+	get_local_data_dir,
+	get_show_progress,
+	get_sync_folder,
 	load_app_state,
-	load_graph_config,
-	record_recent_file,
-	save_graph_config, set_sync_folder, get_sync_folder, get_local_data_dir, get_show_progress, set_show_progress,
+	set_show_progress,
 )
 
-ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
 COLOR_BLACK = "#000000"
 COLOR_GLOW_FIRST = "#888888"
 COLOR_OUTLINE_FIRST = "#555555"
 GLOW_STEP_FIRST = ((18.0, 0.32), (11.0, 0.56), (5.5, 0.85))
 GLOW_STEP_NOT_FIRST = ((16.0, 0.28), (10.0, 0.50), (5.0, 0.78))
 
+
 def run_gui(input_file: str, output_folder: str):
 	app = GraphMLExplorerApp(input_file, output_folder)
 	try:
 		app.mainloop()
 	finally:
-		sys.stdout = app._orig_stdout
-		sys.stderr = app._orig_stderr
-
-
-class ConsoleRedirector:
-	def __init__(self, msg_queue: queue.Queue, orig_stream=None):
-		self.msg_queue = msg_queue
-		self.orig_stream = orig_stream
-
-	def write(self, text: str):
-		if text:
-			if self.orig_stream is not None:
-				try:
-					self.orig_stream.write(text)
-				except Exception:
-					pass
-			clean = ANSI_ESCAPE_RE.sub('', text)
-			self.msg_queue.put(("text", clean))
-
-	def flush(self):
-		if self.orig_stream is not None:
-			try:
-				self.orig_stream.flush()
-			except Exception:
-				pass
-
-	def isatty(self) -> bool:
-		return False
-
-
-class GameSession:
-	def __init__(self):
-		self.input_queue: queue.Queue = queue.Queue()
-		self.cancel_event: threading.Event = threading.Event()
-		self.thread: threading.Thread = None
-		self.waiting_for_input: bool = False
+		app.controller.restore_console_redirect()
 
 
 class ExclusionPickerDialog(tk.Toplevel):
@@ -440,11 +389,10 @@ class ConfigDialog(tk.Toplevel):
 		add_entry_pair("max_cycle_length_game", "Max Cycle Length (Game)", cfg.max_cycle_length_game, loc.get("max_cycle_length_game"))
 		add_entry_pair("max_indirectness_game", "Max Indirectness (Game)", cfg.max_indirectness_game, loc.get("max_indirectness_game"))
 		add_check_pair("leaf_only", "Leaf Nodes Only", cfg.leaf_only, loc.get("leaf_only"))
-		add_check_pair("include_secondary_cycles", "Include Secondary Cycles", cfg.include_secondary_cycles,
-					   loc.get("include_secondary_cycles"))
+		add_check_pair("include_secondary_cycles", "Include Secondary Cycles", cfg.include_secondary_cycles, loc.get("include_secondary_cycles"))
 
 		# ------------------------------------------------------------------
-		# Tab 2: App Settings (Startup / Default File, separate from Graph Settings)
+		# Tab 2: App Settings
 		# ------------------------------------------------------------------
 		app_tab = ttk.Frame(notebook, padding=14)
 		notebook.add(app_tab, text="App Settings")
@@ -486,7 +434,7 @@ class ConfigDialog(tk.Toplevel):
 			text="Used as the startup fallback file when no recent file is available in app_state.json.",
 			foreground="#555555",
 			wraplength=560,
-		).grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
+		).grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
 		# ------------------------------------------------------------------
 		# Bottom Button Bar
@@ -532,10 +480,10 @@ class ConfigDialog(tk.Toplevel):
 		if not fname:
 			messagebox.showinfo("No File Specified", "Enter a Default File Name / Path first.", parent=self)
 			return
-		if '/' in fname or '\\' in fname or os.path.isabs(fname):
-			target = fname if fname.endswith('.graphml') else fname + '.graphml'
+		if "/" in fname or "\\" in fname or os.path.isabs(fname):
+			target = fname if fname.endswith(".graphml") else fname + ".graphml"
 		else:
-			target = os.path.join(folder, fname + ('' if fname.endswith('.graphml') else '.graphml'))
+			target = os.path.join(folder, fname + ("" if fname.endswith(".graphml") else ".graphml"))
 		if not os.path.isfile(target):
 			messagebox.showerror("File Not Found", f"Could not find file:\n{target}", parent=self)
 			return
@@ -547,41 +495,17 @@ class ConfigDialog(tk.Toplevel):
 			en_var.set(False)
 			self._update_local_row_state(key)
 
-	def _parse_graph_fields(self, vars_map: dict, excl_widget: tk.Text, scope_label: str) -> dict:
-		out = {}
-		out["connection_type"] = vars_map["connection_type"].get().strip().lower() or "correlation"
-		out["ignore_edge_colors"] = bool(vars_map["ignore_edge_colors"].get())
-		try:
-			out["color_threshold"] = int(vars_map["color_threshold"].get().strip())
-			out["connections_skipped"] = int(vars_map["connections_skipped"].get().strip())
-			out["max_cycle_length_html"] = int(vars_map["max_cycle_length_html"].get().strip())
-			out["max_indirectness"] = int(vars_map["max_indirectness"].get().strip())
-			out["max_cycle_length_game"] = int(vars_map["max_cycle_length_game"].get().strip())
-			out["max_indirectness_game"] = int(vars_map["max_indirectness_game"].get().strip())
-			chance = float(vars_map["chance_irrelevant"].get().strip())
-		except ValueError as exc:
-			raise ValueError(f"[{scope_label}] Check numeric fields: {exc}") from exc
-
-		if chance > 1.0:
-			chance /= 100.0
-		out["chance_irrelevant"] = chance
-		out["show_connections_list"] = bool(vars_map["show_connections_list"].get())
-		out["show_only_edges"] = bool(vars_map["show_only_edges"].get())
-		out["show_edge_labels"] = bool(vars_map["show_edge_labels"].get())
-		out["enable_non_cycle_printing"] = bool(vars_map["enable_non_cycle_printing"].get())
-		out["sort_by_len"] = bool(vars_map["sort_by_len"].get())
-		out["sort_connections_alphabetically"] = bool(vars_map["sort_connections_alphabetically"].get())
-		out["source_node"] = vars_map["source_node"].get().strip().lower()
-		out["target_node"] = vars_map["target_node"].get().strip().lower()
-		block_raw = vars_map["block_starting_node"].get().strip()
-		out["block_starting_node"] = [x.strip().lower() for x in block_raw.split(",") if x.strip()]
-		out["excluded_elements"] = [line.strip() for line in excl_widget.get("1.0", tk.END).splitlines() if line.strip()]
-		out["leaf_only"] = bool(vars_map["leaf_only"].get())
-		out["include_secondary_cycles"] = bool(vars_map["include_secondary_cycles"].get())
-		return out
+	@staticmethod
+	def _collect_raw_graph_fields(vars_map: dict, excl_widget: tk.Text) -> dict:
+		raw = {k: v.get() for k, v in vars_map.items()}
+		raw["excluded_elements"] = excl_widget.get("1.0", tk.END)
+		return raw
 
 	def _build_configs(self):
-		global_dict = self._parse_graph_fields(self.global_vars, self.txt_global_excluded, "Global")
+		global_dict = parse_graph_settings_dict(
+			self._collect_raw_graph_fields(self.global_vars, self.txt_global_excluded),
+			"Global",
+		)
 		new_base = copy.deepcopy(self.base_config)
 		new_base.folder_path = self.app_vars["folder_path"].get().strip()
 		new_base.file_name = self.app_vars["file_name"].get().strip()
@@ -590,7 +514,10 @@ class ConfigDialog(tk.Toplevel):
 
 		new_local = {}
 		if self.has_file:
-			local_parsed = self._parse_graph_fields(self.local_vars, self.txt_local_excluded, "Local")
+			local_parsed = parse_graph_settings_dict(
+				self._collect_raw_graph_fields(self.local_vars, self.txt_local_excluded),
+				"Local",
+			)
 			for k in GRAPH_SETTING_KEYS:
 				if self.local_enabled_vars[k].get():
 					new_local[k] = local_parsed[k]
@@ -608,14 +535,14 @@ class ConfigDialog(tk.Toplevel):
 		self.on_apply_callback(new_base, new_local, mode=mode, sync_folder=sync_folder)
 
 	def _browse_sync_folder(self):
-		current = self.app_vars["folder_path"].get().strip()
+		current = self.app_vars["sync_folder"].get().strip()
 		path = filedialog.askdirectory(
 			parent=self,
-			title="Select Default GraphML Folder",
+			title="Select Default Sync Folder",
 			initialdir=current if os.path.isdir(current) else os.getcwd(),
 		)
 		if path:
-			self.app_vars["folder_path"].set(path + os.sep)
+			self.app_vars["sync_folder"].set(path)
 
 	def _open_appdata_folder(self):
 		folder = get_local_data_dir()
@@ -637,17 +564,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self.geometry("1220x760")
 		self.minsize(880, 540)
 
-		self.input_file = os.path.abspath(input_file)
-		self.output_folder = os.path.abspath(output_folder)
-
-		self.base_config: Config = Config()
-		self.config_obj: Config = Config()
-		self.ctx: GraphContext = None
-		self.current_graph_path: str = ""
-		self.last_html_path: str = ""
-		self.is_busy: bool = False
-		self.active_session: GameSession = None
-		self.prepared_game_data = None
+		self.controller = AppController(input_file, output_folder)
 		self.current_diagram: GraphDiagramData = None
 		self.active_highlight: AnswerHighlight = None
 		self._hovered_answer_tag: str = None
@@ -660,11 +577,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self._synced_console_tags: list = []
 		self._progress_visible: bool = get_show_progress()
 
-		self.output_queue: queue.Queue = queue.Queue()
-		self._orig_stdout = sys.stdout
-		self._orig_stderr = sys.stderr
-		sys.stdout = ConsoleRedirector(self.output_queue, self._orig_stdout)
-		sys.stderr = ConsoleRedirector(self.output_queue, self._orig_stderr)
+		self.controller.install_console_redirect()
 
 		self._build_menu()
 		self._build_layout()
@@ -695,8 +608,6 @@ class GraphMLExplorerApp(tk.Tk):
 		tools_menu.add_command(label="Open HTML Output Folder", accelerator="Ctrl+Shift+O", command=self.open_html_folder)
 		tools_menu.add_separator()
 		tools_menu.add_command(label="Configuration...", accelerator="Ctrl+,", command=self.open_config_dialog)
-		tools_menu.add_command(label="Open HTML Output Folder", accelerator="Ctrl+Shift+O",
-							   command=self.open_html_folder)
 		tools_menu.add_command(label="Open AppData Folder", command=self.open_appdata_folder)
 		self.menubar.add_cascade(label="Tools", menu=tools_menu)
 
@@ -705,7 +616,6 @@ class GraphMLExplorerApp(tk.Tk):
 		game_menu.add_command(label="Reveal / Next", accelerator="Enter / Space", command=self.send_reveal_next)
 		game_menu.add_command(label="Stop Game (0)", command=self.send_stop_game)
 		self.menubar.add_cascade(label="Game", menu=game_menu)
-
 
 		self.config(menu=self.menubar)
 		self._refresh_recent_menu()
@@ -782,14 +692,10 @@ class GraphMLExplorerApp(tk.Tk):
 		tier_bar = ttk.Frame(self.progress_frame)
 		tier_bar.pack(fill=tk.X, pady=(0, 6))
 
-		self.lbl_current_tier = ttk.Label(
-			tier_bar, text="Current tier: —", font=("Segoe UI", 9, "bold")
-		)
+		self.lbl_current_tier = ttk.Label(tier_bar, text="Current tier: —", font=("Segoe UI", 9, "bold"))
 		self.lbl_current_tier.pack(side=tk.LEFT)
 
-		self.lbl_total_progress = ttk.Label(
-			tier_bar, text="", foreground="#555555", font=("Segoe UI", 9)
-		)
+		self.lbl_total_progress = ttk.Label(tier_bar, text="", foreground="#555555", font=("Segoe UI", 9))
 		self.lbl_total_progress.pack(side=tk.RIGHT)
 
 		table_frame = ttk.Frame(self.progress_frame)
@@ -851,8 +757,7 @@ class GraphMLExplorerApp(tk.Tk):
 		graph_panel = ttk.LabelFrame(main_pane, text="Relationship Graph", padding=6)
 		main_pane.add(graph_panel, weight=2)
 
-		self.lbl_graph_title = ttk.Label(graph_panel, text="Reveal an answer to view graph",
-										 font=("Segoe UI", 9, "bold"))
+		self.lbl_graph_title = ttk.Label(graph_panel, text="Reveal an answer to view graph", font=("Segoe UI", 9, "bold"))
 		self.lbl_graph_title.pack(anchor="w", pady=(0, 4))
 
 		self.graph_canvas = tk.Canvas(
@@ -863,7 +768,6 @@ class GraphMLExplorerApp(tk.Tk):
 		)
 		self.graph_canvas.pack(fill=tk.BOTH, expand=True)
 		self.graph_canvas.bind("<Configure>", lambda _e: self._redraw_graph_canvas())
-
 		self.graph_canvas.bind("<Motion>", self._on_graph_canvas_motion)
 		self.graph_canvas.bind("<Leave>", lambda _e: self._clear_hovered_cycle_icon())
 
@@ -882,27 +786,10 @@ class GraphMLExplorerApp(tk.Tk):
 		self.bind("0", self._on_key_stop)
 
 	# ------------------------------------------------------------------
-	# Startup & File Resolution
+	# Startup & Recent Files Menu
 	# ------------------------------------------------------------------
 	def _startup(self):
-		config_created = False
-		if not os.path.exists(self.input_file):
-			create_input_file(self.input_file)
-			config_created = True
-
-		self.base_config = read_config_file(self.input_file)
-		self.config_obj = copy.deepcopy(self.base_config)
-		app_state = load_app_state()
-		last_file = app_state.get("last_file", "")
-
-		candidate_path = ""
-		if last_file and os.path.isfile(last_file):
-			candidate_path = last_file
-		else:
-			cfg_path = self._resolve_graph_path_from_config(self.base_config)
-			if cfg_path and os.path.isfile(cfg_path):
-				candidate_path = os.path.abspath(cfg_path)
-
+		config_created, candidate_path = self.controller.initialize_startup()
 		if candidate_path:
 			self.load_graph_file(candidate_path)
 		else:
@@ -911,25 +798,9 @@ class GraphMLExplorerApp(tk.Tk):
 				"Use 'Open File...' or configure your file in Settings.\n\n"
 			)
 			self._update_button_states()
-			if config_created or not self.base_config.file_name:
+			if config_created or not self.controller.base_config.file_name:
 				self.open_config_dialog()
 
-	def _resolve_graph_path_from_config(self, cfg: Config) -> str:
-		if not cfg.file_name:
-			return ""
-		if '/' in cfg.file_name or '\\' in cfg.file_name or os.path.isabs(cfg.file_name):
-			return cfg.file_name if cfg.file_name.endswith('.graphml') else cfg.file_name + '.graphml'
-		return os.path.join(cfg.folder_path, cfg.file_name + ('' if cfg.file_name.endswith('.graphml') else '.graphml'))
-
-	def _resolve_effective_config(self, filepath: str):
-		norm_path = os.path.abspath(filepath)
-		saved_dict = load_graph_config(norm_path) or {}
-		local_overrides = {k: v for k, v in saved_dict.items() if k in GRAPH_SETTING_KEYS}
-		return build_effective_config(self.base_config, local_overrides, norm_path), local_overrides
-
-	# ------------------------------------------------------------------
-	# Recent Files Menu
-	# ------------------------------------------------------------------
 	def _refresh_recent_menu(self):
 		self.recent_menu.delete(0, tk.END)
 		state = load_app_state()
@@ -945,7 +816,7 @@ class GraphMLExplorerApp(tk.Tk):
 			label = f"{idx}. {base}  —  {folder}"
 			self.recent_menu.add_command(
 				label=label,
-				command=lambda p=path: self.open_specific_file(p)
+				command=lambda p=path: self.open_specific_file(p),
 			)
 
 		self.recent_menu.add_separator()
@@ -959,12 +830,13 @@ class GraphMLExplorerApp(tk.Tk):
 	# File Opening & Loading
 	# ------------------------------------------------------------------
 	def open_file_dialog(self):
+		cur_path = self.controller.current_graph_path
 		initial_dir = (
-			os.path.dirname(self.current_graph_path)
-			if self.current_graph_path and os.path.isdir(os.path.dirname(self.current_graph_path))
+			os.path.dirname(cur_path)
+			if cur_path and os.path.isdir(os.path.dirname(cur_path))
 			else (
-				self.base_config.folder_path
-				if os.path.isdir(self.base_config.folder_path)
+				self.controller.base_config.folder_path
+				if os.path.isdir(self.controller.base_config.folder_path)
 				else os.getcwd()
 			)
 		)
@@ -984,192 +856,93 @@ class GraphMLExplorerApp(tk.Tk):
 		self.load_graph_file(filepath)
 
 	def reload_current_file(self):
-		if self.current_graph_path and os.path.isfile(self.current_graph_path):
-			self.load_graph_file(self.current_graph_path)
+		cur = self.controller.current_graph_path
+		if cur and os.path.isfile(cur):
+			self.load_graph_file(cur)
 		else:
 			self.open_file_dialog()
 
-	def _cancel_active_game(self):
-		if self.active_session is not None:
-			self.active_session.cancel_event.set()
-			self.active_session.input_queue.put(None)
-			self.active_session.waiting_for_input = False
-			self.active_session = None
-
 	def load_graph_file(self, filepath: str, override_config: Config = None, override_local: dict = None):
-		self.prepared_game_data = None
-		self._cancel_active_game()
-		norm_path = os.path.abspath(filepath)
-		self.current_graph_path = norm_path
-		if override_local is not None:
-			self.local_overrides = copy.deepcopy(override_local)
-		else:
-			saved_dict = load_graph_config(norm_path) or {}
-			self.local_overrides = {k: v for k, v in saved_dict.items() if k in GRAPH_SETTING_KEYS}
-
-		self.config_obj = (
-			copy.deepcopy(override_config)
-			if override_config is not None
-			else build_effective_config(self.base_config, self.local_overrides, norm_path)
-		)
-		self.is_busy = True
+		norm_path = self.controller.load_graph_file(filepath, override_config, override_local)
 		self.lbl_status.configure(text="Loading & generating HTML...")
 		self.lbl_file.configure(text=f"Loading: {os.path.basename(norm_path)}")
 		self._update_button_states()
-
-		record_recent_file(norm_path)
 		self._refresh_recent_menu()
-
-		cfg_snapshot = copy.deepcopy(self.config_obj)
 		self._append_console_text(f"\nLoading: {norm_path}\n")
 
-		def worker():
-			try:
-				if cfg_snapshot.excluded_elements:
-					print(
-						f"Excluding {len(cfg_snapshot.excluded_elements)} element/group(s): "
-						f"{', '.join(cfg_snapshot.excluded_elements)}"
-					)
-
-				nodes, edges, edge_values, node_values, edge_labels, node_colors = read_from_graph_xml(
-					norm_path, cfg_snapshot.color_threshold, cfg_snapshot.excluded_elements
-				)
-
-				if cfg_snapshot.ignore_edge_colors or cfg_snapshot.connection_type in COUNTER_CONNECTION_TYPES:
-					edge_values = {k: 1 for k in edge_values}
-					node_values = {k: 0 for k in node_values}
-					print("Note: edge colors ignored — all edge values set to +1.")
-
-				g = nx.DiGraph()
-				g.add_nodes_from(nodes.keys())
-				g.add_edges_from(edges)
-
-				src_id = (
-					next((nid for nid, label in nodes.items() if label.lower() == cfg_snapshot.source_node), None)
-					if cfg_snapshot.source_node
-					else None
-				)
-				tgt_id = (
-					next((nid for nid, label in nodes.items() if label.lower() == cfg_snapshot.target_node), None)
-					if cfg_snapshot.target_node
-					else None
-				)
-
-				if cfg_snapshot.source_node and not src_id:
-					raise ValueError(f"Could not find source node '{cfg_snapshot.source_node}' in this graph.")
-				if cfg_snapshot.target_node and not tgt_id:
-					raise ValueError(f"Could not find target node '{cfg_snapshot.target_node}' in this graph.")
-
-				ctx = GraphContext(
-					graph=g,
-					nodes=nodes,
-					node_values=node_values,
-					edges=edges,
-					edge_values=edge_values,
-					config=cfg_snapshot,
-					source_node_id=src_id,
-					target_node_id=tgt_id,
-					edge_labels=edge_labels,
-					node_colors=node_colors,
-				)
-
-				html_path = generate_html_and_graphml(ctx, self.output_folder, norm_path)
-				prepared = prepare_relationship_game_data(ctx)
-				stats = compute_relationship_stats(ctx, prepared)
-				self.output_queue.put(("loaded", (ctx, html_path, norm_path, prepared, stats)))
-			except Exception as exc:
-				self.output_queue.put(("load_error", str(exc)))
-
-		threading.Thread(target=worker, daemon=True).start()
-
 	def regenerate_html(self):
-		if self.is_busy:
+		if self.controller.is_busy:
 			return
-		if not self.ctx or not self.current_graph_path:
+		if not self.controller.ctx or not self.controller.current_graph_path:
 			messagebox.showinfo("No Graph Loaded", "Please open a GraphML file first.", parent=self)
 			return
-
-		self._cancel_active_game()
-		self.is_busy = True
-		self.lbl_status.configure(text="Generating HTML & GraphML...")
-		self._update_button_states()
-
-		ctx_ref = self.ctx
-		ctx_ref.nodes_printed.clear()
-		graph_path = self.current_graph_path
-
-		def worker():
-			try:
-				html_path = generate_html_and_graphml(ctx_ref, self.output_folder, graph_path)
-				self.output_queue.put(("html_done", html_path))
-			except Exception as exc:
-				self.output_queue.put(("load_error", str(exc)))
-
-		threading.Thread(target=worker, daemon=True).start()
+		if self.controller.regenerate_html():
+			self.lbl_status.configure(text="Generating HTML & GraphML...")
+			self._update_button_states()
 
 	# ------------------------------------------------------------------
 	# HTML & Folder Actions
 	# ------------------------------------------------------------------
 	def open_generated_html(self):
-		if not self.last_html_path or not os.path.isfile(self.last_html_path):
+		html_path = self.controller.last_html_path
+		if not html_path or not os.path.isfile(html_path):
 			messagebox.showinfo("No HTML Yet", "No generated HTML file was found. Load or regenerate first.", parent=self)
 			return
 		try:
-			webbrowser.open(Path(self.last_html_path).resolve().as_uri())
+			webbrowser.open(Path(html_path).resolve().as_uri())
 		except Exception as e:
 			messagebox.showerror("Open HTML Error", f"Could not open HTML file:\n{e}", parent=self)
 
 	def open_html_folder(self):
-		os.makedirs(self.output_folder, exist_ok=True)
+		os.makedirs(self.controller.output_folder, exist_ok=True)
 		try:
 			if sys.platform.startswith("win"):
-				os.startfile(self.output_folder)
+				os.startfile(self.controller.output_folder)
 			elif sys.platform == "darwin":
-				subprocess.Popen(["open", self.output_folder])
+				subprocess.Popen(["open", self.controller.output_folder])
 			else:
-				subprocess.Popen(["xdg-open", self.output_folder])
+				subprocess.Popen(["xdg-open", self.controller.output_folder])
+		except Exception as e:
+			messagebox.showerror("Open Folder Error", f"Could not open folder:\n{e}", parent=self)
+
+	def open_appdata_folder(self):
+		folder = get_local_data_dir()
+		try:
+			if sys.platform.startswith("win"):
+				os.startfile(folder)
+			elif sys.platform == "darwin":
+				subprocess.Popen(["open", folder])
+			else:
+				subprocess.Popen(["xdg-open", folder])
 		except Exception as e:
 			messagebox.showerror("Open Folder Error", f"Could not open folder:\n{e}", parent=self)
 
 	# ------------------------------------------------------------------
-	# Configuration UI (only shown when requested or necessary)
+	# Configuration UI
 	# ------------------------------------------------------------------
 	def open_config_dialog(self):
 		def on_apply(new_base: Config, new_local: dict, mode: str = "session", sync_folder: str = None):
-			self.base_config = new_base
-			self.local_overrides = new_local
-
-			if mode == "save":
-				try:
-					if sync_folder is not None:
-						set_sync_folder(sync_folder)
-					save_config_file(self.input_file, new_base)
-					if self.current_graph_path:
-						save_graph_config(self.current_graph_path, new_local)
-				except Exception as exc:
-					messagebox.showerror("Save Error", f"Could not save configuration:\n{exc}", parent=self)
-					return
-
-			if self.current_graph_path and os.path.isfile(self.current_graph_path):
-				effective = build_effective_config(self.base_config, self.local_overrides, self.current_graph_path)
-				self.load_graph_file(
-					self.current_graph_path,
-					override_config=effective,
-					override_local=self.local_overrides,
+			try:
+				action, path = self.controller.apply_config(
+					new_base, new_local, mode=mode, sync_folder=sync_folder
 				)
-			else:
-				self.config_obj = copy.deepcopy(self.base_config)
-				target_path = self._resolve_graph_path_from_config(self.base_config)
-				if target_path and os.path.isfile(target_path):
-					self.load_graph_file(target_path)
+			except Exception as exc:
+				messagebox.showerror("Save Error", f"Could not save configuration:\n{exc}", parent=self)
+				return
+
+			if action == "reload_current" and path:
+				effective = build_effective_config(self.controller.base_config, self.controller.local_overrides, path)
+				self.load_graph_file(path, override_config=effective, override_local=self.controller.local_overrides)
+			elif action == "load_default" and path:
+				self.load_graph_file(path)
 
 		ConfigDialog(
 			self,
-			self.base_config,
-			self.local_overrides,
-			self.input_file,
+			self.controller.base_config,
+			self.controller.local_overrides,
+			self.controller.input_file,
 			on_apply,
-			current_graph_path=self.current_graph_path,
+			current_graph_path=self.controller.current_graph_path,
 			on_open_file_callback=self.open_specific_file,
 		)
 
@@ -1177,90 +950,35 @@ class GraphMLExplorerApp(tk.Tk):
 	# Relationship Game Runner & Controls
 	# ------------------------------------------------------------------
 	def start_game(self):
-		if self.is_busy:
+		if self.controller.is_busy:
 			return
-		if not self.ctx:
+		if not self.controller.ctx:
 			messagebox.showinfo("No Graph Loaded", "Please open a GraphML file first.", parent=self)
 			return
-
-		self._cancel_active_game()
-		session = GameSession()
-		self.active_session = session
-		self.lbl_status.configure(text="Game running")
-		self._update_button_states()
-		self.focus_set()
-
-		ctx_ref = self.ctx
-		prepared_ref = self.prepared_game_data
-
-		def on_stats(stats_dict: dict):
-			self.output_queue.put(("stats", (session, stats_dict)))
-
-		def on_graph(diagram_data: GraphDiagramData):
-			self.output_queue.put(("graph", (session, diagram_data)))
-
-		def on_answer_output(text: str, highlight: AnswerHighlight):
-			self.output_queue.put(("answer_line", (session, text, highlight)))
-
-		def gui_input() -> str:
-			if session.cancel_event.is_set():
-				raise GameCancelledError()
-			self.output_queue.put(("waiting_input", (session, True)))
-			while True:
-				if session.cancel_event.is_set():
-					raise GameCancelledError()
-				try:
-					val = session.input_queue.get(timeout=0.1)
-					if val is None or session.cancel_event.is_set():
-						raise GameCancelledError()
-					self.output_queue.put(("waiting_input", (session, False)))
-					return val
-				except queue.Empty:
-					continue
-
-		def game_worker():
-			try:
-				run_relationship_guessing_game(
-					ctx_ref,
-					input_fn=gui_input,
-					exit_on_finish=False,
-					on_stats_update=on_stats,
-					prepared_data=prepared_ref,
-					on_graph_update=on_graph,
-					on_answer_output=on_answer_output
-				)
-				self.output_queue.put(("game_finished", session))
-			except GameCancelledError:
-				pass
-			except Exception as exc:
-				self.output_queue.put(("game_error", (session, str(exc))))
-
-		session.thread = threading.Thread(target=game_worker, daemon=True)
-		session.thread.start()
+		if self.controller.start_game():
+			self.lbl_status.configure(text="Game running")
+			self._update_button_states()
+			self.focus_set()
 
 	def send_reveal_next(self):
-		if self.active_session and self.active_session.waiting_for_input:
+		if self.controller.send_reveal_next():
 			self._append_console_text("\n")
-			self.active_session.waiting_for_input = False
-			self.active_session.input_queue.put("")
 			self._update_button_states()
 			self.focus_set()
 
 	def send_stop_game(self):
-		if self.active_session and self.active_session.waiting_for_input:
+		res = self.controller.send_stop_game()
+		if res == "sent_quit":
 			self._append_console_text("0\n")
-			self.active_session.waiting_for_input = False
-			self.active_session.input_queue.put("0")
 			self._update_button_states()
 			self.focus_set()
-		elif self.active_session:
-			self._cancel_active_game()
+		elif res == "cancelled":
 			self._append_console_text("\nGame stopped.\n")
 			self.lbl_status.configure(text="Ready")
 			self._update_button_states()
 
 	# ------------------------------------------------------------------
-	# Circular Graph Panel Rendering
+	# Circular Graph Panel & Console
 	# ------------------------------------------------------------------
 	def _update_graph_panel(self, diagram_data: GraphDiagramData):
 		self.current_diagram = diagram_data
@@ -1302,190 +1020,85 @@ class GraphMLExplorerApp(tk.Tk):
 		self.console.configure(state=tk.DISABLED)
 		self.console.see("end-1c")
 
-	def _on_console_backspace(self, event=None):
-		try:
-			if self.console.tag_ranges("sel"):
-				if self.console.compare("sel.first", "<", "input_start"):
-					return "break"
-				return None
-		except tk.TclError:
-			pass
-		if self.console.compare("insert", "<=", "input_start"):
-			return "break"
-		return None
-
-	def _on_console_delete(self, event=None):
-		try:
-			if self.console.tag_ranges("sel"):
-				if self.console.compare("sel.first", "<", "input_start"):
-					return "break"
-				return None
-		except tk.TclError:
-			pass
-		if self.console.compare("insert", "<", "input_start"):
-			return "break"
-		return None
-
-	def _on_console_home(self, event=None):
-		if self.console.compare("insert", ">=", "input_start") and self.console.compare(
-			"insert linestart", "==", "input_start linestart"
-		):
-			self.console.mark_set("insert", "input_start")
-			return "break"
-		return None
-
-	def _on_console_cut(self, event=None):
-		try:
-			if self.console.tag_ranges("sel") and self.console.compare("sel.first", "<", "input_start"):
-				return "break"
-		except tk.TclError:
-			pass
-		if self.console.compare("insert", "<", "input_start"):
-			return "break"
-		return None
-
-	def _on_console_paste(self, event=None):
-		if self.console.compare("insert", "<", "input_start"):
-			self.console.mark_set("insert", "end-1c")
-		try:
-			pasted = self.clipboard_get()
-			single_line = pasted.replace("\r\n", " ").replace("\n", " ")
-			self.console.insert("insert", single_line)
-		except tk.TclError:
-			pass
-		return "break"
-
-	def _on_console_key(self, event):
-		if event.state & 0x4:
-			return None
-		if event.keysym in (
-			"Left", "Right", "Up", "Down", "Prior", "Next", "Home", "End",
-			"Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
-			"Escape", "Tab", "F5"
-		):
-			return None
-
-		if event.char and ord(event.char) >= 32:
-			try:
-				if self.console.tag_ranges("sel") and self.console.compare("sel.first", "<", "input_start"):
-					self.console.tag_remove("sel", "1.0", "end")
-					self.console.mark_set("insert", "end-1c")
-			except tk.TclError:
-				pass
-			if self.console.compare("insert", "<", "input_start"):
-				self.console.mark_set("insert", "end-1c")
-				self.console.see("end-1c")
-		return None
-
 	# ------------------------------------------------------------------
 	# Queue Polling & UI State
 	# ------------------------------------------------------------------
 	def _poll_output_queue(self):
-		try:
-			while True:
-				kind, payload = self.output_queue.get_nowait()
+		for kind, payload in self.controller.poll_events():
+			if kind == "text":
+				self._append_console_text(payload)
 
-				if kind == "text":
-					self._append_console_text(payload)
+			elif kind == "loaded":
+				ctx, _html_path, norm_path, _prepared, stats = payload
+				conn_mode = ctx.config.connection_type
+				self.title(f"GraphML Feedback Loop Explorer — {os.path.basename(norm_path)}")
+				self.lbl_file.configure(
+					text=f"{os.path.basename(norm_path)}  |  Nodes: {len(ctx.nodes)}  |  Edges: {len(ctx.edges)}  |  Mode: {conn_mode}"
+				)
+				self.lbl_status.configure(text="Ready")
+				self._update_progress_table(stats)
+				self._update_graph_panel(None)
+				self._append_console_text("Press Enter, Space, or click 'Start Game' to begin.\n")
+				self._update_button_states()
+				self.focus_set()
 
-				elif kind == "loaded":
-					ctx, html_path, norm_path, prepared, stats = payload
-					self.ctx = ctx
-					self.prepared_game_data = prepared
-					self.last_html_path = html_path or ""
-					self.is_busy = False
-					conn_mode = ctx.config.connection_type
-					self.title(f"GraphML Feedback Loop Explorer — {os.path.basename(norm_path)}")
-					self.lbl_file.configure(
-						text=f"{os.path.basename(norm_path)}  |  Nodes: {len(ctx.nodes)}  |  Edges: {len(ctx.edges)}  |  Mode: {conn_mode}"
-					)
-					self.lbl_status.configure(text="Ready")
-					self._update_progress_table(stats)
-					self._update_graph_panel(None)
-					self._append_console_text("Press Enter, Space, or click 'Start Game' to begin.\n")
-					self._update_button_states()
-					self.focus_set()
+			elif kind == "html_done":
+				self.lbl_status.configure(text="Ready")
+				self._update_button_states()
 
-				elif kind == "html_done":
-					self.last_html_path = payload or self.last_html_path
-					self.is_busy = False
-					self.lbl_status.configure(text="Ready")
-					self._update_button_states()
+			elif kind == "load_error":
+				self._update_progress_table(None)
+				self._update_graph_panel(None)
+				self.lbl_status.configure(text="Load Error")
+				self._append_console_text(f"\nERROR: {payload}\n")
+				self._update_button_states()
+				messagebox.showerror(
+					"Configuration / Load Error",
+					f"{payload}\n\nOpening Configuration so you can adjust settings.",
+					parent=self,
+				)
+				self.open_config_dialog()
 
-				elif kind == "load_error":
-					self.is_busy = False
-					self.prepared_game_data = None
-					self._update_progress_table(None)
-					self._update_graph_panel(None)
-					self.lbl_status.configure(text="Load Error")
-					self._append_console_text(f"\nERROR: {payload}\n")
-					self._update_button_states()
-					messagebox.showerror(
-						"Configuration / Load Error",
-						f"{payload}\n\nOpening Configuration so you can adjust settings.",
-						parent=self
-					)
-					self.open_config_dialog()
+			elif kind == "waiting_input":
+				self.lbl_status.configure(text="Game: Waiting for input" if payload else "Game: Processing...")
+				self._update_button_states()
 
-				elif kind == "waiting_input":
-					session, is_waiting = payload
-					if session is self.active_session:
-						session.waiting_for_input = is_waiting
-						self.lbl_status.configure(
-							text="Game: Waiting for input" if is_waiting else "Game: Processing..."
-						)
-						self._update_button_states()
+			elif kind == "game_finished":
+				self.lbl_status.configure(text="Ready")
+				self._append_console_text("\nEnter '1' + Enter or click 'Start Game' to play again.\n")
+				self._update_button_states()
 
-				elif kind == "game_finished":
-					session = payload
-					if session is self.active_session:
-						self.active_session = None
-						self.lbl_status.configure(text="Ready")
-						self._append_console_text("\nEnter '1' + Enter or click 'Start Game' to play again.\n")
-						self._update_button_states()
+			elif kind == "game_error":
+				self.lbl_status.configure(text="Game Error")
+				self._append_console_text(f"\nGame Error: {payload}\n")
+				self._update_button_states()
 
-				elif kind == "game_error":
-					session, err_msg = payload
-					if session is self.active_session:
-						self.active_session = None
-						self.lbl_status.configure(text="Game Error")
-						self._append_console_text(f"\nGame Error: {err_msg}\n")
-						self._update_button_states()
+			elif kind == "stats":
+				self._update_progress_table(payload)
 
-				elif kind == "stats":
-					session, stats_dict = payload
-					if session is self.active_session:
-						self._update_progress_table(stats_dict)
+			elif kind == "graph":
+				self._update_graph_panel(payload)
 
-				elif kind == "graph":
-					session, diagram_data = payload
-					if session is self.active_session:
-						self._update_graph_panel(diagram_data)
+			elif kind == "answer_line":
+				text, highlight = payload
+				self._append_answer_line(text, highlight)
 
-				elif kind == "answer_line":
-					session, text, highlight = payload
-					if session is self.active_session:
-						self._append_answer_line(text, highlight)
-
-		except queue.Empty:
-			pass
 		self.after(40, self._poll_output_queue)
 
 	def _update_button_states(self):
-		has_ctx = self.ctx is not None
-		has_html = bool(self.last_html_path and os.path.isfile(self.last_html_path))
-		game_active = self.active_session is not None
-		waiting = bool(game_active and self.active_session.waiting_for_input)
+		c = self.controller
+		has_ctx = c.ctx is not None
+		has_html = bool(c.last_html_path and os.path.isfile(c.last_html_path))
+		game_active = c.active_session is not None
+		waiting = bool(game_active and c.active_session.waiting_for_input)
 
-		self.btn_open.configure(state=tk.DISABLED if self.is_busy else tk.NORMAL)
-		self.btn_reload.configure(state=tk.NORMAL if (not self.is_busy and self.current_graph_path) else tk.DISABLED)
+		self.btn_open.configure(state=tk.DISABLED if c.is_busy else tk.NORMAL)
+		self.btn_reload.configure(state=tk.NORMAL if (not c.is_busy and c.current_graph_path) else tk.DISABLED)
 		self.btn_open_html.configure(state=tk.NORMAL if has_html else tk.DISABLED)
-		self.btn_config.configure(state=tk.DISABLED if self.is_busy else tk.NORMAL)
-		self.btn_regen.configure(state=tk.NORMAL if (not self.is_busy and has_ctx) else tk.DISABLED)
+		self.btn_config.configure(state=tk.DISABLED if c.is_busy else tk.NORMAL)
+		self.btn_regen.configure(state=tk.NORMAL if (not c.is_busy and has_ctx) else tk.DISABLED)
 
-		self.btn_start_game.configure(
-			state=tk.NORMAL if (not self.is_busy and has_ctx) else tk.DISABLED,
-		)
+		self.btn_start_game.configure(state=tk.NORMAL if (not c.is_busy and has_ctx) else tk.DISABLED)
 		self.btn_reveal.configure(state=tk.NORMAL if waiting else tk.DISABLED)
 
 		if game_active:
@@ -1500,9 +1113,7 @@ class GraphMLExplorerApp(tk.Tk):
 				self.btn_start_game.pack(side=tk.LEFT)
 
 	def _on_closing(self):
-		self._cancel_active_game()
-		sys.stdout = self._orig_stdout
-		sys.stderr = self._orig_stderr
+		self.controller.cleanup()
 		self.destroy()
 
 	def _update_progress_table(self, stats: dict):
@@ -1550,22 +1161,22 @@ class GraphMLExplorerApp(tk.Tk):
 				)
 
 	def _on_key_enter_or_space(self, event=None):
-		if self.active_session and self.active_session.waiting_for_input:
+		if self.controller.active_session and self.controller.active_session.waiting_for_input:
 			self.send_reveal_next()
 			return "break"
-		if not self.is_busy and self.ctx and self.active_session is None:
+		if not self.controller.is_busy and self.controller.ctx and self.controller.active_session is None:
 			self.start_game()
 			return "break"
 		return None
 
 	def _on_key_start(self, event=None):
-		if not self.is_busy and self.ctx and self.active_session is None:
+		if not self.controller.is_busy and self.controller.ctx and self.controller.active_session is None:
 			self.start_game()
 			return "break"
 		return None
 
 	def _on_key_stop(self, event=None):
-		if self.active_session is not None:
+		if self.controller.active_session is not None:
 			self.send_stop_game()
 			return "break"
 		return None
@@ -1603,7 +1214,6 @@ class GraphMLExplorerApp(tk.Tk):
 				photo = None
 		self._icon_photo_cache[cache_key] = photo
 		return photo
-
 
 	def _redraw_graph_canvas(self):
 		canvas = getattr(self, "graph_canvas", None)
@@ -1647,7 +1257,7 @@ class GraphMLExplorerApp(tk.Tk):
 		for node in diagram.nodes:
 			wrapped = format_graph_node_label(node.label)
 			wrapped_labels[node.node_id] = wrapped
-			line_count = wrapped.count('\n') + 1
+			line_count = wrapped.count("\n") + 1
 			node_font = ("Segoe UI", 8) if line_count > 3 else ("Segoe UI", 10)
 			node_fonts[node.node_id] = node_font
 			tid = canvas.create_text(0, 0, text=wrapped, font=node_font, justify=tk.CENTER)
@@ -1715,14 +1325,14 @@ class GraphMLExplorerApp(tk.Tk):
 			if node.node_id not in hl_nodes:
 				continue
 			cx, cy, nw, nh = rects[node.node_id]
-			is_earliest_generation = (node.node_id in first_hl_nodes)
+			is_earliest_generation = node.node_id in first_hl_nodes
 			if is_earliest_generation:
 				glow_base = COLOR_GLOW_FIRST
-			elif node.role in ('common_source', 'common_effect'):
+			elif node.role in ("common_source", "common_effect"):
 				glow_base = node.outline_color
 			else:
 				glow_base = node.fill_color if node.fill_color != "#FFFFFF" else "#999999"
-			glow_steps = (GLOW_STEP_FIRST if is_earliest_generation else GLOW_STEP_NOT_FIRST)
+			glow_steps = GLOW_STEP_FIRST if is_earliest_generation else GLOW_STEP_NOT_FIRST
 			for pad, alpha in glow_steps:
 				canvas.create_rectangle(
 					cx - (nw + pad) / 2.0,
@@ -1737,11 +1347,11 @@ class GraphMLExplorerApp(tk.Tk):
 		for node in diagram.nodes:
 			cx, cy, nw, nh = rects[node.node_id]
 			is_hl = node.node_id in hl_nodes
-			is_earliest_generation = (node.node_id in first_hl_nodes)
-			if node.role == 'target':
+			is_earliest_generation = node.node_id in first_hl_nodes
+			if node.role == "target":
 				outline_col = node.outline_color
 				outline_w = 4.0
-			elif node.role in ('common_source', 'common_effect'):
+			elif node.role in ("common_source", "common_effect"):
 				outline_col = node.outline_color
 				outline_w = 2.8 if is_hl else 2.4
 			else:
@@ -1851,18 +1461,6 @@ class GraphMLExplorerApp(tk.Tk):
 				_draw_cycle_icon(mx, my, cyc.polarity, True)
 				self._canvas_cycle_hits.append((mx, my, max(icon_sz * 0.55, 18.0), cyc, diagram))
 
-	def open_appdata_folder(self):
-		folder = get_local_data_dir()
-		try:
-			if sys.platform.startswith("win"):
-				os.startfile(folder)
-			elif sys.platform == "darwin":
-				subprocess.Popen(["open", folder])
-			else:
-				subprocess.Popen(["xdg-open", folder])
-		except Exception as e:
-			messagebox.showerror("Open Folder Error", f"Could not open folder:\n{e}", parent=self)
-
 	def _set_hovered_answer_tag(self, tag_name: str):
 		if self._hovered_answer_tag == tag_name:
 			return
@@ -1912,8 +1510,11 @@ class GraphMLExplorerApp(tk.Tk):
 			self._answer_highlights[tag_name] = highlight
 			self.console.tag_add(tag_name, start_idx, end_idx)
 			self.console.tag_bind(tag_name, "<Enter>", lambda _e, t=tag_name: self._set_hovered_answer_tag(t))
-			self.console.tag_bind(tag_name, "<Leave>", lambda _e, t=tag_name: self._set_hovered_answer_tag(
-				None) if self._hovered_answer_tag == t else None)
+			self.console.tag_bind(
+				tag_name,
+				"<Leave>",
+				lambda _e, t=tag_name: self._set_hovered_answer_tag(None) if self._hovered_answer_tag == t else None,
+			)
 
 		self.console.configure(state=tk.DISABLED)
 		self.console.see("end-1c")
