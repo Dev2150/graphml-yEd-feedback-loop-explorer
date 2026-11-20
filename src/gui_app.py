@@ -42,13 +42,13 @@ from src.progress_storage import (
 	load_app_state,
 	load_graph_config,
 	record_recent_file,
-	save_graph_config, set_sync_folder, get_sync_folder, get_local_data_dir,
+	save_graph_config, set_sync_folder, get_sync_folder, get_local_data_dir, get_show_progress, set_show_progress,
 )
 
 ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
 COLOR_BLACK = "#000000"
-COLOR_GLOW_FIRST = "#85deff"
-COLOR_OUTLINE_FIRST = "#3dcbff"
+COLOR_GLOW_FIRST = "#888888"
+COLOR_OUTLINE_FIRST = "#555555"
 GLOW_STEP_FIRST = ((18.0, 0.32), (11.0, 0.56), (5.5, 0.85))
 GLOW_STEP_NOT_FIRST = ((16.0, 0.28), (10.0, 0.50), (5.0, 0.78))
 
@@ -658,7 +658,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self._hovered_icon_edges = None
 		self._hovered_icon_highlight: AnswerHighlight = None
 		self._synced_console_tags: list = []
-		self._progress_visible: bool = True
+		self._progress_visible: bool = get_show_progress()
 
 		self.output_queue: queue.Queue = queue.Queue()
 		self._orig_stdout = sys.stdout
@@ -754,7 +754,7 @@ class GraphMLExplorerApp(tk.Tk):
 
 		self.btn_toggle_progress = ttk.Button(
 			toolbar,
-			text="Hide Progress",
+			text="Hide Progress" if self._progress_visible else "Show Progress",
 			command=self._toggle_progress,
 			takefocus=0,
 		)
@@ -776,7 +776,8 @@ class GraphMLExplorerApp(tk.Tk):
 		main_pane.add(left_pane, weight=3)
 
 		self.progress_frame = ttk.LabelFrame(left_pane, text="Category Progress", padding=8)
-		self.progress_frame.pack(fill=tk.X, pady=(0, 6))
+		if self._progress_visible:
+			self.progress_frame.pack(fill=tk.X, pady=(0, 6))
 
 		tier_bar = ttk.Frame(self.progress_frame)
 		tier_bar.pack(fill=tk.X, pady=(0, 6))
@@ -1714,14 +1715,14 @@ class GraphMLExplorerApp(tk.Tk):
 			if node.node_id not in hl_nodes:
 				continue
 			cx, cy, nw, nh = rects[node.node_id]
-			is_first_blue = (node.node_id in first_hl_nodes)
-			if is_first_blue:
+			is_earliest_generation = (node.node_id in first_hl_nodes)
+			if is_earliest_generation:
 				glow_base = COLOR_GLOW_FIRST
 			elif node.role in ('common_source', 'common_effect'):
 				glow_base = node.outline_color
 			else:
 				glow_base = node.fill_color if node.fill_color != "#FFFFFF" else "#999999"
-			glow_steps = (GLOW_STEP_FIRST if is_first_blue else GLOW_STEP_NOT_FIRST)
+			glow_steps = (GLOW_STEP_FIRST if is_earliest_generation else GLOW_STEP_NOT_FIRST)
 			for pad, alpha in glow_steps:
 				canvas.create_rectangle(
 					cx - (nw + pad) / 2.0,
@@ -1736,7 +1737,7 @@ class GraphMLExplorerApp(tk.Tk):
 		for node in diagram.nodes:
 			cx, cy, nw, nh = rects[node.node_id]
 			is_hl = node.node_id in hl_nodes
-			is_first_hl = (node.node_id in first_hl_nodes)
+			is_earliest_generation = (node.node_id in first_hl_nodes)
 			if node.role == 'target':
 				outline_col = node.outline_color
 				outline_w = 4.0
@@ -1744,8 +1745,9 @@ class GraphMLExplorerApp(tk.Tk):
 				outline_col = node.outline_color
 				outline_w = 2.8 if is_hl else 2.4
 			else:
-				outline_col = COLOR_OUTLINE_FIRST if is_first_hl else node.outline_color
-				outline_w = 2.8 if is_first_hl else (2.2 if is_hl else 1.4)
+				outline_col = COLOR_OUTLINE_FIRST if is_earliest_generation else node.outline_color
+				outline_w = 2.8 if is_earliest_generation else (2.2 if is_hl else 1.4)
+
 			canvas.create_rectangle(
 				cx - nw / 2.0,
 				cy - nh / 2.0,
@@ -1976,6 +1978,7 @@ class GraphMLExplorerApp(tk.Tk):
 
 	def _toggle_progress(self):
 		self._progress_visible = not self._progress_visible
+		set_show_progress(self._progress_visible)
 		if self._progress_visible:
 			self.progress_frame.pack(fill=tk.X, pady=(0, 6), before=self.console_frame)
 			self.btn_toggle_progress.configure(text="Hide Progress")

@@ -95,7 +95,7 @@ def get_app_state_path() -> str:
 
 def load_app_state() -> dict:
 	state_path = get_app_state_path()
-	default_state = {"last_file": "", "recent_files": []}
+	default_state = {"last_file": "", "recent_files": [], "show_progress": True}
 	if os.path.exists(state_path):
 		try:
 			with open(state_path, 'r', encoding='utf-8') as f:
@@ -105,7 +105,11 @@ def load_app_state() -> dict:
 				recent = data.get("recent_files", [])
 				if not isinstance(recent, list):
 					recent = []
-				return {"last_file": last_file, "recent_files": recent[:MAX_RECENT_FILES]}
+				return {
+					"last_file": last_file,
+					"recent_files": recent[:MAX_RECENT_FILES],
+					"show_progress": bool(data.get("show_progress", True)),
+				}
 		except Exception as e:
 			print(f"Error loading app state: {e}")
 	return default_state
@@ -117,12 +121,23 @@ def save_app_state(state: dict):
 		payload = {
 			"last_file": state.get("last_file", ""),
 			"recent_files": state.get("recent_files", [])[:MAX_RECENT_FILES],
+			"show_progress": bool(state.get("show_progress", True)),
 		}
 		with open(state_path, 'w', encoding='utf-8') as f:
 			json.dump(payload, f, indent=4)
 	except Exception as e:
 		print(f"Error saving app state: {e}")
 
+
+def get_show_progress() -> bool:
+	return bool(load_app_state().get("show_progress", True))
+
+
+def set_show_progress(visible: bool) -> dict:
+	state = load_app_state()
+	state["show_progress"] = bool(visible)
+	save_app_state(state)
+	return state
 
 def record_recent_file(filepath: str) -> dict:
 	norm_path = os.path.abspath(filepath)

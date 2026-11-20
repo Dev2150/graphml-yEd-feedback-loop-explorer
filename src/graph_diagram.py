@@ -1,9 +1,11 @@
 import os
 import textwrap
-from collections import deque
-from dataclasses import dataclass, field
 import math
+from dataclasses import dataclass, field
+from collections import deque
 from typing import Dict, Iterable, List, Optional, Set, Tuple
+from src.io_graphml import detect_gender
+
 
 COLOR_GOLD = '#FFCC00'
 COLOR_BLACK = '#000000'
@@ -11,12 +13,15 @@ COLOR_WHITE = '#FFFFFF'
 COLOR_PINK = '#FF99CC'
 COLOR_BLUE = '#00CCFF'
 COLOR_RED = '#FF0000'
+COLOR_SPOUSE_GREEN = '#77DD77'
+COLOR_DARK_GREEN = '#006400'
 NODE_WRAP_CHAR_THRESHOLD = 18
 
 
 def format_graph_node_label(label: str, max_chars_per_line: int = NODE_WRAP_CHAR_THRESHOLD) -> str:
 	"""
 	Formats a graph node label for visual rendering:
+	- Preserves existing line breaks.
 	- Any '→' starts on a new line beginning with '→'.
 	- Lines longer than `max_chars_per_line` wrap cleanly.
 	"""
@@ -24,30 +29,35 @@ def format_graph_node_label(label: str, max_chars_per_line: int = NODE_WRAP_CHAR
 	if not text:
 		return ""
 
-	segments: List[str] = []
-	if '→' in text:
-		parts = text.split('→')
-		first = parts[0].strip()
-		if first:
-			segments.append(first)
-		for part in parts[1:]:
-			part_clean = part.strip()
-			segments.append(f"→ {part_clean}" if part_clean else "→")
-	else:
-		segments.append(text)
-
 	wrapped_lines: List[str] = []
-	for seg in segments:
-		if len(seg) > max_chars_per_line:
-			wrapped = textwrap.wrap(
-				seg,
-				width=max_chars_per_line,
-				break_long_words=True,
-				break_on_hyphens=True,
-			)
-			wrapped_lines.extend(wrapped if wrapped else [seg])
+	for raw_line in text.splitlines():
+		raw_line = raw_line.strip()
+		if not raw_line:
+			continue
+
+		segments: List[str] = []
+		if '→' in raw_line:
+			parts = raw_line.split('→')
+			first = parts[0].strip()
+			if first:
+				segments.append(first)
+			for part in parts[1:]:
+				part_clean = part.strip()
+				segments.append(f"→ {part_clean}" if part_clean else "→")
 		else:
-			wrapped_lines.append(seg)
+			segments.append(raw_line)
+
+		for seg in segments:
+			if len(seg) > max_chars_per_line:
+				wrapped = textwrap.wrap(
+					seg,
+					width=max_chars_per_line,
+					break_long_words=True,
+					break_on_hyphens=True,
+				)
+				wrapped_lines.extend(wrapped if wrapped else [seg])
+			else:
+				wrapped_lines.append(seg)
 
 	return "\n".join(wrapped_lines)
 
@@ -83,6 +93,7 @@ class GraphDiagramData:
 	edges: List[DiagramEdge]
 	cycles: List[DiagramCycle] = field(default_factory=list)
 	default_highlight: Optional['AnswerHighlight'] = None
+	merged_nodes: Dict[str, List[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -549,7 +560,8 @@ def _assemble_diagram(
 	cycles: Optional[List[DiagramCycle]] = None,
 	bidirectional_edges: Optional[Set[Tuple[str, str]]] = None,
 	default_highlight: Optional[AnswerHighlight] = None,
-	node_colors: Optional[Dict[str, str]] = None
+	node_colors: Optional[Dict[str, str]] = None,
+	merged_nodes: Optional[Dict[str, List[str]]] = None,
 ) -> GraphDiagramData:
 	seen_edges: Set[Tuple[str, str]] = set()
 	dedup_edges: List[Tuple[str, str]] = []
@@ -583,8 +595,8 @@ def _assemble_diagram(
 	diagram_edges: List[DiagramEdge] = []
 	for u, v in dedup_edges:
 		corr = 1 if ignore_edge_colors else edge_values.get((u, v), 1)
-		arrow_color = COLOR_BLACK if corr > 0 else COLOR_RED
 		is_bidir = (u, v) in bidir_set
+		arrow_color = COLOR_DARK_GREEN if is_bidir else (COLOR_BLACK if corr > 0 else COLOR_RED)
 		diagram_edges.append(DiagramEdge(u, v, corr, arrow_color, bidirectional=is_bidir))
 
 	return GraphDiagramData(
@@ -593,6 +605,7 @@ def _assemble_diagram(
 		edges=diagram_edges,
 		cycles=list(cycles or []),
 		default_highlight=default_highlight,
+		merged_nodes=dict(merged_nodes or {}),
 	)
 
 
@@ -679,22 +692,31 @@ def compute_earliest_generation_nodes(
 	node_ids: Iterable[str],
 	parents_map: Dict[str, List[str]],
 	spouses_map: Dict[str, Set[str]],
+	merged_nodes: Optional[Dict[str, List[str]]] = None,
 ) -> Set[str]:
 	node_set = set(node_ids)
 	if not node_set:
 		return set()
 
-	adj: Dict[str, List[Tuple[str, int]]] = {nid: [] for nid in node_set}
-	for child in node_set:
-		for parent in parents_map.get(child, []):
-			if parent in node_set:
-				adj[parent].append((child, 1))
-				adj[child].append((parent, -1))
-	for a in node_set:
-		for b in spouses_map.get(a, set()):
-			if b in node_set:
-				adj[a].append((b, 0))
-				adj[b].append((a, 0))
+	merged = merged_nodes or {}
+	orig_to_diag: Dict[str, str] = {}
+	for nid in node_set:
+		for orig_id in merged.get(nid, [nid]):
+			orig_to_diag[orig_id] = nid
+
+	adj: Dict[str, Set[Tuple[str, int]]] = {nid: set() for nid in node_set}
+	for diag_child in node_set:
+		for orig_child in merged.get(diag_child, [diag_child]):
+			for orig_parent in parents_map.get(orig_child, []):
+				diag_parent = orig_to_diag.get(orig_parent)
+				if diag_parent in node_set and diag_parent != diag_child:
+					adj[diag_parent].add((diag_child, 1))
+					adj[diag_child].add((diag_parent, -1))
+			for orig_spouse in spouses_map.get(orig_child, set()):
+				diag_spouse = orig_to_diag.get(orig_spouse)
+				if diag_spouse in node_set and diag_spouse != diag_child:
+					adj[diag_child].add((diag_spouse, 0))
+					adj[diag_spouse].add((diag_child, 0))
 
 	gen: Dict[str, int] = {}
 	for start in node_set:
@@ -724,7 +746,7 @@ def build_family_pair_diagram(
 	ancestor_paths: dict,
 	ancestor_dist: dict,
 	question_num: int = 0,
-	node_colors: Optional[Dict[str, str]] = None
+	node_colors: Optional[Dict[str, str]] = None,
 ) -> GraphDiagramData:
 	target_ids = {u, v}
 	common_source_ids: Set[str] = set()
@@ -745,7 +767,7 @@ def build_family_pair_diagram(
 	if common_anc:
 		mrcas = [a for a in common_anc if not any(c in common_anc for c in children_map.get(a, []))]
 		mrcas.sort(key=lambda a: (dist_u[a] + dist_v[a], str(nodes_dict.get(a, a))))
-		for a in mrcas[:2]:
+		for a in mrcas:
 			if dist_u[a] == 1 and dist_v[a] == 1:
 				common_source_ids.add(a)
 			for p in ancestor_paths[u][a][:1] + ancestor_paths[v][a][:1]:
@@ -768,7 +790,8 @@ def build_family_pair_diagram(
 			if s_ca:
 				add_spouse_edge(s_v, v)
 				s_mrcas = [a for a in s_ca if not any(c in s_ca for c in children_map.get(a, []))]
-				for a in s_mrcas[:1]:
+				s_mrcas.sort(key=lambda a: (dist_u[a] + s_dist[a], str(nodes_dict.get(a, a))))
+				for a in s_mrcas:
 					for p in ancestor_paths[u][a][:1] + ancestor_paths[s_v][a][:1]:
 						for k in range(len(p) - 1):
 							edge_pairs.append((p[k], p[k + 1]))
@@ -781,7 +804,8 @@ def build_family_pair_diagram(
 			if s_ca:
 				add_spouse_edge(u, s_u)
 				s_mrcas = [a for a in s_ca if not any(c in s_ca for c in children_map.get(a, []))]
-				for a in s_mrcas[:1]:
+				s_mrcas.sort(key=lambda a: (dist_v[a] + s_dist[a], str(nodes_dict.get(a, a))))
+				for a in s_mrcas:
 					for p in ancestor_paths[v][a][:1] + ancestor_paths[s_u][a][:1]:
 						for k in range(len(p) - 1):
 							edge_pairs.append((p[k], p[k + 1]))
@@ -803,6 +827,101 @@ def build_family_pair_diagram(
 					edge_pairs.append((p_v, v))
 					add_spouse_edge(p_u, p_v)
 
+	# Collect deduplicated nodes & directed/spouse connectivity before merging eligible spouses
+	all_node_ids: List[str] = [u, v]
+	dedup_edges: List[Tuple[str, str]] = []
+	seen_edges: Set[Tuple[str, str]] = set()
+	for src, dst in edge_pairs:
+		if src == dst:
+			continue
+		if src not in all_node_ids:
+			all_node_ids.append(src)
+		if dst not in all_node_ids:
+			all_node_ids.append(dst)
+		if (src, dst) not in seen_edges:
+			seen_edges.add((src, dst))
+			dedup_edges.append((src, dst))
+
+	out_map: Dict[str, Set[str]] = {nid: set() for nid in all_node_ids}
+	in_map: Dict[str, Set[str]] = {nid: set() for nid in all_node_ids}
+	bidir_map: Dict[str, Set[str]] = {nid: set() for nid in all_node_ids}
+	for src, dst in dedup_edges:
+		if (src, dst) in spouse_pairs:
+			bidir_map[src].add(dst)
+			bidir_map[dst].add(src)
+		else:
+			out_map[src].add(dst)
+			in_map[dst].add(src)
+
+	def _format_spouse_pair_label(a: str, b: str) -> str:
+		name_a = str(nodes_dict.get(a, a))
+		name_b = str(nodes_dict.get(b, b))
+		ga = detect_gender((node_colors or {}).get(a, ''))
+		gb = detect_gender((node_colors or {}).get(b, ''))
+		if ga == 'F' and gb != 'F':
+			first_name, second_name = name_b, name_a
+		elif gb == 'F' and ga != 'F':
+			first_name, second_name = name_a, name_b
+		elif ga == 'M' and gb != 'M':
+			first_name, second_name = name_a, name_b
+		elif gb == 'M' and ga != 'M':
+			first_name, second_name = name_b, name_a
+		elif name_a.lower() <= name_b.lower():
+			first_name, second_name = name_a, name_b
+		else:
+			first_name, second_name = name_b, name_a
+		return f"{first_name}\n+ {second_name}"
+
+	id_remap: Dict[str, str] = {}
+	merged_nodes: Dict[str, List[str]] = {}
+	effective_nodes_dict = dict(nodes_dict)
+	effective_node_colors = dict(node_colors or {})
+
+	for i in range(len(all_node_ids)):
+		a = all_node_ids[i]
+		if a in id_remap or a in target_ids:
+			continue
+		if not out_map[a]:
+			continue
+		for j in range(i + 1, len(all_node_ids)):
+			b = all_node_ids[j]
+			if b in id_remap or b in target_ids:
+				continue
+			if b not in spouses_map.get(a, set()):
+				continue
+			if (out_map[a] - {b}) != (out_map[b] - {a}):
+				continue
+			if (in_map[a] - {b}) != (in_map[b] - {a}):
+				continue
+			if (bidir_map[a] - {b}) or (bidir_map[b] - {a}):
+				continue
+
+			merged_id = f"{a}__spouse__{b}"
+			id_remap[a] = merged_id
+			id_remap[b] = merged_id
+			merged_nodes[merged_id] = [a, b]
+			effective_nodes_dict[merged_id] = _format_spouse_pair_label(a, b)
+			effective_node_colors[merged_id] = COLOR_SPOUSE_GREEN
+			break
+
+	remapped_node_ids = list(dict.fromkeys(id_remap.get(nid, nid) for nid in all_node_ids))
+	remapped_edges = [
+		(id_remap.get(src, src), id_remap.get(dst, dst))
+		for src, dst in dedup_edges
+		if id_remap.get(src, src) != id_remap.get(dst, dst)
+	]
+	remapped_spouse_pairs = {
+		(id_remap.get(src, src), id_remap.get(dst, dst))
+		for src, dst in spouse_pairs
+		if id_remap.get(src, src) != id_remap.get(dst, dst)
+	}
+	remapped_common_sources = (
+		{id_remap.get(nid, nid) for nid in common_source_ids} - target_ids - set(merged_nodes.keys())
+	)
+	remapped_common_effects = (
+		{id_remap.get(nid, nid) for nid in common_effect_ids} - target_ids - set(merged_nodes.keys())
+	)
+
 	u_name = nodes_dict.get(u, str(u))
 	v_name = nodes_dict.get(v, str(v))
 	prefix = f"Q{question_num}: " if question_num else ""
@@ -810,18 +929,18 @@ def build_family_pair_diagram(
 
 	return _assemble_diagram(
 		title=title,
-		node_ids=[u, v],
-		edge_pairs=edge_pairs,
+		node_ids=remapped_node_ids,
+		edge_pairs=remapped_edges,
 		target_ids=target_ids,
-		common_source_ids=common_source_ids - target_ids,
-		common_effect_ids=common_effect_ids - target_ids,
-		nodes_dict=nodes_dict,
+		common_source_ids=remapped_common_sources,
+		common_effect_ids=remapped_common_effects,
+		nodes_dict=effective_nodes_dict,
 		edge_values={},
 		ignore_edge_colors=True,
-		bidirectional_edges=spouse_pairs,
-		node_colors=node_colors
+		bidirectional_edges=remapped_spouse_pairs,
+		node_colors=effective_node_colors,
+		merged_nodes=merged_nodes,
 	)
-
 
 def compute_circular_layout(
 	diagram: GraphDiagramData,

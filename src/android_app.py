@@ -114,7 +114,7 @@ from src.progress_storage import (
 	load_app_state,
 	load_graph_config,
 	record_recent_file,
-	save_graph_config, set_sync_folder, get_sync_folder,
+	save_graph_config, set_sync_folder, get_sync_folder, get_show_progress, set_show_progress,
 )
 
 ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
@@ -384,16 +384,16 @@ class CircularGraphWidget(StencilView):
 				cx, cy, nw, nh = rects[node.node_id]
 				bx = ox + cx - nw / 2.0
 				by = oy + cy - nh / 2.0
-				is_first_blue = (node.node_id in first_hl_nodes)
-				if is_first_blue:
-					nr, ng, nb, _ = (0.118, 0.565, 1.0, 1.0)
+				is_earliest_generation = (node.node_id in first_hl_nodes)
+				if is_earliest_generation:
+					nr, ng, nb, _ = (0.533, 0.533, 0.533, 1.0)
 				elif node.role in ('common_source', 'common_effect'):
 					nr, ng, nb, _ = _hex_to_rgba(node.outline_color)
 				elif node.fill_color == '#FFFFFF':
 					nr, ng, nb = (0.6, 0.6, 0.6)
 				else:
 					nr, ng, nb, _ = _hex_to_rgba(node.fill_color)
-				steps = ((dp(16), 0.30), (dp(10), 0.54), (dp(5), 0.82)) if is_first_blue else (
+				steps = ((dp(16), 0.30), (dp(10), 0.54), (dp(5), 0.82)) if is_earliest_generation else (
 					(dp(14), 0.25), (dp(9), 0.45), (dp(4.5), 0.72)
 				)
 				for pad, alpha in steps:
@@ -407,7 +407,7 @@ class CircularGraphWidget(StencilView):
 				bx = ox + cx - nw / 2.0
 				by = oy + cy - nh / 2.0
 				is_hl = node.node_id in hl_nodes
-				is_first_blue = (node.node_id in first_hl_nodes)
+				is_earliest_generation = (node.node_id in first_hl_nodes)
 
 				Color(*_hex_to_rgba(node.fill_color))
 				Rectangle(pos=(bx, by), size=(nw, nh))
@@ -419,8 +419,9 @@ class CircularGraphWidget(StencilView):
 					outline_rgba = _hex_to_rgba(node.outline_color)
 					outline_w = dp(2.0) if is_hl else dp(1.7)
 				else:
-					outline_rgba = (0.0, 0.40, 1.0, 1.0) if is_first_blue else _hex_to_rgba(node.outline_color)
-					outline_w = dp(2.0) if is_first_blue else (dp(1.5) if is_hl else dp(1.0))
+					outline_rgba = (0.333, 0.333, 0.333, 1.0) if is_earliest_generation else _hex_to_rgba(
+						node.outline_color)
+					outline_w = dp(2.0) if is_earliest_generation else (dp(1.5) if is_hl else dp(1.0))
 
 				Color(*outline_rgba)
 				Line(rectangle=(bx, by, nw, nh), width=outline_w)
@@ -587,6 +588,7 @@ class GraphMLAndroidApp(App):
 		self._open_popups: list = []
 		self._last_browse_dir: str = ''
 		self._on_resume_refresh = None
+		self._progress_visible: bool = get_show_progress()
 
 	def build(self):
 		Window.clearcolor = (0.118, 0.122, 0.133, 1)  # #1E1F22
@@ -672,7 +674,7 @@ class GraphMLAndroidApp(App):
 		self.lbl_total_progress.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
 
 		self.btn_toggle_progress = Button(
-			text='Hide Stats',
+			text='Hide Stats' if self._progress_visible else 'Show Stats',
 			size_hint_x=None,
 			width=dp(90),
 			font_size=dp(12),
@@ -683,7 +685,11 @@ class GraphMLAndroidApp(App):
 		tier_bar.add_widget(self.btn_toggle_progress)
 		root.add_widget(tier_bar)
 
-		self.progress_scroll = ScrollView(size_hint_y=None, height=0)
+		self.progress_scroll = ScrollView(
+			size_hint_y=None,
+			height=0,
+			opacity=1 if self._progress_visible else 0,
+		)
 		self.progress_grid = GridLayout(cols=5, size_hint_y=None, spacing=dp(2), padding=(dp(2), dp(2)))
 		self.progress_grid.bind(minimum_height=self.progress_grid.setter('height'))
 		self.progress_scroll.add_widget(self.progress_grid)
@@ -2024,6 +2030,7 @@ class GraphMLAndroidApp(App):
 
 	def _toggle_progress(self):
 		self._progress_visible = not self._progress_visible
+		set_show_progress(self._progress_visible)
 		if self._progress_visible:
 			self.progress_scroll.height = self._progress_expanded_height
 			self.progress_scroll.opacity = 1

@@ -572,6 +572,7 @@ def run_relationship_guessing_game(
 				edge_values=edge_values,
 				ignore_edge_colors=is_counter or ignore_edge_colors,
 				question_num=question_num,
+				node_colors=node_colors,
 			)
 
 			if len(candidate_paths) <= 1:
@@ -664,6 +665,7 @@ def run_relationship_guessing_game(
 				edge_values=edge_values,
 				ignore_edge_colors=is_counter or ignore_edge_colors or is_family,
 				question_num=question_num,
+				node_colors=node_colors,
 			)
 
 			if len(found_leaves) == 1:
@@ -726,6 +728,7 @@ def run_relationship_guessing_game(
 				edge_values=edge_values,
 				ignore_edge_colors=is_counter or ignore_edge_colors or is_family,
 				question_num=question_num,
+				node_colors=node_colors,
 			)
 
 			if len(found_leaves) == 1:
@@ -791,6 +794,7 @@ def run_relationship_guessing_game(
 					parents_map=parents_map, children_map=children_map,
 					spouses_map=spouses_map, ancestor_paths=ancestor_paths,
 					ancestor_dist=ancestor_dist, question_num=question_num,
+					node_colors=node_colors,
 				)
 
 				if not fam_res.is_relevant:
@@ -801,6 +805,7 @@ def run_relationship_guessing_game(
 						[n.node_id for n in diagram.nodes],
 						parents_map,
 						spouses_map,
+						merged_nodes=diagram.merged_nodes,
 					)
 					fam_hl = AnswerHighlight(
 						node_ids=set(earliest_nodes),
