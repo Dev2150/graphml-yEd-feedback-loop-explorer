@@ -58,9 +58,20 @@ def _get_item_key(item, nodes_dict):
 		return _get_pair_key(data[0], data[1], nodes_dict)
 
 
-def build_stats_snapshot(nodes_dict: dict, category_config: list, game_progress: dict) -> dict:
+def build_stats_snapshot(
+	nodes_dict: dict,
+	category_config: list,
+	game_progress: dict,
+	chance_irrelevant: float = 0.2,
+) -> dict:
 	rows = []
 	min_tier = sys.maxsize
+	has_relevant = any(cat_name != 'Irrelevant' and items for cat_name, items in category_config)
+	exclude_irrelevant = (chance_irrelevant <= 0.0 and has_relevant)
+
+	total_answered = 0
+	total_items = 0
+
 	for cat_name, items in category_config:
 		if not items:
 			continue
@@ -69,8 +80,12 @@ def build_stats_snapshot(nodes_dict: dict, category_config: list, game_progress:
 		total = len(counts)
 		answered = total - sum(1 for c in counts if c == tier)
 		pct = int(100 * answered / total) if total else 0
-		if min_tier > tier:
-			min_tier = tier
+		count_in_total = not (exclude_irrelevant and cat_name == 'Irrelevant')
+		if count_in_total:
+			if min_tier > tier:
+				min_tier = tier
+			total_answered += answered
+			total_items += total
 		rows.append({
 			"category": cat_name,
 			"answered": answered,
@@ -78,10 +93,13 @@ def build_stats_snapshot(nodes_dict: dict, category_config: list, game_progress:
 			"pct": pct,
 			"tier": tier,
 			"left": total - answered,
+			"count_in_total": count_in_total,
 		})
 	return {
 		"rows": rows,
 		"current_tier": min_tier if min_tier != sys.maxsize else 0,
+		"total_answered": total_answered,
+		"total_items": total_items,
 	}
 
 
@@ -229,13 +247,13 @@ def prepare_relationship_game_data(ctx: GraphContext) -> dict:
 
 		category_config = [
 			('Cycle', cycle_items),
-			('Leaf', leaf_items),
+			('Single', leaf_items),
 			('Parent/Child', parent_child_items),
 			('Grandparent+', grandparent_items),
 			('Sibling', sibling_items),
 			('Uncle/Aunt', uncle_nephew_items),
 			('1st Cousin', first_cousin_items),
-			('2nd/3rd Cous', second_third_cousin_items),
+			('2nd/3rd Cousin', second_third_cousin_items),
 			('In-Law', in_law_items),
 			('Irrelevant', irrelevant_items),
 		]
@@ -292,7 +310,7 @@ def prepare_relationship_game_data(ctx: GraphContext) -> dict:
 
 		category_config = [
 			('Cycle', cycle_items),
-			('Leaf', leaf_items),
+			('Single', leaf_items),
 			('Direct', direct_items),
 			('Indirect', indirect_items),
 			('Same/Shared', same_items),
@@ -325,7 +343,12 @@ def compute_relationship_stats(ctx: GraphContext, prepared_data: dict = None) ->
 	save_path = get_save_file_path(ctx.config.file_name)
 	progress_data = load_progress(save_path)
 	game_progress = progress_data.get("game2_relationship", {})
-	return build_stats_snapshot(ctx.nodes, prepared_data["category_config"], game_progress)
+	return build_stats_snapshot(
+		ctx.nodes,
+		prepared_data["category_config"],
+		game_progress,
+		chance_irrelevant=ctx.config.chance_irrelevant,
+	)
 
 
 def run_relationship_guessing_game(
@@ -399,6 +422,8 @@ def run_relationship_guessing_game(
 
 	def get_global_tiers():
 		rel_min = min((get_item_count(it) for it in all_relevant_items), default=0)
+		if chance_irrelevant <= 0.0 and all_relevant_items:
+			return (rel_min, None)
 		irr_min = min((get_item_count(it) for it in irrelevant_items), default=0)
 		return rel_min, irr_min
 
@@ -413,7 +438,12 @@ def run_relationship_guessing_game(
 
 	def emit_stats(force_cli_print: bool = False):
 		nonlocal current_tiers
-		stats = build_stats_snapshot(nodes, _category_config, progress_data[game2_key])
+		stats = build_stats_snapshot(
+			nodes,
+			_category_config,
+			progress_data[game2_key],
+			chance_irrelevant=chance_irrelevant,
+		)
 		if on_stats_update is not None:
 			on_stats_update(stats)
 		else:
@@ -569,7 +599,6 @@ def run_relationship_guessing_game(
 				)
 				emit_answer(ans_text, hl)
 			else:
-				print("Answer(s):")
 				for cand_p in candidate_paths:
 					formatted_cycle = format_path_string(cand_p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 					if is_counter or ignore_edge_colors:
@@ -645,10 +674,9 @@ def run_relationship_guessing_game(
 					ans_text = f"{p_name} ({p_term}) → {target_name}"
 				else:
 					ans_text = f"{format_path_string([p_nid, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}"
-				hl = AnswerHighlight(node_ids={p_nid, target_node}, edges={(p_nid, target_node)}, diagram=diagram)
+				hl = AnswerHighlight(node_ids={p_nid, target_node}, edges={(p_nid, target_node)}, diagram=diagram, first_node_id=p_nid)
 				emit_answer(ans_text, hl)
 			else:
-				print("Answer(s):")
 				for s in found_leaves:
 					s_name = format_console_node_name(nodes.get(s, str(s)))
 					if is_family:
@@ -656,7 +684,7 @@ def run_relationship_guessing_game(
 						ans_text = f"  • {s_name} ({p_term}) → {target_name}"
 					else:
 						ans_text = f"  • {format_path_string([s, target_node], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}"
-					hl = AnswerHighlight(node_ids={s, target_node}, edges={(s, target_node)}, diagram=diagram)
+					hl = AnswerHighlight(node_ids={s, target_node}, edges={(s, target_node)}, diagram=diagram, first_node_id=s)
 					emit_answer(ans_text, hl)
 
 			print()
@@ -708,7 +736,7 @@ def run_relationship_guessing_game(
 					ans_text = f"{source_name} → {c_name} ({c_term})"
 				else:
 					ans_text = f"{format_path_string([source_node, c_nid], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}"
-				hl = AnswerHighlight(node_ids={source_node, c_nid}, edges={(source_node, c_nid)}, diagram=diagram)
+				hl = AnswerHighlight(node_ids={source_node, c_nid}, edges={(source_node, c_nid)}, diagram=diagram, first_node_id=source_node)
 				emit_answer(ans_text, hl)
 			else:
 				for d in found_leaves:
@@ -718,7 +746,7 @@ def run_relationship_guessing_game(
 						ans_text = f"  • {source_name} → {d_name} ({c_term})"
 					else:
 						ans_text = f"  • {format_path_string([source_node, d], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)}"
-					hl = AnswerHighlight(node_ids={source_node, d}, edges={(source_node, d)}, diagram=diagram)
+					hl = AnswerHighlight(node_ids={source_node, d}, edges={(source_node, d)}, diagram=diagram, first_node_id=source_node)
 					emit_answer(ans_text, hl)
 
 			print()
@@ -764,7 +792,7 @@ def run_relationship_guessing_game(
 					fam_hl = AnswerHighlight(
 						node_ids={n.node_id for n in diagram.nodes},
 						edges={(e.source_id, e.target_id) for e in diagram.edges},
-						diagram=diagram,
+						diagram=diagram, first_node_id=u
 					)
 					emit_answer(f"{fam_res.primary_title}", fam_hl)
 					for d in fam_res.details:
@@ -810,14 +838,14 @@ def run_relationship_guessing_game(
 						s_name = format_console_node_name(nodes.get(s, s))
 						connection_entries.append((
 							f"{text_shared_source}: 🟦 {s_name} → 🟥 {u_name} & 🟥 {v_name}",
-							AnswerHighlight(node_ids={s, u, v}, edges={(s, u), (s, v)}),
+							AnswerHighlight(node_ids={s, u, v}, edges={(s, u), (s, v)}, first_node_id=s),
 						))
 
 					for d in shared_dsts:
 						d_name = format_console_node_name(nodes.get(d, d))
 						connection_entries.append((
 							f"{text_shared_dest}: 🟦 {u_name} & 🟦 {v_name} → 🟥 {d_name}",
-							AnswerHighlight(node_ids={u, v, d}, edges={(u, d), (v, d)}),
+							AnswerHighlight(node_ids={u, v, d}, edges={(u, d), (v, d)}, first_node_id=u),
 						))
 				else:
 					for s in shared_srcs:
@@ -832,7 +860,7 @@ def run_relationship_guessing_game(
 							line = f"{text_shared_source}: {s_name} {arr_u} {u_name} + {arr_v} {v_name}"
 						connection_entries.append((
 							line,
-							AnswerHighlight(node_ids={s, u, v}, edges={(s, u), (s, v)}),
+							AnswerHighlight(node_ids={s, u, v}, edges={(s, u), (s, v)}, first_node_id=s),
 						))
 
 					for d in shared_dsts:
@@ -847,7 +875,7 @@ def run_relationship_guessing_game(
 							line = f"{text_shared_dest}: {u_name} ({arr_u}) + {v_name} ({arr_v}) → {d_name}"
 						connection_entries.append((
 							line,
-							AnswerHighlight(node_ids={u, v, d}, edges={(u, d), (v, d)}),
+							AnswerHighlight(node_ids={u, v, d}, edges={(u, d), (v, d)}, first_node_id=u),
 						))
 
 				if is_direct:
@@ -864,13 +892,13 @@ def run_relationship_guessing_game(
 						lbl_suffix = ("\n" + "\n".join(lbl_lines)) if lbl_lines else ""
 						connection_entries.append((
 							f"Direct (⟳): {p1_str} ↔ {p2_str}{lbl_suffix}",
-							AnswerHighlight(node_ids={u, v}, edges={(u, v), (v, u)}),
+							AnswerHighlight(node_ids={u, v}, edges={(u, v), (v, u)}, first_node_id=u),
 						))
 					elif direct_u_v:
 						p_str = format_path_string([u, v], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 						connection_entries.append((
 							f"Direct: {p_str}",
-							AnswerHighlight(node_ids={u, v}, edges={(u, v)}),
+							AnswerHighlight(node_ids={u, v}, edges={(u, v)}, first_node_id=u),
 						))
 						for p in paths_v_u:
 							is_p_direct = len(p) == 2
@@ -879,13 +907,13 @@ def run_relationship_guessing_game(
 							suffix = "" if (is_counter or ignore_edge_colors or is_p_direct) else f" ({get_path_net_effect_arrow(p, edge_values)})"
 							connection_entries.append((
 								f"{prefix}: {formatted_p}{suffix}",
-								AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}),
+								AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}, first_node_id=p[0]),
 							))
 					elif direct_v_u:
 						p_str = format_path_string([v, u], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 						connection_entries.append((
 							f"Direct: {p_str}",
-							AnswerHighlight(node_ids={v, u}, edges={(v, u)}),
+							AnswerHighlight(node_ids={v, u}, edges={(v, u)}, first_node_id=v),
 						))
 						for p in paths_u_v:
 							is_p_direct = len(p) == 2
@@ -894,15 +922,14 @@ def run_relationship_guessing_game(
 							suffix = "" if (is_counter or ignore_edge_colors or is_p_direct) else f" ({get_path_net_effect_arrow(p, edge_values)})"
 							connection_entries.append((
 								f"{prefix}: {formatted_p}{suffix}",
-								AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}),
-							))
+								AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}, first_node_id=p[0])))
 
 					for p in indirect_u_v:
 						formatted_p = format_path_string(p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
 						suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
 						connection_entries.append((
 							f"Indirect ({len(p) - 2}): {formatted_p}{suffix}",
-							AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}),
+							AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}, first_node_id=p[0]),
 						))
 				elif is_indirect:
 					for p in indirect_u_v:
@@ -910,7 +937,7 @@ def run_relationship_guessing_game(
 						suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
 						connection_entries.append((
 							f"Indirect ({len(p) - 2}): {formatted_p}{suffix}",
-							AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}),
+							AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}, first_node_id=p[0]),
 						))
 					for p in indirect_v_u:
 						prefix = "Indirect ↩" if indirect_u_v else "Indirect"
@@ -918,7 +945,7 @@ def run_relationship_guessing_game(
 						suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
 						connection_entries.append((
 							f"{prefix} ({len(p) - 2}): {formatted_p}{suffix}",
-							AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}),
+							AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}, first_node_id=p[0]),
 						))
 
 				# Find feedback loops / cycles

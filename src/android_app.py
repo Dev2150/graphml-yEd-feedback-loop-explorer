@@ -201,6 +201,7 @@ class CircularGraphWidget(StencilView):
 		self.diagram: GraphDiagramData = None
 		self.highlight: AnswerHighlight = None
 		self._icon_texture_cache = {}
+		self._cycle_hits = []
 		self.bind(pos=self._redraw, size=self._redraw)
 
 	def set_diagram(self, diagram: GraphDiagramData):
@@ -352,14 +353,23 @@ class CircularGraphWidget(StencilView):
 				Triangle(points=[ox + x2, oy + y2, ox + lx, oy + ly, ox + rx, oy + ry])
 
 			# 3. Highlighted node glow behind boxes
+			first_hl_node = (
+				active_hl.first_node_id
+				if (active_hl is not None and not active_hl.is_cycle)
+				else None
+			)
 			for node in active_diagram.nodes:
 				if node.node_id not in hl_nodes:
 					continue
 				cx, cy, nw, nh = rects[node.node_id]
 				bx = ox + cx - nw / 2.0
 				by = oy + cy - nh / 2.0
-				nr, ng, nb, _ = _hex_to_rgba(node.fill_color)
-				for pad, alpha in ((dp(14), 0.25), (dp(9), 0.45), (dp(4.5), 0.72)):
+				is_first_blue = (node.node_id == first_hl_node)
+				nr, ng, nb, _ = (0.118, 0.565, 1.0, 1.0) if is_first_blue else _hex_to_rgba(node.fill_color)
+				steps = ((dp(16), 0.30), (dp(10), 0.54), (dp(5), 0.82)) if is_first_blue else ((dp(14), 0.25),
+																							   (dp(9), 0.45),
+																							   (dp(4.5), 0.72))
+				for pad, alpha in steps:
 					Color(nr, ng, nb, alpha)
 					Rectangle(pos=(bx - pad / 2.0, by - pad / 2.0), size=(nw + pad, nh + pad))
 
@@ -370,12 +380,13 @@ class CircularGraphWidget(StencilView):
 				bx = ox + cx - nw / 2.0
 				by = oy + cy - nh / 2.0
 				is_hl = node.node_id in hl_nodes
+				is_first_blue = (node.node_id == first_hl_node)
 
 				Color(*_hex_to_rgba(node.fill_color))
 				Rectangle(pos=(bx, by), size=(nw, nh))
 
-				Color(0, 0, 0, 1)
-				Line(rectangle=(bx, by, nw, nh), width=1.6 if is_hl else 1.05)
+				Color(*(0.0, 0.40, 1.0, 1.0) if is_first_blue else (0, 0, 0, 1))
+				Line(rectangle=(bx, by, nw, nh), width=2.2 if is_first_blue else (1.6 if is_hl else 1.05))
 
 				Color(1, 1, 1, 1)
 				Rectangle(
@@ -394,6 +405,7 @@ class CircularGraphWidget(StencilView):
 						polarity=active_hl.cycle_polarity,
 					))
 
+			self._cycle_hits = []
 			if cycles_to_draw:
 				icon_sz = max(dp(30), min(dp(50), min(self.width, self.height) * 0.20))
 				centers = compute_diagram_cycle_centers(cycles_to_draw, rects, min_sep=icon_sz * 1.15)
@@ -433,27 +445,51 @@ class CircularGraphWidget(StencilView):
 						if polarity > 0:
 							Rectangle(pos=(mid_x - half_t, mid_y - arm), size=(half_t * 2.0, arm * 2.0))
 
-						normal_items = []
-						hl_items = []
-						for idx, cyc in enumerate(cycles_to_draw):
-							if idx not in centers or cyc.polarity not in (1, -1):
-								continue
-							is_hl_cyc = bool(
-								active_hl is not None
-								and active_hl.is_cycle
-								and active_hl.edges == cyc.edges
-							)
-							if is_hl_cyc:
-								hl_items.append((idx, cyc))
-							else:
-								normal_items.append((idx, cyc))
+				normal_items = []
+				hl_items = []
+				for idx, cyc in enumerate(cycles_to_draw):
+					if idx not in centers or cyc.polarity not in (1, -1):
+						continue
+					is_hl_cyc = bool(
+						active_hl is not None
+						and active_hl.is_cycle
+						and active_hl.edges == cyc.edges
+					)
+					if is_hl_cyc:
+						hl_items.append((idx, cyc))
+					else:
+						normal_items.append((idx, cyc))
 
-						for idx, cyc in normal_items:
-							cx_i, cy_i = centers[idx]
-							_draw_kivy_cycle_icon(ox + cx_i, oy + cy_i, cyc.polarity, False)
-						for idx, cyc in hl_items:
-							cx_i, cy_i = centers[idx]
-							_draw_kivy_cycle_icon(ox + cx_i, oy + cy_i, cyc.polarity, True)
+				for idx, cyc in normal_items:
+					cx_i, cy_i = centers[idx]
+					px, py = ox + cx_i, oy + cy_i
+					_draw_kivy_cycle_icon(px, py, cyc.polarity, False)
+					self._cycle_hits.append((px, py, max(icon_sz * 0.55, dp(20)), cyc, active_diagram))
+				for idx, cyc in hl_items:
+					cx_i, cy_i = centers[idx]
+					px, py = ox + cx_i, oy + cy_i
+					_draw_kivy_cycle_icon(px, py, cyc.polarity, True)
+					self._cycle_hits.append((px, py, max(icon_sz * 0.55, dp(20)), cyc, active_diagram))
+
+	def on_touch_down(self, touch):
+		if self.collide_point(*touch.pos) and getattr(touch, 'button', None) in (None, 'left'):
+			for mx, my, hit_r, cyc, diag in reversed(self._cycle_hits):
+				dx = touch.pos[0] - mx
+				dy = touch.pos[1] - my
+				if (dx * dx + dy * dy) <= hit_r * hit_r:
+					if self.highlight and self.highlight.is_cycle and self.highlight.edges == cyc.edges:
+						self.set_highlight(None)
+					else:
+						self.set_highlight(AnswerHighlight(
+							node_ids=set(cyc.node_ids),
+							edges=set(cyc.edges),
+							is_cycle=True,
+							cycle_polarity=cyc.polarity,
+							cycle_node_ids=list(cyc.node_ids),
+							diagram=diag,
+						))
+					return True
+		return super().on_touch_down(touch)
 
 
 class ConsoleRedirector:
@@ -1993,14 +2029,16 @@ class GraphMLAndroidApp(App):
 
 		rows = stats['rows']
 		current_tier = stats.get('current_tier', 0)
-		total_answered = sum(r['answered'] for r in rows)
-		total_items = sum(r['total'] for r in rows)
+		total_answered = stats.get('total_answered', sum(r['answered'] for r in rows))
+		total_items = stats.get('total_items', sum(r['total'] for r in rows))
 		overall_pct = int(100 * total_answered / total_items) if total_items else 0
 
 		self.lbl_current_tier.text = f'Current tier: {current_tier}'
 		self.lbl_total_progress.text = f'{total_answered} / {total_items} ({overall_pct}%)'
 
-		for hdr in ('Category', 'Done', '%', 'Tier', 'Left'):
+		for idx, hdr in enumerate(('Category', 'Done', '%', 'Tier', 'Left')):
+			kw = {'size_hint_x': None, 'width': dp(98), 'halign': 'left',
+				  'text_size': (dp(94), None)} if idx == 0 else {}
 			self.progress_grid.add_widget(Label(
 				text=hdr,
 				bold=True,
@@ -2008,6 +2046,7 @@ class GraphMLAndroidApp(App):
 				height=dp(22),
 				font_size=dp(12),
 				color=(0.75, 0.78, 0.85, 1),
+				**kw,
 			))
 
 		for r in rows:
@@ -2019,13 +2058,16 @@ class GraphMLAndroidApp(App):
 				str(r['tier']),
 				str(r['left']),
 			)
-			for v in vals:
+			for idx, v in enumerate(vals):
+				kw = {'size_hint_x': None, 'width': dp(98), 'halign': 'left',
+					  'text_size': (dp(94), None)} if idx == 0 else {}
 				self.progress_grid.add_widget(Label(
 					text=v,
 					size_hint_y=None,
 					height=dp(20),
 					font_size=dp(12),
 					color=col,
+					**kw,
 				))
 
 		# Header (22dp) + rows (20dp each) + spacing (2dp each) + padding (4dp) + 4dp margin

@@ -90,6 +90,7 @@ class AnswerHighlight:
 	cycle_polarity: Optional[int] = None  # +1 reinforcing (+), -1 balancing (-), None if ignored/neutral
 	cycle_node_ids: Optional[List[str]] = None
 	diagram: Optional[GraphDiagramData] = None
+	first_node_id: Optional[str] = None
 
 
 def blend_hex_with_white(hex_color: str, alpha: float) -> str:

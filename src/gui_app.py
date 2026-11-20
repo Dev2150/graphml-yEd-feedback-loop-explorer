@@ -46,7 +46,11 @@ from src.progress_storage import (
 )
 
 ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
-
+COLOR_BLACK = "#000000"
+COLOR_GLOW_FIRST = "#85deff"
+COLOR_OUTLINE_FIRST = "#3dcbff"
+GLOW_STEP_FIRST = ((18.0, 0.32), (11.0, 0.56), (5.5, 0.85))
+GLOW_STEP_NOT_FIRST = ((16.0, 0.28), (10.0, 0.50), (5.0, 0.78))
 
 def run_gui(input_file: str, output_folder: str):
 	app = GraphMLExplorerApp(input_file, output_folder)
@@ -650,6 +654,10 @@ class GraphMLExplorerApp(tk.Tk):
 		self._answer_highlights: dict = {}
 		self._answer_tag_seq: int = 0
 		self._icon_photo_cache: dict = {}
+		self._canvas_cycle_hits: list = []
+		self._hovered_icon_edges = None
+		self._hovered_icon_highlight: AnswerHighlight = None
+		self._synced_console_tags: list = []
 
 
 		self.output_queue: queue.Queue = queue.Queue()
@@ -767,14 +775,14 @@ class GraphMLExplorerApp(tk.Tk):
 		self.progress_tree.heading("tier", text="Tier", anchor="e")
 		self.progress_tree.heading("left", text="Left", anchor="e")
 
-		self.progress_tree.column("category", anchor="w", width=180, minwidth=100, stretch=True)
-		self.progress_tree.column("done", anchor="e", width=80, minwidth=50, stretch=False)
-		self.progress_tree.column("total", anchor="e", width=80, minwidth=50, stretch=False)
-		self.progress_tree.column("pct", anchor="e", width=70, minwidth=45, stretch=False)
-		self.progress_tree.column("tier", anchor="e", width=70, minwidth=45, stretch=False)
-		self.progress_tree.column("left", anchor="e", width=80, minwidth=50, stretch=False)
+		self.progress_tree.column("category", anchor="w", width=115, minwidth=85, stretch=False)
+		self.progress_tree.column("done", anchor="e", width=70, minwidth=50, stretch=False)
+		self.progress_tree.column("total", anchor="e", width=70, minwidth=50, stretch=False)
+		self.progress_tree.column("pct", anchor="e", width=60, minwidth=45, stretch=False)
+		self.progress_tree.column("tier", anchor="e", width=60, minwidth=45, stretch=False)
+		self.progress_tree.column("left", anchor="e", width=70, minwidth=50, stretch=False)
 
-		self.progress_tree.pack(fill=tk.X)
+		self.progress_tree.pack(anchor="w")
 		self.progress_tree.tag_configure("complete", foreground="#1B7A34")
 
 		main_pane = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
@@ -823,6 +831,9 @@ class GraphMLExplorerApp(tk.Tk):
 		)
 		self.graph_canvas.pack(fill=tk.BOTH, expand=True)
 		self.graph_canvas.bind("<Configure>", lambda _e: self._redraw_graph_canvas())
+
+		self.graph_canvas.bind("<Motion>", self._on_graph_canvas_motion)
+		self.graph_canvas.bind("<Leave>", lambda _e: self._clear_hovered_cycle_icon())
 
 		bottom_bar = ttk.Frame(self, padding=(8, 0, 8, 8))
 		bottom_bar.pack(fill=tk.X)
@@ -1234,15 +1245,18 @@ class GraphMLExplorerApp(tk.Tk):
 	# ------------------------------------------------------------------
 	def _update_graph_panel(self, diagram_data: GraphDiagramData):
 		self.current_diagram = diagram_data
+		self._clear_hovered_cycle_icon(redraw=False)
 		if self._hovered_answer_tag is not None:
 			self._set_hovered_answer_tag(None)
 		else:
 			self.active_highlight = None
 			self._redraw_graph_canvas()
+
 	# ------------------------------------------------------------------
 	# Terminal-like Console Widget Handling
 	# ------------------------------------------------------------------
 	def clear_console(self):
+		self._clear_hovered_cycle_icon(redraw=False)
 		self._set_hovered_answer_tag(None)
 		self._answer_highlights.clear()
 		self.console.configure(state=tk.NORMAL)
@@ -1485,8 +1499,8 @@ class GraphMLExplorerApp(tk.Tk):
 		self.progress_tree.configure(height=max(1, len(rows)))
 
 		current_tier = stats.get("current_tier", 0)
-		total_answered = sum(r["answered"] for r in rows)
-		total_items = sum(r["total"] for r in rows)
+		total_answered = stats.get("total_answered", sum(r["answered"] for r in rows))
+		total_items = stats.get("total_items", sum(r["total"] for r in rows))
 		overall_pct = int(100 * total_answered / total_items) if total_items else 0
 
 		self.lbl_current_tier.configure(text=f"Current tier: {current_tier}")
@@ -1578,7 +1592,8 @@ class GraphMLExplorerApp(tk.Tk):
 			return
 		canvas.delete("all")
 
-		active_hl = self.active_highlight
+		self._canvas_cycle_hits = []
+		active_hl = self.active_highlight if self.active_highlight is not None else self._hovered_icon_highlight
 		diagram = active_hl.diagram if (active_hl is not None and active_hl.diagram is not None) else self.current_diagram
 		if diagram is None:
 			self.lbl_graph_title.configure(text="Reveal an answer to view graph")
@@ -1663,17 +1678,25 @@ class GraphMLExplorerApp(tk.Tk):
 			)
 
 		# 3. Highlighted node glow behind node boxes
+		first_hl_node = (
+			active_hl.first_node_id
+			if (active_hl is not None and not active_hl.is_cycle)
+			else None
+		)
 		for node in diagram.nodes:
 			if node.node_id not in hl_nodes:
 				continue
 			cx, cy, nw, nh = rects[node.node_id]
-			for pad, alpha in ((16.0, 0.28), (10.0, 0.50), (5.0, 0.78)):
+			is_first_blue = (node.node_id == first_hl_node)
+			glow_base = COLOR_GLOW_FIRST if is_first_blue else node.fill_color
+			glow_steps = (GLOW_STEP_FIRST if is_first_blue else GLOW_STEP_NOT_FIRST)
+			for pad, alpha in glow_steps:
 				canvas.create_rectangle(
 					cx - (nw + pad) / 2.0,
 					cy - (nh + pad) / 2.0,
 					cx + (nw + pad) / 2.0,
 					cy + (nh + pad) / 2.0,
-					fill=blend_hex_with_white(node.fill_color, alpha),
+					fill=blend_hex_with_white(glow_base, alpha),
 					outline="",
 				)
 
@@ -1681,14 +1704,15 @@ class GraphMLExplorerApp(tk.Tk):
 		for node in diagram.nodes:
 			cx, cy, nw, nh = rects[node.node_id]
 			is_hl = node.node_id in hl_nodes
+			is_first_hl = (node.node_id == first_hl_node)
 			canvas.create_rectangle(
 				cx - nw / 2.0,
 				cy - nh / 2.0,
 				cx + nw / 2.0,
 				cy + nh / 2.0,
 				fill=node.fill_color,
-				outline="#000000",
-				width=2.2 if is_hl else 1.4,
+				outline=COLOR_OUTLINE_FIRST if is_first_hl else COLOR_BLACK,
+				width=2.8 if is_first_hl else (2.2 if is_hl else 1.4),
 			)
 			canvas.create_text(
 				cx,
@@ -1778,9 +1802,11 @@ class GraphMLExplorerApp(tk.Tk):
 			for idx, cyc in normal_items:
 				mx, my = centers[idx]
 				_draw_cycle_icon(mx, my, cyc.polarity, False)
+				self._canvas_cycle_hits.append((mx, my, max(icon_sz * 0.55, 18.0), cyc, diagram))
 			for idx, cyc in hl_items:
 				mx, my = centers[idx]
 				_draw_cycle_icon(mx, my, cyc.polarity, True)
+				self._canvas_cycle_hits.append((mx, my, max(icon_sz * 0.55, 18.0), cyc, diagram))
 
 	def open_appdata_folder(self):
 		folder = get_local_data_dir()
@@ -1848,3 +1874,61 @@ class GraphMLExplorerApp(tk.Tk):
 
 		self.console.configure(state=tk.DISABLED)
 		self.console.see("end-1c")
+
+	def _clear_hovered_cycle_icon(self, redraw: bool = True):
+		for tag_name in self._synced_console_tags:
+			if tag_name != self._hovered_answer_tag:
+				try:
+					self.console.tag_configure(tag_name, background="")
+				except tk.TclError:
+					pass
+		self._synced_console_tags.clear()
+
+		changed = (self._hovered_icon_edges is not None) or (self._hovered_icon_highlight is not None)
+		self._hovered_icon_edges = None
+		self._hovered_icon_highlight = None
+		if hasattr(self, "graph_canvas"):
+			self.graph_canvas.configure(cursor="")
+		if changed and redraw:
+			self._redraw_graph_canvas()
+
+	def _on_graph_canvas_motion(self, event):
+		best = None
+		best_d2 = float("inf")
+		for mx, my, hit_r, cyc, diag in self._canvas_cycle_hits:
+			d2 = (event.x - mx) ** 2 + (event.y - my) ** 2
+			if d2 <= hit_r * hit_r and d2 < best_d2:
+				best_d2 = d2
+				best = (cyc, diag)
+
+		if best is None:
+			self._clear_hovered_cycle_icon()
+			return
+
+		cyc, diag = best
+		edge_key = frozenset(cyc.edges)
+		if self._hovered_icon_edges == edge_key:
+			return
+
+		self._clear_hovered_cycle_icon(redraw=False)
+		self._hovered_icon_edges = edge_key
+		self._hovered_icon_highlight = AnswerHighlight(
+			node_ids=set(cyc.node_ids),
+			edges=set(cyc.edges),
+			is_cycle=True,
+			cycle_polarity=cyc.polarity,
+			cycle_node_ids=list(cyc.node_ids),
+			diagram=diag,
+		)
+
+		for tag_name, hl in self._answer_highlights.items():
+			if hl.is_cycle and frozenset(hl.edges) == edge_key:
+				if hl.diagram is None or hl.diagram is diag:
+					try:
+						self.console.tag_configure(tag_name, background="#2B2E36")
+						self._synced_console_tags.append(tag_name)
+					except tk.TclError:
+						pass
+
+		self.graph_canvas.configure(cursor="hand2")
+		self._redraw_graph_canvas()
