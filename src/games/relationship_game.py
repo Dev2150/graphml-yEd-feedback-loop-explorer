@@ -21,7 +21,7 @@ from src.graph_diagram import (
 	build_cycle_diagram,
 	build_family_pair_diagram,
 	build_leaf_diagram,
-	build_pair_diagram,
+	build_pair_diagram, compute_earliest_generation_nodes,
 )
 from src.graph_utils import find_bounded_cycles
 from src.models import GraphContext
@@ -732,6 +732,13 @@ def run_relationship_guessing_game(
 				c_nid = found_leaves[0]
 				c_name = format_console_node_name(nodes.get(c_nid, str(c_nid)))
 				if is_family:
+					if is_family:
+						diagram.default_highlight = AnswerHighlight(
+							node_ids={source_node},
+							edges={(source_node, d) for d in found_leaves},
+							diagram=diagram,
+							first_node_ids={source_node},
+						)
 					c_term = get_child_term(detect_gender(node_colors.get(c_nid, '')))
 					ans_text = f"{source_name} → {c_name} ({c_term})"
 				else:
@@ -787,13 +794,21 @@ def run_relationship_guessing_game(
 				)
 
 				if not fam_res.is_relevant:
+					diagram.default_highlight = None
 					print("IRRELEVANT (No blood or marriage relationship found)")
 				else:
-					fam_hl = AnswerHighlight(
-						node_ids={n.node_id for n in diagram.nodes},
-						edges={(e.source_id, e.target_id) for e in diagram.edges},
-						diagram=diagram, first_node_id=u
+					earliest_nodes = compute_earliest_generation_nodes(
+						[n.node_id for n in diagram.nodes],
+						parents_map,
+						spouses_map,
 					)
+					fam_hl = AnswerHighlight(
+						node_ids=set(earliest_nodes),
+						edges={(e.source_id, e.target_id) for e in diagram.edges},
+						diagram=diagram,
+						first_node_ids=set(earliest_nodes),
+					)
+					diagram.default_highlight = fam_hl
 					emit_answer(f"{fam_res.primary_title}", fam_hl)
 					for d in fam_res.details:
 						emit_answer(f"  • {d}", fam_hl)
@@ -950,6 +965,16 @@ def run_relationship_guessing_game(
 
 				# Find feedback loops / cycles
 				pair_cycles = []
+				seen_pair_cycles = set()
+
+				def _add_pair_cycle(full_cycle: list):
+					cycle_tuple = tuple(full_cycle[:-1])
+					min_i = cycle_tuple.index(min(cycle_tuple))
+					canonical = cycle_tuple[min_i:] + cycle_tuple[:min_i]
+					if canonical not in seen_pair_cycles:
+						seen_pair_cycles.add(canonical)
+						pair_cycles.append(full_cycle)
+
 				if max_cycle_length_game >= 2:
 					paths_fwd = list(nx.all_simple_paths(g, source=u, target=v, cutoff=max_cycle_length_game - 1))
 					paths_bwd = list(nx.all_simple_paths(g, source=v, target=u, cutoff=max_cycle_length_game - 1))
@@ -960,68 +985,75 @@ def run_relationship_guessing_game(
 						for p2 in paths_bwd:
 							total_nodes = (len(p1) - 1) + (len(p2) - 1)
 							if total_nodes <= max_cycle_length_game and mid1.isdisjoint(p2[1:-1]):
-								full_cycle = p1[:-1] + p2
-								cycle_tuple = tuple(full_cycle[:-1])
-								min_i = cycle_tuple.index(min(cycle_tuple))
-								canonical = cycle_tuple[min_i:] + cycle_tuple[:min_i]
-								if canonical not in seen_pair_cycles:
-									seen_pair_cycles.add(canonical)
-									pair_cycles.append(full_cycle)
+								_add_pair_cycle(p1[:-1] + p2)
 
-					pair_cycles.sort(key=lambda c: (len(c), [str(nodes.get(n, n)) for n in c]))
+				# Also detect cycles formed directly by the plotted u->v and v->u paths
+				for p1 in paths_u_v:
+					mid1 = set(p1[1:-1])
+					for p2 in paths_v_u:
+						if mid1.isdisjoint(p2[1:-1]):
+							_add_pair_cycle(p1[:-1] + p2)
 
-					for cyc in pair_cycles:
-						formatted_cyc = format_path_string(cyc, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-						cyc_len = len(cyc) - 1
-						if is_counter or ignore_edge_colors:
-							polarity = None
-							line = f"Cycle ({cyc_len}): {formatted_cyc}"
-						else:
-							cycle_corr = 1
-							for k in range(len(cyc) - 1):
-								cycle_corr *= edge_values.get((cyc[k], cyc[k + 1]), 1)
-							polarity = 1 if cycle_corr > 0 else -1
-							polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
-							line = f"Cycle ({cyc_len}) {polarity_icon}: {formatted_cyc}"
+				# Build plotted subgraph to catch any remaining cycles visible in the diagram
+				base_nodes = {u, v} | set(shared_srcs) | set(shared_dsts)
+				base_edges = set()
+				for s in shared_srcs:
+					base_edges.add((s, u))
+					base_edges.add((s, v))
+				for d in shared_dsts:
+					base_edges.add((u, d))
+					base_edges.add((v, d))
+				for p in paths_u_v + paths_v_u + pair_cycles:
+					base_nodes.update(p)
+					for k in range(len(p) - 1):
+						base_edges.add((p[k], p[k + 1]))
 
-						connection_entries.append((
-							line,
-							AnswerHighlight(
-								node_ids=set(cyc),
-								edges={(cyc[k], cyc[k + 1]) for k in range(len(cyc) - 1)},
-								is_cycle=True,
-								cycle_polarity=polarity,
-								cycle_node_ids=list(dict.fromkeys(cyc)),
-							),
-						))
+				base_g = nx.DiGraph()
+				base_g.add_nodes_from(base_nodes)
+				base_g.add_edges_from(base_edges)
+				drawn_bound = max(max_cycle_length_game, min(len(base_nodes), 12))
+				drawn_cycles = find_bounded_cycles(base_g, drawn_bound) if drawn_bound >= 2 else []
+
+				for cyc_nodes in drawn_cycles:
+					if len(cyc_nodes) >= 2 and u in cyc_nodes and v in cyc_nodes:
+						idx = cyc_nodes.index(u)
+						rotated = cyc_nodes[idx:] + cyc_nodes[:idx]
+						_add_pair_cycle(rotated + [rotated[0]])
+
+				pair_cycles.sort(key=lambda c: (len(c), [str(nodes.get(n, n)) for n in c]))
+
+				for cyc in pair_cycles:
+					formatted_cyc = format_path_string(cyc, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+					cyc_len = len(cyc) - 1
+					if is_counter or ignore_edge_colors:
+						polarity = None
+						line = f"Cycle ({cyc_len}): {formatted_cyc}"
+					else:
+						cycle_corr = 1
+						for k in range(len(cyc) - 1):
+							cycle_corr *= edge_values.get((cyc[k], cyc[k + 1]), 1)
+						polarity = 1 if cycle_corr > 0 else -1
+						polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
+						line = f"Cycle ({cyc_len}) {polarity_icon}: {formatted_cyc}"
+
+					connection_entries.append((
+						line,
+						AnswerHighlight(
+							node_ids=set(cyc),
+							edges={(cyc[k], cyc[k + 1]) for k in range(len(cyc) - 1)},
+							is_cycle=True,
+							cycle_polarity=polarity,
+							cycle_node_ids=list(dict.fromkeys(cyc)),
+						),
+					))
 
 				# Find secondary cycles (cycles among plotted nodes that do not contain both u and v)
 				secondary_cycles = []
 				if include_secondary_cycles:
-					base_nodes = {u, v} | set(shared_srcs) | set(shared_dsts)
-					base_edges = set()
-					for s in shared_srcs:
-						base_edges.add((s, u))
-						base_edges.add((s, v))
-					for d in shared_dsts:
-						base_edges.add((u, d))
-						base_edges.add((v, d))
-					for p in paths_u_v + paths_v_u + pair_cycles:
-						base_nodes.update(p)
-						for k in range(len(p) - 1):
-							base_edges.add((p[k], p[k + 1]))
-
-					raw_sec_cycles = []
+					raw_sec_cycles = list(drawn_cycles)
 					if max_cycle_length_game >= 2 and len(base_nodes) >= 2:
 						sub_g = g.subgraph(base_nodes)
 						raw_sec_cycles.extend(find_bounded_cycles(sub_g, max_cycle_length_game))
-
-					base_g = nx.DiGraph()
-					base_g.add_nodes_from(base_nodes)
-					base_g.add_edges_from(base_edges)
-					drawn_bound = max(max_cycle_length_game, max_indirectness_game + 2)
-					if drawn_bound >= 2:
-						raw_sec_cycles.extend(find_bounded_cycles(base_g, drawn_bound))
 
 					seen_sec_cycles = set()
 					for cyc_nodes in raw_sec_cycles:

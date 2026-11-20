@@ -252,6 +252,8 @@ class CircularGraphWidget(StencilView):
 			return
 
 		active_hl = self.highlight
+		if active_hl is None and self.diagram is not None:
+			active_hl = self.diagram.default_highlight
 		active_diagram = (
 			active_hl.diagram
 			if (active_hl is not None and active_hl.diagram is not None)
@@ -323,6 +325,8 @@ class CircularGraphWidget(StencilView):
 			arrow_hw = dp(3.5)
 			for edge, x1, y1, x2, y2, ux, uy in normal_edges:
 				Color(*_hex_to_rgba(edge.color))
+				start_x = x1 + ux * arrow_len if edge.bidirectional else x1
+				start_y = y1 + uy * arrow_len if edge.bidirectional else y1
 				base_x = x2 - ux * arrow_len
 				base_y = y2 - uy * arrow_len
 				lx = base_x - uy * arrow_hw
@@ -330,41 +334,57 @@ class CircularGraphWidget(StencilView):
 				rx = base_x + uy * arrow_hw
 				ry = base_y - ux * arrow_hw
 
-				Line(points=[ox + x1, oy + y1, ox + base_x, oy + base_y], width=dp(1.1))
+				Line(points=[ox + start_x, oy + start_y, ox + base_x, oy + base_y], width=dp(1.1))
 				Triangle(points=[ox + x2, oy + y2, ox + lx, oy + ly, ox + rx, oy + ry])
+				if edge.bidirectional:
+					slx = start_x - uy * arrow_hw
+					sly = start_y + ux * arrow_hw
+					srx = start_x + uy * arrow_hw
+					sry = start_y - ux * arrow_hw
+					Triangle(points=[ox + x1, oy + y1, ox + slx, oy + sly, ox + srx, oy + sry])
 
 			# 2. Highlighted edge glow + crisp highlighted arrow
 			hl_arrow_len = dp(10)
 			hl_arrow_hw = dp(4.5)
 			for edge, x1, y1, x2, y2, ux, uy in highlighted_edges:
 				er, eg, eb, _ = _hex_to_rgba(edge.color)
+				start_x = x1 + ux * hl_arrow_len if edge.bidirectional else x1
+				start_y = y1 + uy * hl_arrow_len if edge.bidirectional else y1
 				base_x = x2 - ux * hl_arrow_len
 				base_y = y2 - uy * hl_arrow_len
 				for gw, alpha in ((dp(7.0), 0.22), (dp(4.2), 0.44)):
 					Color(er, eg, eb, alpha)
-					Line(points=[ox + x1, oy + y1, ox + base_x, oy + base_y], width=gw, cap='round')
+					Line(points=[ox + start_x, oy + start_y, ox + base_x, oy + base_y], width=gw, cap='round')
 
 				Color(er, eg, eb, 1.0)
 				lx = base_x - uy * hl_arrow_hw
 				ly = base_y + ux * hl_arrow_hw
 				rx = base_x + uy * hl_arrow_hw
 				ry = base_y - ux * hl_arrow_hw
-				Line(points=[ox + x1, oy + y1, ox + base_x, oy + base_y], width=dp(2.0))
+				Line(points=[ox + start_x, oy + start_y, ox + base_x, oy + base_y], width=dp(2.0))
 				Triangle(points=[ox + x2, oy + y2, ox + lx, oy + ly, ox + rx, oy + ry])
+				if edge.bidirectional:
+					slx = start_x - uy * hl_arrow_hw
+					sly = start_y + ux * hl_arrow_hw
+					srx = start_x + uy * hl_arrow_hw
+					sry = start_y - ux * hl_arrow_hw
+					Triangle(points=[ox + x1, oy + y1, ox + slx, oy + sly, ox + srx, oy + sry])
 
 			# 3. Highlighted node glow behind boxes
-			first_hl_node = (
-				active_hl.first_node_id
-				if (active_hl is not None and not active_hl.is_cycle)
-				else None
-			)
+			first_hl_nodes = set()
+			if active_hl is not None and not active_hl.is_cycle:
+				if getattr(active_hl, 'first_node_ids', None):
+					first_hl_nodes.update(active_hl.first_node_ids)
+				if active_hl.first_node_id:
+					first_hl_nodes.add(active_hl.first_node_id)
+
 			for node in active_diagram.nodes:
 				if node.node_id not in hl_nodes:
 					continue
 				cx, cy, nw, nh = rects[node.node_id]
 				bx = ox + cx - nw / 2.0
 				by = oy + cy - nh / 2.0
-				is_first_blue = (node.node_id == first_hl_node)
+				is_first_blue = (node.node_id in first_hl_nodes)
 				nr, ng, nb, _ = (0.118, 0.565, 1.0, 1.0) if is_first_blue else _hex_to_rgba(node.fill_color)
 				steps = ((dp(16), 0.30), (dp(10), 0.54), (dp(5), 0.82)) if is_first_blue else ((dp(14), 0.25),
 																							   (dp(9), 0.45),
@@ -380,7 +400,7 @@ class CircularGraphWidget(StencilView):
 				bx = ox + cx - nw / 2.0
 				by = oy + cy - nh / 2.0
 				is_hl = node.node_id in hl_nodes
-				is_first_blue = (node.node_id == first_hl_node)
+				is_first_blue = (node.node_id in first_hl_nodes)
 
 				Color(*_hex_to_rgba(node.fill_color))
 				Rectangle(pos=(bx, by), size=(nw, nh))

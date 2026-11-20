@@ -1,5 +1,6 @@
 import os
 import textwrap
+from collections import deque
 from dataclasses import dataclass, field
 import math
 from typing import Dict, Iterable, List, Optional, Set, Tuple
@@ -66,6 +67,7 @@ class DiagramEdge:
 	target_id: str
 	correlation: int  # +1 -> black arrow, -1 -> red arrow
 	color: str
+	bidirectional: bool = False
 
 @dataclass
 class DiagramCycle:
@@ -80,6 +82,7 @@ class GraphDiagramData:
 	nodes: List[DiagramNode]
 	edges: List[DiagramEdge]
 	cycles: List[DiagramCycle] = field(default_factory=list)
+	default_highlight: Optional['AnswerHighlight'] = None
 
 
 @dataclass
@@ -91,6 +94,7 @@ class AnswerHighlight:
 	cycle_node_ids: Optional[List[str]] = None
 	diagram: Optional[GraphDiagramData] = None
 	first_node_id: Optional[str] = None
+	first_node_ids: Set[str] = field(default_factory=set)
 
 
 def blend_hex_with_white(hex_color: str, alpha: float) -> str:
@@ -286,10 +290,13 @@ def _assemble_diagram(
 	edge_values: Dict[Tuple[str, str], int],
 	ignore_edge_colors: bool = False,
 	cycles: Optional[List[DiagramCycle]] = None,
+	bidirectional_edges: Optional[Set[Tuple[str, str]]] = None,
+	default_highlight: Optional[AnswerHighlight] = None,
 ) -> GraphDiagramData:
 	seen_edges: Set[Tuple[str, str]] = set()
 	dedup_edges: List[Tuple[str, str]] = []
 	all_node_ids = list(node_ids)
+	bidir_set = set(bidirectional_edges or ())
 
 	for u, v in edge_pairs:
 		if u == v:
@@ -318,78 +325,15 @@ def _assemble_diagram(
 	for u, v in dedup_edges:
 		corr = 1 if ignore_edge_colors else edge_values.get((u, v), 1)
 		arrow_color = COLOR_BLACK if corr > 0 else COLOR_RED
-		diagram_edges.append(DiagramEdge(u, v, corr, arrow_color))
+		is_bidir = (u, v) in bidir_set
+		diagram_edges.append(DiagramEdge(u, v, corr, arrow_color, bidirectional=is_bidir))
 
 	return GraphDiagramData(
 		title=title,
 		nodes=diagram_nodes,
 		edges=diagram_edges,
 		cycles=list(cycles or []),
-	)
-
-
-def build_pair_diagram(
-	u: str,
-	v: str,
-	nodes_dict: Dict[str, str],
-	edge_values: Dict[Tuple[str, str], int],
-	shared_srcs: List[str],
-	shared_dsts: List[str],
-	paths_u_v: List[List[str]],
-	paths_v_u: List[List[str]],
-	pair_cycles: List[List[str]],
-	secondary_cycles: Optional[List[List[str]]] = None,
-	ignore_edge_colors: bool = False,
-	question_num: int = 0,
-) -> GraphDiagramData:
-	target_ids = {u, v}
-	common_source_ids = set(shared_srcs) - target_ids
-	common_effect_ids = set(shared_dsts) - target_ids
-
-	sec_cycles = secondary_cycles or []
-
-	edge_pairs: List[Tuple[str, str]] = []
-	for s in shared_srcs:
-		edge_pairs.append((s, u))
-		edge_pairs.append((s, v))
-	for d in shared_dsts:
-		edge_pairs.append((u, d))
-		edge_pairs.append((v, d))
-	for path in paths_u_v + paths_v_u + pair_cycles + sec_cycles:
-		for k in range(len(path) - 1):
-			edge_pairs.append((path[k], path[k + 1]))
-
-	diagram_cycles: List[DiagramCycle] = []
-	seen_edge_sets: Set[frozenset] = set()
-	for cyc in pair_cycles:
-		dc = _build_diagram_cycle(cyc, edge_values, ignore_edge_colors, is_secondary=False)
-		key = frozenset(dc.edges)
-		if key not in seen_edge_sets:
-			seen_edge_sets.add(key)
-			diagram_cycles.append(dc)
-	for cyc in sec_cycles:
-		dc = _build_diagram_cycle(cyc, edge_values, ignore_edge_colors, is_secondary=True)
-		key = frozenset(dc.edges)
-		if key not in seen_edge_sets:
-			seen_edge_sets.add(key)
-			diagram_cycles.append(dc)
-
-	u_name = nodes_dict.get(u, str(u))
-	v_name = nodes_dict.get(v, str(v))
-	prefix = f"Q{question_num}: " if question_num else ""
-	title = f"{prefix}{u_name} ↔ {v_name}"
-
-	return _assemble_diagram(
-		title=title,
-		node_ids=[u, v] + list(shared_srcs) + list(shared_dsts),
-		edge_pairs=edge_pairs,
-		target_ids=target_ids,
-		common_source_ids=common_source_ids,
-		common_effect_ids=common_effect_ids,
-		nodes_dict=nodes_dict,
-		edge_values=edge_values,
-		ignore_edge_colors=ignore_edge_colors,
-		cycles=diagram_cycles,
+		default_highlight=default_highlight,
 	)
 
 
@@ -468,6 +412,44 @@ def build_leaf_diagram(
 	)
 
 
+def compute_earliest_generation_nodes(
+	node_ids: Iterable[str],
+	parents_map: Dict[str, List[str]],
+	spouses_map: Dict[str, Set[str]],
+) -> Set[str]:
+	node_set = set(node_ids)
+	if not node_set:
+		return set()
+
+	adj: Dict[str, List[Tuple[str, int]]] = {nid: [] for nid in node_set}
+	for child in node_set:
+		for parent in parents_map.get(child, []):
+			if parent in node_set:
+				adj[parent].append((child, 1))
+				adj[child].append((parent, -1))
+	for a in node_set:
+		for b in spouses_map.get(a, set()):
+			if b in node_set:
+				adj[a].append((b, 0))
+				adj[b].append((a, 0))
+
+	gen: Dict[str, int] = {}
+	for start in node_set:
+		if start in gen:
+			continue
+		gen[start] = 0
+		q = deque([start])
+		while q:
+			curr = q.popleft()
+			for nxt, delta in adj[curr]:
+				if nxt not in gen:
+					gen[nxt] = gen[curr] + delta
+					q.append(nxt)
+
+	min_gen = min(gen.values())
+	return {nid for nid, g_val in gen.items() if g_val == min_gen}
+
+
 def build_family_pair_diagram(
 	u: str,
 	v: str,
@@ -484,14 +466,14 @@ def build_family_pair_diagram(
 	common_source_ids: Set[str] = set()
 	common_effect_ids: Set[str] = set()
 	edge_pairs: List[Tuple[str, str]] = []
+	spouse_pairs: Set[Tuple[str, str]] = set()
 
-	def add_graph_edge(a: str, b: str):
-		if graph.has_edge(a, b):
-			edge_pairs.append((a, b))
-		elif graph.has_edge(b, a):
-			edge_pairs.append((b, a))
-		else:
-			edge_pairs.append((a, b))
+	def add_spouse_edge(a: str, b: str):
+		if (a, b) in spouse_pairs or (b, a) in spouse_pairs:
+			return
+		pair = (b, a) if (graph.has_edge(b, a) and not graph.has_edge(a, b)) else (a, b)
+		spouse_pairs.add(pair)
+		edge_pairs.append(pair)
 
 	dist_u = ancestor_dist.get(u, {})
 	dist_v = ancestor_dist.get(v, {})
@@ -513,14 +495,14 @@ def build_family_pair_diagram(
 		edge_pairs.append((v, c))
 
 	if v in spouses_map.get(u, set()):
-		add_graph_edge(u, v)
+		add_spouse_edge(u, v)
 
 	if not edge_pairs:
 		for s_v in spouses_map.get(v, set()):
 			s_dist = ancestor_dist.get(s_v, {})
 			s_ca = set(dist_u.keys()).intersection(s_dist.keys())
 			if s_ca:
-				add_graph_edge(s_v, v)
+				add_spouse_edge(s_v, v)
 				s_mrcas = [a for a in s_ca if not any(c in s_ca for c in children_map.get(a, []))]
 				for a in s_mrcas[:1]:
 					for p in ancestor_paths[u][a][:1] + ancestor_paths[s_v][a][:1]:
@@ -533,7 +515,7 @@ def build_family_pair_diagram(
 			s_dist = ancestor_dist.get(s_u, {})
 			s_ca = set(dist_v.keys()).intersection(s_dist.keys())
 			if s_ca:
-				add_graph_edge(u, s_u)
+				add_spouse_edge(u, s_u)
 				s_mrcas = [a for a in s_ca if not any(c in s_ca for c in children_map.get(a, []))]
 				for a in s_mrcas[:1]:
 					for p in ancestor_paths[v][a][:1] + ancestor_paths[s_u][a][:1]:
@@ -547,7 +529,7 @@ def build_family_pair_diagram(
 				if c_v in spouses_map.get(c_u, set()):
 					edge_pairs.append((u, c_u))
 					edge_pairs.append((v, c_v))
-					add_graph_edge(c_u, c_v)
+					add_spouse_edge(c_u, c_v)
 
 	if not edge_pairs:
 		for p_u in parents_map.get(u, []):
@@ -555,7 +537,7 @@ def build_family_pair_diagram(
 				if p_v in spouses_map.get(p_u, set()):
 					edge_pairs.append((p_u, u))
 					edge_pairs.append((p_v, v))
-					add_graph_edge(p_u, p_v)
+					add_spouse_edge(p_u, p_v)
 
 	u_name = nodes_dict.get(u, str(u))
 	v_name = nodes_dict.get(v, str(v))
@@ -572,6 +554,7 @@ def build_family_pair_diagram(
 		nodes_dict=nodes_dict,
 		edge_values={},
 		ignore_edge_colors=True,
+		bidirectional_edges=spouse_pairs,
 	)
 
 
@@ -728,7 +711,11 @@ def compute_edge_geometry(
 		ox1, oy1 = cx1 + px, cy1 + py
 		ox2, oy2 = cx2 + px, cy2 + py
 
-		x1, y1 = _ray_rect_exit(ox1, oy1, ux, uy, cx1, cy1, w1 / 2.0, h1 / 2.0)
+		x1, y1 = _ray_rect_exit(
+			ox1, oy1, ux, uy, cx1, cy1,
+			w1 / 2.0 + (target_pad if edge.bidirectional else 0.0),
+			h1 / 2.0 + (target_pad if edge.bidirectional else 0.0),
+		)
 		x2, y2 = _ray_rect_exit(ox2, oy2, -ux, -uy, cx2, cy2, w2 / 2.0 + target_pad, h2 / 2.0 + target_pad)
 
 		# Skip inverted arrows if boxes overlap on a tiny viewport

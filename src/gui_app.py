@@ -1593,7 +1593,12 @@ class GraphMLExplorerApp(tk.Tk):
 		canvas.delete("all")
 
 		self._canvas_cycle_hits = []
-		active_hl = self.active_highlight if self.active_highlight is not None else self._hovered_icon_highlight
+		default_hl = self.current_diagram.default_highlight if self.current_diagram is not None else None
+		active_hl = (
+			self.active_highlight
+			if self.active_highlight is not None
+			else (self._hovered_icon_highlight if self._hovered_icon_highlight is not None else default_hl)
+		)
 		diagram = active_hl.diagram if (active_hl is not None and active_hl.diagram is not None) else self.current_diagram
 		if diagram is None:
 			self.lbl_graph_title.configure(text="Reveal an answer to view graph")
@@ -1654,17 +1659,19 @@ class GraphMLExplorerApp(tk.Tk):
 				x1, y1, x2, y2,
 				fill=edge.color,
 				width=1.8,
-				arrow=tk.LAST,
+				arrow=tk.BOTH if edge.bidirectional else tk.LAST,
 				arrowshape=(10, 12, 4.5),
 			)
 
 		# 2. Highlighted edge glow + crisp highlighted arrow
 		for edge, x1, y1, x2, y2, ux, uy in highlighted_edges:
+			gx1 = x1 + ux * 10.0 if edge.bidirectional else x1
+			gy1 = y1 + uy * 10.0 if edge.bidirectional else y1
 			gx2 = x2 - ux * 10.0
 			gy2 = y2 - uy * 10.0
 			for gw, alpha in ((12.0, 0.24), (7.0, 0.48)):
 				canvas.create_line(
-					x1, y1, gx2, gy2,
+					gx1, gy1, gx2, gy2,
 					fill=blend_hex_with_white(edge.color, alpha),
 					width=gw,
 					capstyle=tk.ROUND,
@@ -1673,21 +1680,23 @@ class GraphMLExplorerApp(tk.Tk):
 				x1, y1, x2, y2,
 				fill=edge.color,
 				width=3.0,
-				arrow=tk.LAST,
+				arrow=tk.BOTH if edge.bidirectional else tk.LAST,
 				arrowshape=(12, 15, 5.5),
 			)
 
 		# 3. Highlighted node glow behind node boxes
-		first_hl_node = (
-			active_hl.first_node_id
-			if (active_hl is not None and not active_hl.is_cycle)
-			else None
-		)
+		first_hl_nodes = set()
+		if active_hl is not None and not active_hl.is_cycle:
+			if active_hl.first_node_ids:
+				first_hl_nodes.update(active_hl.first_node_ids)
+			if active_hl.first_node_id:
+				first_hl_nodes.add(active_hl.first_node_id)
+
 		for node in diagram.nodes:
 			if node.node_id not in hl_nodes:
 				continue
 			cx, cy, nw, nh = rects[node.node_id]
-			is_first_blue = (node.node_id == first_hl_node)
+			is_first_blue = (node.node_id in first_hl_nodes)
 			glow_base = COLOR_GLOW_FIRST if is_first_blue else node.fill_color
 			glow_steps = (GLOW_STEP_FIRST if is_first_blue else GLOW_STEP_NOT_FIRST)
 			for pad, alpha in glow_steps:
@@ -1704,7 +1713,7 @@ class GraphMLExplorerApp(tk.Tk):
 		for node in diagram.nodes:
 			cx, cy, nw, nh = rects[node.node_id]
 			is_hl = node.node_id in hl_nodes
-			is_first_hl = (node.node_id == first_hl_node)
+			is_first_hl = (node.node_id in first_hl_nodes)
 			canvas.create_rectangle(
 				cx - nw / 2.0,
 				cy - nh / 2.0,
