@@ -1,7 +1,8 @@
-
 from src.diagram.builders import (
 	build_cycle_diagram,
 	build_family_pair_diagram,
+	build_family_shared_children_diagram,
+	build_family_together_diagram,
 	build_leaf_diagram,
 	build_pair_diagram,
 	compute_earliest_generation_nodes,
@@ -52,6 +53,8 @@ __all__ = [
 	'build_family_pair_diagram',
 	'build_leaf_diagram',
 	'build_pair_diagram',
+	'build_family_shared_children_diagram',
+	'build_family_together_diagram',
 	'compute_circular_layout',
 	'compute_cycle_center',
 	'compute_diagram_cycle_centers',

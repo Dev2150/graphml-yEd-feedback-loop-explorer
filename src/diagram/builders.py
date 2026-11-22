@@ -558,3 +558,80 @@ def build_pair_diagram(
 		cycles=diagram_cycles,
 		node_colors=node_colors,
 	)
+
+def build_family_shared_children_diagram(
+	x: str,
+	partners: List[str],
+	children_ids: List[str],
+	graph,
+	nodes_dict: Dict[str, str],
+	spouses_map: Dict[str, Set[str]],
+	question_num: int = 0,
+	node_colors: Optional[Dict[str, str]] = None,
+) -> GraphDiagramData:
+	edge_pairs: List[Tuple[str, str]] = []
+	spouse_pairs: Set[Tuple[str, str]] = set()
+
+	for c in children_ids:
+		edge_pairs.append((x, c))
+		for y in partners:
+			edge_pairs.append((y, c))
+
+	for y in partners:
+		if y in spouses_map.get(x, set()):
+			pair = (y, x) if (graph.has_edge(y, x) and not graph.has_edge(x, y)) else (x, y)
+			spouse_pairs.add(pair)
+			edge_pairs.append(pair)
+
+	x_name = nodes_dict.get(x, str(x))
+	prefix = f"Q{question_num}: " if question_num else ""
+	title = f"{prefix}{x_name} & [?]"
+
+	return _assemble_diagram(
+		title=title,
+		node_ids=[x] + list(partners) + list(children_ids),
+		edge_pairs=edge_pairs,
+		target_ids={x},
+		common_source_ids=set(),
+		common_effect_ids=set(children_ids) - {x},
+		nodes_dict=nodes_dict,
+		edge_values={},
+		ignore_edge_colors=True,
+		bidirectional_edges=spouse_pairs,
+		node_colors=node_colors,
+	)
+
+
+def build_family_together_diagram(
+	x: str,
+	partners: List[str],
+	graph,
+	nodes_dict: Dict[str, str],
+	question_num: int = 0,
+	node_colors: Optional[Dict[str, str]] = None,
+) -> GraphDiagramData:
+	edge_pairs: List[Tuple[str, str]] = []
+	spouse_pairs: Set[Tuple[str, str]] = set()
+
+	for y in partners:
+		pair = (y, x) if (graph.has_edge(y, x) and not graph.has_edge(x, y)) else (x, y)
+		spouse_pairs.add(pair)
+		edge_pairs.append(pair)
+
+	x_name = nodes_dict.get(x, str(x))
+	prefix = f"Q{question_num}: " if question_num else ""
+	title = f"{prefix}{x_name} ↔ [?]"
+
+	return _assemble_diagram(
+		title=title,
+		node_ids=[x] + list(partners),
+		edge_pairs=edge_pairs,
+		target_ids={x},
+		common_source_ids=set(),
+		common_effect_ids=set(),
+		nodes_dict=nodes_dict,
+		edge_values={},
+		ignore_edge_colors=True,
+		bidirectional_edges=spouse_pairs,
+		node_colors=node_colors,
+	)

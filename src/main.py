@@ -10,6 +10,7 @@ import networkx as nx
 
 from src.config import (
 	COUNTER_CONNECTION_TYPES,
+	FAMILY_CONNECTION_TYPES,
 	apply_graph_dict_to_config,
 	create_input_file,
 	read_config_file,
@@ -46,8 +47,12 @@ def run_cli():
 		config = apply_graph_dict_to_config(config, saved_graph_cfg)
 		print(f"Loaded per-GraphML properties for '{os.path.basename(input_graph_ml)}'.")
 
+	is_family_mode = config.connection_type in FAMILY_CONNECTION_TYPES
 	nodes, edges, edge_values, node_values, edge_labels, node_colors = read_from_graph_xml(
-		input_graph_ml, config.color_threshold, config.excluded_elements
+		input_graph_ml,
+		config.color_threshold,
+		config.excluded_elements,
+		is_family=is_family_mode,
 	)
 
 	if config.ignore_edge_colors or config.connection_type in COUNTER_CONNECTION_TYPES:

@@ -6,6 +6,8 @@ from src.games.relationship.handlers import (
 	handle_leaf_dest_question,
 	handle_leaf_source_question,
 	handle_pair_question,
+	handle_shared_children_question,
+	handle_together_question,
 )
 from src.games.relationship.preparer import prepare_relationship_game_data
 from src.games.relationship.progress import (
@@ -133,6 +135,14 @@ def run_relationship_guessing_game(
 			)
 		elif itype == 'leaf_dst':
 			should_continue = handle_leaf_dest_question(
+				question_num, data, ctx, prepared_data, _input, emit_answer, on_graph_update
+			)
+		elif itype == 'shared_children':
+			should_continue = handle_shared_children_question(
+				question_num, data, ctx, prepared_data, _input, emit_answer, on_graph_update
+			)
+		elif itype == 'together':
+			should_continue = handle_together_question(
 				question_num, data, ctx, prepared_data, _input, emit_answer, on_graph_update
 			)
 		else:

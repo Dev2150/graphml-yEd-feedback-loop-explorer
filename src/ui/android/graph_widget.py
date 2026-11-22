@@ -24,6 +24,7 @@ from src.diagram import (
 	find_cycle_icon_path,
 	format_graph_node_label,
 )
+from src.ui.desktop.graph_canvas import SIZE_MULTIPLIER_SECONDARY, SIZE_MULTIPLIER_PRIMARY
 
 
 def _hex_to_rgba(hex_color: str):
@@ -346,7 +347,8 @@ class CircularGraphWidget(Widget):
 					centers = compute_diagram_cycle_centers(cycles_to_draw, rects, min_sep=icon_sz * 1.15)
 
 					def _draw_kivy_cycle_icon(mid_x: float, mid_y: float, polarity: int, is_hl_cyc: bool):
-						draw_sz = icon_sz * (1.22 if is_hl_cyc else 1.0)
+						base_sz = icon_sz * (SIZE_MULTIPLIER_SECONDARY if is_secondary else SIZE_MULTIPLIER_PRIMARY)
+						draw_sz = base_sz * (1.22 if is_hl_cyc else 1.0)
 						badge_rgba = (0.11, 0.73, 0.33, 1) if polarity > 0 else (0.90, 0.22, 0.21, 1)
 						br, bg, bb, _ = badge_rgba
 						if is_hl_cyc:
@@ -398,13 +400,15 @@ class CircularGraphWidget(Widget):
 					for idx, cyc in normal_items:
 						cx_i, cy_i = centers[idx]
 						px, py = ox + cx_i, oy + cy_i
-						_draw_kivy_cycle_icon(px, py, cyc.polarity, False)
-						self._cycle_hits.append((px, py, max(icon_sz * 0.55, dp(20)), cyc, active_diagram))
+						_draw_kivy_cycle_icon(px, py, cyc.polarity, False, cyc.is_secondary)
+						base_sz = icon_sz * (SIZE_MULTIPLIER_SECONDARY if cyc.is_secondary else SIZE_MULTIPLIER_PRIMARY)
+						self._cycle_hits.append((px, py, max(base_sz * 0.55, dp(16)), cyc, active_diagram))
 					for idx, cyc in hl_items:
 						cx_i, cy_i = centers[idx]
 						px, py = ox + cx_i, oy + cy_i
-						_draw_kivy_cycle_icon(px, py, cyc.polarity, True)
-						self._cycle_hits.append((px, py, max(icon_sz * 0.55, dp(20)), cyc, active_diagram))
+						_draw_kivy_cycle_icon(px, py, cyc.polarity, True, cyc.is_secondary)
+						base_sz = icon_sz * (SIZE_MULTIPLIER_SECONDARY if cyc.is_secondary else SIZE_MULTIPLIER_PRIMARY)
+						self._cycle_hits.append((px, py, max(base_sz * 0.55, dp(16)), cyc, active_diagram))
 			finally:
 				StencilUnUse()
 				Rectangle(pos=self.pos, size=self.size)

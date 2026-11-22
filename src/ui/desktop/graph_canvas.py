@@ -18,6 +18,8 @@ COLOR_OUTLINE_FIRST = "#555555"
 GLOW_STEP_FIRST = ((18.0, 0.32), (11.0, 0.56), (5.5, 0.85))
 GLOW_STEP_NOT_FIRST = ((16.0, 0.28), (10.0, 0.50), (5.0, 0.78))
 
+SIZE_MULTIPLIER_PRIMARY = 1.0
+SIZE_MULTIPLIER_SECONDARY = 0.65
 
 class TkCircularGraphCanvas(tk.Canvas):
 	"""Self-contained Tkinter circular graph renderer with cycle-icon hover detection."""
@@ -313,9 +315,10 @@ class TkCircularGraphCanvas(tk.Canvas):
 			icon_sz = max(34, min(56, int(min(w, h) * 0.16)))
 			centers = compute_diagram_cycle_centers(cycles_to_draw, rects, min_sep=icon_sz * 1.15)
 
-			def _draw_cycle_icon(mid_x: float, mid_y: float, polarity: int, is_hl_cyc: bool):
+			def _draw_cycle_icon(mid_x: float, mid_y: float, polarity: int, is_hl_cyc: bool, is_secondary: bool):
 				badge_col = "#1DB954" if polarity > 0 else "#E53935"
-				draw_sz = int(round(icon_sz * (1.22 if is_hl_cyc else 1.0)))
+				base_sz = icon_sz * (SIZE_MULTIPLIER_SECONDARY if is_secondary else SIZE_MULTIPLIER_PRIMARY)
+				draw_sz = int(round(base_sz * (1.22 if is_hl_cyc else 1.0)))
 				if is_hl_cyc:
 					r_glow = draw_sz * 0.46
 					for pad, alpha in ((18.0, 0.22), (11.0, 0.42), (5.0, 0.72)):
@@ -376,9 +379,11 @@ class TkCircularGraphCanvas(tk.Canvas):
 
 			for idx, cyc in normal_items:
 				mx, my = centers[idx]
-				_draw_cycle_icon(mx, my, cyc.polarity, False)
-				self._cycle_hits.append((mx, my, max(icon_sz * 0.55, 18.0), cyc, diagram))
+				_draw_cycle_icon(mx, my, cyc.polarity, False, cyc.is_secondary)
+				base_sz = icon_sz * (SIZE_MULTIPLIER_PRIMARY if cyc.is_secondary else SIZE_MULTIPLIER_PRIMARY)
+				self._cycle_hits.append((mx, my, max(base_sz * 0.55, 14.0), cyc, diagram))
 			for idx, cyc in hl_items:
 				mx, my = centers[idx]
-				_draw_cycle_icon(mx, my, cyc.polarity, True)
-				self._cycle_hits.append((mx, my, max(icon_sz * 0.55, 18.0), cyc, diagram))
+				_draw_cycle_icon(mx, my, cyc.polarity, True, cyc.is_secondary)
+				base_sz = icon_sz * (SIZE_MULTIPLIER_PRIMARY if cyc.is_secondary else SIZE_MULTIPLIER_PRIMARY)
+				self._cycle_hits.append((mx, my, max(base_sz * 0.55, 14.0), cyc, diagram))

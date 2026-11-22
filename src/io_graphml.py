@@ -116,6 +116,7 @@ def read_from_graph_xml(
 	p_input_file: str,
 	p_color_threshold: int = 48,
 	excluded_elements: Optional[List[str]] = None,
+	is_family: bool = False,
 ):
 	tree = emTree.parse(p_input_file)
 	root = tree.getroot()
@@ -145,9 +146,13 @@ def read_from_graph_xml(
 			if nid.lower() in excluded_set or any(lbl.lower() in excluded_set for lbl in own_labels):
 				mark_excluded_subtree(nid)
 
+	empty_node_ids: Set[str] = set()
+
 	for node_id, node_elem in all_nodes.items():
 		if not is_group.get(node_id, False) and node_id not in excluded_ids:
 			own_labels = node_own_labels.get(node_id, [])
+			if not own_labels:
+				empty_node_ids.add(node_id)
 			node_name = own_labels[0] if own_labels else node_id
 			node_val = 0
 			node_color = ""
@@ -274,6 +279,49 @@ def read_from_graph_xml(
 							edge_values[(t, s)] = val
 							if edge_label:
 								edge_labels[(t, s)] = edge_label
+
+	if is_family and empty_node_ids:
+		collapsed_empty_ids: Set[str] = set()
+		for eid in empty_node_ids:
+			incoming = list(dict.fromkeys(
+				u for (u, v) in edges if v == eid and u not in empty_node_ids
+			))
+			if len(incoming) >= 2:
+				collapsed_empty_ids.add(eid)
+				outgoing = list(dict.fromkeys(
+					v for (u, v) in edges if u == eid and v not in empty_node_ids
+				))
+
+				for i in range(len(incoming)):
+					for j in range(i + 1, len(incoming)):
+						p1, p2 = incoming[i], incoming[j]
+						if (p1, p2) not in edge_set and (p2, p1) not in edge_set:
+							edges.append((p1, p2))
+							edge_set.add((p1, p2))
+							edge_values[(p1, p2)] = 1
+							edge_labels[(p1, p2)] = 'spouse'
+						elif (p1, p2) in edge_set and not edge_labels.get((p1, p2)) and not edge_labels.get((p2, p1)):
+							edge_labels[(p1, p2)] = 'spouse'
+						elif (p2, p1) in edge_set and not edge_labels.get((p2, p1)) and not edge_labels.get((p1, p2)):
+							edge_labels[(p2, p1)] = 'spouse'
+
+				for p in incoming:
+					for c in outgoing:
+						if p != c and (p, c) not in edge_set:
+							edges.append((p, c))
+							edge_set.add((p, c))
+							edge_values[(p, c)] = edge_values.get((eid, c), 1)
+
+		if collapsed_empty_ids:
+			for eid in collapsed_empty_ids:
+				nodes.pop(eid, None)
+				node_values.pop(eid, None)
+				node_colors.pop(eid, None)
+			edges = [(u, v) for (u, v) in edges if u not in collapsed_empty_ids and v not in collapsed_empty_ids]
+			for k in [k for k in edge_values if k[0] in collapsed_empty_ids or k[1] in collapsed_empty_ids]:
+				del edge_values[k]
+			for k in [k for k in edge_labels if k[0] in collapsed_empty_ids or k[1] in collapsed_empty_ids]:
+				del edge_labels[k]
 
 	return nodes, edges, edge_values, node_values, edge_labels, node_colors
 

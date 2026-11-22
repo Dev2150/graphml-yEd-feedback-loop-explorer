@@ -9,6 +9,7 @@ import networkx as nx
 
 from src.config import (
 	COUNTER_CONNECTION_TYPES,
+	FAMILY_CONNECTION_TYPES,
 	GRAPH_SETTING_KEYS,
 	Config,
 	build_effective_config,
@@ -239,8 +240,12 @@ class AppController:
 						f"{', '.join(cfg_snapshot.excluded_elements)}"
 					)
 
+				is_family_mode = cfg_snapshot.connection_type in FAMILY_CONNECTION_TYPES
 				nodes, edges, edge_values, node_values, edge_labels, node_colors = read_from_graph_xml(
-					norm_path, cfg_snapshot.color_threshold, cfg_snapshot.excluded_elements
+					norm_path,
+					cfg_snapshot.color_threshold,
+					cfg_snapshot.excluded_elements,
+					is_family=is_family_mode,
 				)
 
 				if cfg_snapshot.ignore_edge_colors or cfg_snapshot.connection_type in COUNTER_CONNECTION_TYPES:

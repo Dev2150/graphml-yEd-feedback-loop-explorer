@@ -21,6 +21,13 @@ def get_item_key(item, nodes_dict) -> str:
 		return f"leaf_src:{nodes_dict.get(data, str(data))}"
 	if itype == 'leaf_dst':
 		return f"leaf_dst:{nodes_dict.get(data, str(data))}"
+	if itype == 'shared_children':
+		x_node, children_tuple = data
+		x_name = nodes_dict.get(x_node, str(x_node))
+		c_names = ",".join(sorted(nodes_dict.get(c, str(c)) for c in children_tuple))
+		return f"shared_children:{x_name}:{c_names}"
+	if itype == 'together':
+		return f"together:{nodes_dict.get(data, str(data))}"
 	if itype == 'cycle':
 		canonical_names = [nodes_dict.get(x, str(x)) for x in data]
 		return "cycle:" + "->".join(canonical_names) + f"->{canonical_names[0]}"

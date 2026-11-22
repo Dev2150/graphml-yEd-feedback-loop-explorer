@@ -42,9 +42,15 @@ def prepare_relationship_game_data(ctx: GraphContext) -> dict:
 		text_shared_source = "Common cause (Confounder)"
 		text_shared_dest = "Common effect (Collider)"
 
-	# Find direct leaf nodes
-	root_nodes = {n for n in g.nodes() if g.in_degree(n) == 0}
-	terminal_nodes = {n for n in g.nodes() if g.out_degree(n) == 0}
+	# Build family structures early so spouse edges don't leak into Single (leaf) questions
+	parents_map = children_map = spouses_map = ancestor_paths = ancestor_dist = None
+	if is_family:
+		parents_map, children_map, spouses_map = build_family_structures(g, edge_labels)
+		root_nodes = {n for n in g.nodes() if not parents_map.get(n)}
+		terminal_nodes = {n for n in g.nodes() if not children_map.get(n)}
+	else:
+		root_nodes = {n for n in g.nodes() if g.in_degree(n) == 0}
+		terminal_nodes = {n for n in g.nodes() if g.out_degree(n) == 0}
 	leaf_nodes = root_nodes.union(terminal_nodes)
 
 	# Precompute source and destination mappings for leaf connections
@@ -52,14 +58,14 @@ def prepare_relationship_game_data(ctx: GraphContext) -> dict:
 	leaf_dests_map = defaultdict(list)
 
 	for target in g.nodes():
-		predecessors = list(g.predecessors(target))
+		predecessors = list(parents_map.get(target, [])) if is_family else list(g.predecessors(target))
 		if not predecessors:
 			continue
 		if not leaf_only or target in terminal_nodes or any(p in root_nodes for p in predecessors):
 			leaf_sources_map[target] = predecessors
 
 	for source in g.nodes():
-		successors = list(g.successors(source))
+		successors = list(children_map.get(source, [])) if is_family else list(g.successors(source))
 		if not successors:
 			continue
 		if not leaf_only or source in root_nodes or any(s in terminal_nodes for s in successors):
@@ -90,11 +96,9 @@ def prepare_relationship_game_data(ctx: GraphContext) -> dict:
 
 	# Categorize all unordered node pairs
 	all_node_list = list(g.nodes())
-	parents_map = children_map = spouses_map = ancestor_paths = ancestor_dist = None
 	family_results_cache = {}
 
 	if is_family:
-		parents_map, children_map, spouses_map = build_family_structures(g, edge_labels)
 		ancestor_paths, ancestor_dist = compute_all_ancestors(all_node_list, parents_map)
 
 		parent_child_pairs = []
@@ -144,6 +148,43 @@ def prepare_relationship_game_data(ctx: GraphContext) -> dict:
 				else:
 					irrelevant_pairs.append((u, v))
 
+		shared_children_items = []
+		together_items = []
+
+		for x in all_node_list:
+			x_name = str(nodes.get(x, x)).lower()
+			if x_name in block_starting_node:
+				continue
+
+			shared_by_partner = defaultdict(list)
+			for c in children_map.get(x, []):
+				for y in parents_map.get(c, []):
+					if y != x and c not in shared_by_partner[y]:
+						shared_by_partner[y].append(c)
+
+			children_groups = defaultdict(list)
+			for y, c_list in shared_by_partner.items():
+				if leaf_only and (x not in leaf_nodes and y not in leaf_nodes):
+					continue
+				sorted_c = tuple(sorted(c_list, key=lambda cid: (str(nodes.get(cid, cid)).lower(), str(cid))))
+				children_groups[sorted_c].append(y)
+
+			for sorted_c in sorted(
+				children_groups.keys(),
+				key=lambda cs: [str(nodes.get(c, c)).lower() for c in cs],
+			):
+				shared_children_items.append(('shared_children', (x, sorted_c)))
+
+			childless_partners = [
+				y for y in spouses_map.get(x, set())
+				if y != x and y not in shared_by_partner
+				and (not leaf_only or (x in leaf_nodes or y in leaf_nodes))
+			]
+			if childless_partners:
+				together_items.append(('together', x))
+
+		partner_items = shared_children_items + together_items
+
 		cycle_items = []
 		for cyc in valid_cycles:
 			for rot_idx in range(len(cyc)):
@@ -160,7 +201,7 @@ def prepare_relationship_game_data(ctx: GraphContext) -> dict:
 		irrelevant_items = [('irrelevant', p) for p in irrelevant_pairs]
 
 		all_relevant_items = (
-			cycle_items + leaf_items + parent_child_items + grandparent_items +
+			cycle_items + leaf_items + partner_items + parent_child_items + grandparent_items +
 			sibling_items + uncle_nephew_items + first_cousin_items +
 			second_third_cousin_items + in_law_items
 		)
@@ -168,6 +209,7 @@ def prepare_relationship_game_data(ctx: GraphContext) -> dict:
 		category_config = [
 			('Cycle', cycle_items),
 			('Single', leaf_items),
+			('Partner', partner_items),
 			('Parent/Child', parent_child_items),
 			('Grandparent+', grandparent_items),
 			('Sibling', sibling_items),
