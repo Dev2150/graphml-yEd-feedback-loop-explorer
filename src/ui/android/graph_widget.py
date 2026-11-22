@@ -45,6 +45,10 @@ class CircularGraphWidget(Widget):
 		self.highlight: AnswerHighlight = None
 		self._icon_texture_cache = {}
 		self._cycle_hits = []
+		self._on_cycle_hover = None
+		self._on_cycle_hover_clear = None
+		self._hovered_icon_edges = None
+		self._hovered_icon_highlight = None
 		self.bind(pos=self._redraw, size=self._redraw)
 
 	def set_diagram(self, diagram: GraphDiagramData):
@@ -346,7 +350,7 @@ class CircularGraphWidget(Widget):
 					icon_sz = max(dp(30), min(dp(50), min(self.width, self.height) * 0.20))
 					centers = compute_diagram_cycle_centers(cycles_to_draw, rects, min_sep=icon_sz * 1.15)
 
-					def _draw_kivy_cycle_icon(mid_x: float, mid_y: float, polarity: int, is_hl_cyc: bool):
+					def _draw_kivy_cycle_icon(mid_x: float, mid_y: float, polarity: int, is_hl_cyc: bool, is_secondary: bool = False):
 						base_sz = icon_sz * (SIZE_MULTIPLIER_SECONDARY if is_secondary else SIZE_MULTIPLIER_PRIMARY)
 						draw_sz = base_sz * (1.22 if is_hl_cyc else 1.0)
 						badge_rgba = (0.11, 0.73, 0.33, 1) if polarity > 0 else (0.90, 0.22, 0.21, 1)

@@ -1,6 +1,12 @@
 import random
 import networkx as nx
 
+from src.diagram import (
+	AnswerHighlight,
+	build_family_pair_diagram,
+	build_pair_diagram,
+	compute_earliest_generation_nodes,
+)
 from src.family import analyze_family_pair
 from src.formatters import (
 	format_console_node_name,
@@ -8,13 +14,8 @@ from src.formatters import (
 	get_edge_arrow,
 	get_path_net_effect_arrow,
 )
+from src.games.relationship.handlers.common import ask_continue, compute_cycle_polarity, path_edges
 from src.games.relationship.progress import get_canonical_cycle_tuple
-from src.diagram import (
-	AnswerHighlight,
-	build_family_pair_diagram,
-	build_pair_diagram,
-	compute_earliest_generation_nodes,
-)
 from src.graph_utils import find_bounded_cycles
 from src.models import GraphContext
 
@@ -28,7 +29,6 @@ def _handle_family_pair(
 	emit_answer,
 	on_graph_update=None,
 ):
-	g = ctx.graph
 	nodes = ctx.nodes
 	node_colors = ctx.node_colors
 	parents_map = prepared_data["parents_map"]
@@ -36,17 +36,14 @@ def _handle_family_pair(
 	spouses_map = prepared_data["spouses_map"]
 	ancestor_paths = prepared_data["ancestor_paths"]
 	ancestor_dist = prepared_data["ancestor_dist"]
-	family_results_cache = prepared_data["family_results_cache"]
 
-	fam_res = family_results_cache.get((u, v))
-	if not fam_res:
-		fam_res = analyze_family_pair(
-			u, v, nodes, node_colors, parents_map, children_map,
-			spouses_map, ancestor_paths, ancestor_dist,
-		)
+	fam_res = prepared_data["family_results_cache"].get((u, v)) or analyze_family_pair(
+		u, v, nodes, node_colors, parents_map, children_map,
+		spouses_map, ancestor_paths, ancestor_dist,
+	)
 
 	diagram = build_family_pair_diagram(
-		u=u, v=v, graph=g, nodes_dict=nodes,
+		u=u, v=v, graph=ctx.graph, nodes_dict=nodes,
 		parents_map=parents_map, children_map=children_map,
 		spouses_map=spouses_map, ancestor_paths=ancestor_paths,
 		ancestor_dist=ancestor_dist, question_num=question_num,
@@ -97,7 +94,6 @@ def _handle_standard_pair(
 	nodes = ctx.nodes
 	edge_values = ctx.edge_values
 	edge_labels = ctx.edge_labels
-	node_colors = ctx.node_colors
 	config = ctx.config
 
 	max_indirectness_game = config.max_indirectness_game
@@ -110,240 +106,153 @@ def _handle_standard_pair(
 	text_shared_dest = prepared_data["text_shared_dest"]
 
 	cutoff_distance = max_indirectness_game + 1
-	paths_u_v = list(nx.all_simple_paths(g, source=u, target=v, cutoff=cutoff_distance))
-	paths_v_u = list(nx.all_simple_paths(g, source=v, target=u, cutoff=cutoff_distance))
-
-	paths_u_v.sort(key=len)
-	paths_v_u.sort(key=len)
+	paths_u_v = sorted(nx.all_simple_paths(g, source=u, target=v, cutoff=cutoff_distance), key=len)
+	paths_v_u = sorted(nx.all_simple_paths(g, source=v, target=u, cutoff=cutoff_distance), key=len)
 
 	direct_u_v = [p for p in paths_u_v if len(p) == 2]
 	direct_v_u = [p for p in paths_v_u if len(p) == 2]
-
 	indirect_u_v = [p for p in paths_u_v if len(p) > 2]
 	indirect_v_u = [p for p in paths_v_u if len(p) > 2]
 
-	is_direct = bool(direct_u_v or direct_v_u)
-	is_indirect = not is_direct and bool(indirect_u_v or indirect_v_u)
-
-	shared_srcs = [s for s in set(g.predecessors(u)).intersection(g.predecessors(v)) if s != u and s != v]
-	shared_dsts = [d for d in set(g.successors(u)).intersection(g.successors(v)) if d != u and d != v]
-
-	shared_srcs.sort(key=lambda s: str(nodes.get(s, s)).lower())
-	shared_dsts.sort(key=lambda d: str(nodes.get(d, d)).lower())
+	shared_srcs = sorted(
+		(s for s in set(g.predecessors(u)).intersection(g.predecessors(v)) if s != u and s != v),
+		key=lambda s: str(nodes.get(s, s)).lower(),
+	)
+	shared_dsts = sorted(
+		(d for d in set(g.successors(u)).intersection(g.successors(v)) if d != u and d != v),
+		key=lambda d: str(nodes.get(d, d)).lower(),
+	)
 
 	connection_entries = []
 
-	if is_counter:
-		for s in shared_srcs:
-			s_name = format_console_node_name(nodes.get(s, s))
+	def _append_path_entries(paths: list, label_prefix: str):
+		for p in paths:
+			formatted_p = format_path_string(
+				p, nodes, edge_values,
+				ignore_edge_colors=ignore_edge_colors, is_counter=is_counter,
+			)
+			suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
 			connection_entries.append((
-				f"{text_shared_source}: 🟦 {s_name} → 🟥 {u_name} & 🟥 {v_name}",
-				AnswerHighlight(node_ids={s, u, v}, edges={(s, u), (s, v)}, first_node_id=s),
+				f"{label_prefix} ({len(p) - 2}): {formatted_p}{suffix}",
+				AnswerHighlight(node_ids=set(p), edges=path_edges(p), first_node_id=p[0]),
 			))
 
-		for d in shared_dsts:
-			d_name = format_console_node_name(nodes.get(d, d))
+	def _append_cycle_entries(cycles: list, label_prefix: str):
+		for cyc in cycles:
+			formatted_cyc = format_path_string(
+				cyc, nodes, edge_values,
+				ignore_edge_colors=ignore_edge_colors, is_counter=is_counter,
+			)
+			cyc_len = len(cyc) - 1
+			polarity = compute_cycle_polarity(cyc, edge_values, is_counter or ignore_edge_colors)
+			if polarity is None:
+				line = f"{label_prefix} ({cyc_len}): {formatted_cyc}"
+			else:
+				polarity_icon = "[💥]" if polarity > 0 else "[⚖️]"
+				line = f"{label_prefix} ({cyc_len}) {polarity_icon}: {formatted_cyc}"
 			connection_entries.append((
-				f"{text_shared_dest}: 🟦 {u_name} & 🟦 {v_name} → 🟥 {d_name}",
-				AnswerHighlight(node_ids={u, v, d}, edges={(u, d), (v, d)}, first_node_id=u),
+				line,
+				AnswerHighlight(
+					node_ids=set(cyc),
+					edges=path_edges(cyc),
+					is_cycle=True,
+					cycle_polarity=polarity,
+					cycle_node_ids=list(dict.fromkeys(cyc)),
+				),
 			))
+
+	# 1. Shared sources & destinations
+	for s in shared_srcs:
+		s_name = format_console_node_name(nodes.get(s, s))
+		if is_counter:
+			line = f"{text_shared_source}: 🟦 {s_name} → 🟥 {u_name} & 🟥 {v_name}"
+		else:
+			arr_u = get_edge_arrow(edge_values.get((s, u), 1))
+			arr_v = get_edge_arrow(edge_values.get((s, v), 1))
+			line = (
+				f"{text_shared_source}: {s_name} {arr_u}"
+				if arr_u == arr_v
+				else f"{text_shared_source}: {s_name} {arr_u} {u_name} + {arr_v} {v_name}"
+			)
+		connection_entries.append((line, AnswerHighlight(node_ids={s, u, v}, edges={(s, u), (s, v)}, first_node_id=s)))
+
+	for d in shared_dsts:
+		d_name = format_console_node_name(nodes.get(d, d))
+		if is_counter:
+			line = f"{text_shared_dest}: 🟦 {u_name} & 🟦 {v_name} → 🟥 {d_name}"
+		else:
+			arr_u = get_edge_arrow(edge_values.get((u, d), 1))
+			arr_v = get_edge_arrow(edge_values.get((v, d), 1))
+			line = (
+				f"{text_shared_dest}: {arr_u} {d_name}"
+				if arr_u == arr_v
+				else f"{text_shared_dest}: {u_name} ({arr_u}) + {v_name} ({arr_v}) → {d_name}"
+			)
+		connection_entries.append((line, AnswerHighlight(node_ids={u, v, d}, edges={(u, d), (v, d)}, first_node_id=u)))
+
+	# 2. Direct & indirect paths
+	if direct_u_v and direct_v_u:
+		p1_str = format_path_string([u, v], nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+		p2_str = format_path_string([v, u], nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+		lbl_lines = []
+		if edge_labels:
+			if edge_labels.get((u, v)):
+				lbl_lines.append(f"      ({u_name} → {v_name}: {edge_labels[(u, v)]})")
+			if edge_labels.get((v, u)):
+				lbl_lines.append(f"      ({v_name} → {u_name}: {edge_labels[(v, u)]})")
+		lbl_suffix = ("\n" + "\n".join(lbl_lines)) if lbl_lines else ""
+		connection_entries.append((
+			f"Direct (⟳): {p1_str} ↔ {p2_str}{lbl_suffix}",
+			AnswerHighlight(node_ids={u, v}, edges={(u, v), (v, u)}, first_node_id=u),
+		))
+		_append_path_entries(indirect_u_v, "Indirect")
+		_append_path_entries(indirect_v_u, "Indirect ↩")
+	elif direct_u_v:
+		p_str = format_path_string([u, v], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+		connection_entries.append((f"Direct: {p_str}", AnswerHighlight(node_ids={u, v}, edges={(u, v)}, first_node_id=u)))
+		_append_path_entries(indirect_u_v, "Indirect")
+		_append_path_entries(indirect_v_u, "Indirect ↩")
+	elif direct_v_u:
+		p_str = format_path_string([v, u], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
+		connection_entries.append((f"Direct: {p_str}", AnswerHighlight(node_ids={v, u}, edges={(v, u)}, first_node_id=v)))
+		_append_path_entries(indirect_v_u, "Indirect")
+		_append_path_entries(indirect_u_v, "Indirect ↩")
 	else:
-		for s in shared_srcs:
-			val_u = edge_values.get((s, u), 1)
-			val_v = edge_values.get((s, v), 1)
-			arr_u = get_edge_arrow(val_u)
-			arr_v = get_edge_arrow(val_v)
-			s_name = format_console_node_name(nodes.get(s, s))
-			if arr_u == arr_v:
-				line = f"{text_shared_source}: {s_name} {arr_u}"
-			else:
-				line = f"{text_shared_source}: {s_name} {arr_u} {u_name} + {arr_v} {v_name}"
-			connection_entries.append((
-				line,
-				AnswerHighlight(node_ids={s, u, v}, edges={(s, u), (s, v)}, first_node_id=s),
-			))
+		_append_path_entries(indirect_u_v, "Indirect")
+		_append_path_entries(indirect_v_u, "Indirect ↩" if indirect_u_v else "Indirect")
 
-		for d in shared_dsts:
-			val_u = edge_values.get((u, d), 1)
-			val_v = edge_values.get((v, d), 1)
-			arr_u = get_edge_arrow(val_u)
-			arr_v = get_edge_arrow(val_v)
-			d_name = format_console_node_name(nodes.get(d, d))
-			if arr_u == arr_v:
-				line = f"{text_shared_dest}: {arr_u} {d_name}"
-			else:
-				line = f"{text_shared_dest}: {u_name} ({arr_u}) + {v_name} ({arr_v}) → {d_name}"
-			connection_entries.append((
-				line,
-				AnswerHighlight(node_ids={u, v, d}, edges={(u, d), (v, d)}, first_node_id=u),
-			))
-
-	if is_direct:
-		if direct_u_v and direct_v_u:
-			p1_str = format_path_string([u, v], nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-			p2_str = format_path_string([v, u], nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-			lbl1 = edge_labels.get((u, v), '') if edge_labels else ''
-			lbl2 = edge_labels.get((v, u), '') if edge_labels else ''
-			lbl_lines = []
-			if lbl1:
-				lbl_lines.append(f"      ({u_name} → {v_name}: {lbl1})")
-			if lbl2:
-				lbl_lines.append(f"      ({v_name} → {u_name}: {lbl2})")
-			lbl_suffix = ("\n" + "\n".join(lbl_lines)) if lbl_lines else ""
-			connection_entries.append((
-				f"Direct (⟳): {p1_str} ↔ {p2_str}{lbl_suffix}",
-				AnswerHighlight(node_ids={u, v}, edges={(u, v), (v, u)}, first_node_id=u),
-			))
-		elif direct_u_v:
-			p_str = format_path_string([u, v], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-			connection_entries.append((
-				f"Direct: {p_str}",
-				AnswerHighlight(node_ids={u, v}, edges={(u, v)}, first_node_id=u),
-			))
-			for p in paths_v_u:
-				is_p_direct = len(p) == 2
-				prefix = "Direct ↩" if is_p_direct else f"Indirect ↩ ({len(p) - 2})"
-				formatted_p = format_path_string(p, nodes, edge_values, edge_labels if is_p_direct else None, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-				suffix = "" if (is_counter or ignore_edge_colors or is_p_direct) else f" ({get_path_net_effect_arrow(p, edge_values)})"
-				connection_entries.append((
-					f"{prefix}: {formatted_p}{suffix}",
-					AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}, first_node_id=p[0]),
-				))
-		elif direct_v_u:
-			p_str = format_path_string([v, u], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-			connection_entries.append((
-				f"Direct: {p_str}",
-				AnswerHighlight(node_ids={v, u}, edges={(v, u)}, first_node_id=v),
-			))
-			for p in paths_u_v:
-				is_p_direct = len(p) == 2
-				prefix = "Direct ↩" if is_p_direct else f"Indirect ↩ ({len(p) - 2})"
-				formatted_p = format_path_string(p, nodes, edge_values, edge_labels if is_p_direct else None, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-				suffix = "" if (is_counter or ignore_edge_colors or is_p_direct) else f" ({get_path_net_effect_arrow(p, edge_values)})"
-				connection_entries.append((
-					f"{prefix}: {formatted_p}{suffix}",
-					AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}, first_node_id=p[0]),
-				))
-
-		for p in indirect_u_v:
-			formatted_p = format_path_string(p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-			suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
-			connection_entries.append((
-				f"Indirect ({len(p) - 2}): {formatted_p}{suffix}",
-				AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}, first_node_id=p[0]),
-			))
-	elif is_indirect:
-		for p in indirect_u_v:
-			formatted_p = format_path_string(p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-			suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
-			connection_entries.append((
-				f"Indirect ({len(p) - 2}): {formatted_p}{suffix}",
-				AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}, first_node_id=p[0]),
-			))
-		for p in indirect_v_u:
-			prefix = "Indirect ↩" if indirect_u_v else "Indirect"
-			formatted_p = format_path_string(p, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-			suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
-			connection_entries.append((
-				f"{prefix} ({len(p) - 2}): {formatted_p}{suffix}",
-				AnswerHighlight(node_ids=set(p), edges={(p[k], p[k + 1]) for k in range(len(p) - 1)}, first_node_id=p[0]),
-			))
-
+	# 3. Primary cycles containing both u and v
 	pair_cycles = []
 	seen_pair_cycles = set()
-
-	def _add_pair_cycle(full_cycle: list):
-		cycle_tuple = tuple(full_cycle[:-1])
-		min_i = cycle_tuple.index(min(cycle_tuple))
-		canonical = cycle_tuple[min_i:] + cycle_tuple[:min_i]
-		if canonical not in seen_pair_cycles:
-			seen_pair_cycles.add(canonical)
-			pair_cycles.append(full_cycle)
-
 	if max_cycle_length_game >= 2:
 		paths_fwd = list(nx.all_simple_paths(g, source=u, target=v, cutoff=max_cycle_length_game - 1))
 		paths_bwd = list(nx.all_simple_paths(g, source=v, target=u, cutoff=max_cycle_length_game - 1))
-
 		for p1 in paths_fwd:
 			mid1 = set(p1[1:-1])
 			for p2 in paths_bwd:
-				total_nodes = (len(p1) - 1) + (len(p2) - 1)
-				if total_nodes <= max_cycle_length_game and mid1.isdisjoint(p2[1:-1]):
-					_add_pair_cycle(p1[:-1] + p2)
-
-		for p1 in paths_u_v:
-			mid1 = set(p1[1:-1])
-			for p2 in paths_v_u:
-				total_nodes = (len(p1) - 1) + (len(p2) - 1)
-				if total_nodes <= max_cycle_length_game and mid1.isdisjoint(p2[1:-1]):
-					_add_pair_cycle(p1[:-1] + p2)
-
-	base_nodes = {u, v} | set(shared_srcs) | set(shared_dsts)
-	base_edges = set()
-	for s in shared_srcs:
-		base_edges.add((s, u))
-		base_edges.add((s, v))
-	for d in shared_dsts:
-		base_edges.add((u, d))
-		base_edges.add((v, d))
-	for p in paths_u_v + paths_v_u + pair_cycles:
-		base_nodes.update(p)
-		for k in range(len(p) - 1):
-			base_edges.add((p[k], p[k + 1]))
-
-	base_g = nx.DiGraph()
-	base_g.add_nodes_from(base_nodes)
-	base_g.add_edges_from(base_edges)
-	drawn_cycles = find_bounded_cycles(base_g, max_cycle_length_game) if max_cycle_length_game >= 2 else []
-
-	for cyc_nodes in drawn_cycles:
-		if 2 <= len(cyc_nodes) <= max_cycle_length_game and u in cyc_nodes and v in cyc_nodes:
-			idx = cyc_nodes.index(u)
-			rotated = cyc_nodes[idx:] + cyc_nodes[:idx]
-			_add_pair_cycle(rotated + [rotated[0]])
+				if (len(p1) - 1) + (len(p2) - 1) <= max_cycle_length_game and mid1.isdisjoint(p2[1:-1]):
+					full_cycle = p1[:-1] + p2
+					canonical = tuple(get_canonical_cycle_tuple(full_cycle[:-1], nodes))
+					if canonical not in seen_pair_cycles:
+						seen_pair_cycles.add(canonical)
+						pair_cycles.append(full_cycle)
 
 	pair_cycles.sort(key=lambda c: (len(c), [str(nodes.get(n, n)) for n in c]))
+	_append_cycle_entries(pair_cycles, "Cycle")
 
-	for cyc in pair_cycles:
-		formatted_cyc = format_path_string(cyc, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-		cyc_len = len(cyc) - 1
-		if is_counter or ignore_edge_colors:
-			polarity = None
-			line = f"Cycle ({cyc_len}): {formatted_cyc}"
-		else:
-			cycle_corr = 1
-			for k in range(len(cyc) - 1):
-				cycle_corr *= edge_values.get((cyc[k], cyc[k + 1]), 1)
-			polarity = 1 if cycle_corr > 0 else -1
-			polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
-			line = f"Cycle ({cyc_len}) {polarity_icon}: {formatted_cyc}"
-
-		connection_entries.append((
-			line,
-			AnswerHighlight(
-				node_ids=set(cyc),
-				edges={(cyc[k], cyc[k + 1]) for k in range(len(cyc) - 1)},
-				is_cycle=True,
-				cycle_polarity=polarity,
-				cycle_node_ids=list(dict.fromkeys(cyc)),
-			),
-		))
+	# 4. Secondary cycles among nodes appearing in the diagram
+	base_nodes = {u, v} | set(shared_srcs) | set(shared_dsts)
+	for p in paths_u_v + paths_v_u + pair_cycles:
+		base_nodes.update(p)
 
 	secondary_cycles = []
-	if include_secondary_cycles and max_cycle_length_game >= 2:
-		raw_sec_cycles = list(drawn_cycles)
-		if len(base_nodes) >= 2:
-			sub_g = g.subgraph(base_nodes)
-			raw_sec_cycles.extend(find_bounded_cycles(sub_g, max_cycle_length_game))
-
+	if include_secondary_cycles and max_cycle_length_game >= 2 and len(base_nodes) >= 2:
 		seen_sec_cycles = set()
-		for cyc_nodes in raw_sec_cycles:
+		for cyc_nodes in find_bounded_cycles(g.subgraph(base_nodes), max_cycle_length_game):
 			if len(cyc_nodes) < 2 or len(cyc_nodes) > max_cycle_length_game:
 				continue
 			cyc_set = set(cyc_nodes)
 			if u in cyc_set and v in cyc_set:
-				continue
-			if not cyc_set.issubset(base_nodes):
 				continue
 			canonical = tuple(get_canonical_cycle_tuple(cyc_nodes, nodes))
 			if canonical in seen_sec_cycles:
@@ -358,35 +267,10 @@ def _handle_standard_pair(
 				rotated = cyc_nodes[idx:] + cyc_nodes[:idx]
 			else:
 				rotated = list(canonical)
-
 			secondary_cycles.append(rotated + [rotated[0]])
 
 		secondary_cycles.sort(key=lambda c: (len(c), [str(nodes.get(n, n)).lower() for n in c]))
-
-		for cyc in secondary_cycles:
-			formatted_cyc = format_path_string(cyc, nodes, edge_values, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-			cyc_len = len(cyc) - 1
-			if is_counter or ignore_edge_colors:
-				polarity = None
-				line = f"Secondary cycle ({cyc_len}): {formatted_cyc}"
-			else:
-				cycle_corr = 1
-				for k in range(len(cyc) - 1):
-					cycle_corr *= edge_values.get((cyc[k], cyc[k + 1]), 1)
-				polarity = 1 if cycle_corr > 0 else -1
-				polarity_icon = "[💥]" if cycle_corr > 0 else "[⚖️]"
-				line = f"Secondary cycle ({cyc_len}) {polarity_icon}: {formatted_cyc}"
-
-			connection_entries.append((
-				line,
-				AnswerHighlight(
-					node_ids=set(cyc),
-					edges={(cyc[k], cyc[k + 1]) for k in range(len(cyc) - 1)},
-					is_cycle=True,
-					cycle_polarity=polarity,
-					cycle_node_ids=list(dict.fromkeys(cyc)),
-				),
-			))
+		_append_cycle_entries(secondary_cycles, "Secondary cycle")
 
 	diagram = build_pair_diagram(
 		u=u,
@@ -401,7 +285,7 @@ def _handle_standard_pair(
 		secondary_cycles=secondary_cycles,
 		ignore_edge_colors=is_counter or ignore_edge_colors,
 		question_num=question_num,
-		node_colors=node_colors,
+		node_colors=ctx.node_colors,
 	)
 
 	for _, hl in connection_entries:
@@ -437,10 +321,7 @@ def handle_pair_question(
 	v_name = format_console_node_name(ctx.nodes.get(v, str(v)))
 
 	print(f"Question {question_num}: {u_name} [?] {v_name}", end=' ')
-
-	user_input = ask_input().strip()
-	if user_input == '0':
-		print("Stopping the game.")
+	if not ask_continue(ask_input):
 		return False
 
 	if prepared_data["is_family"]:

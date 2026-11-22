@@ -380,10 +380,10 @@ class TkCircularGraphCanvas(tk.Canvas):
 			for idx, cyc in normal_items:
 				mx, my = centers[idx]
 				_draw_cycle_icon(mx, my, cyc.polarity, False, cyc.is_secondary)
-				base_sz = icon_sz * (SIZE_MULTIPLIER_PRIMARY if cyc.is_secondary else SIZE_MULTIPLIER_PRIMARY)
+				base_sz = icon_sz * (SIZE_MULTIPLIER_SECONDARY if cyc.is_secondary else SIZE_MULTIPLIER_PRIMARY)
 				self._cycle_hits.append((mx, my, max(base_sz * 0.55, 14.0), cyc, diagram))
 			for idx, cyc in hl_items:
 				mx, my = centers[idx]
 				_draw_cycle_icon(mx, my, cyc.polarity, True, cyc.is_secondary)
-				base_sz = icon_sz * (SIZE_MULTIPLIER_PRIMARY if cyc.is_secondary else SIZE_MULTIPLIER_PRIMARY)
+				base_sz = icon_sz * (SIZE_MULTIPLIER_SECONDARY if cyc.is_secondary else SIZE_MULTIPLIER_PRIMARY)
 				self._cycle_hits.append((mx, my, max(base_sz * 0.55, 14.0), cyc, diagram))
