@@ -8,12 +8,17 @@ from tkinter import ttk, filedialog, messagebox
 
 from src.app_controller import AppController
 from src.config import Config, build_effective_config
-from src.graph_diagram import GraphDiagramData
-from src.progress_storage import get_show_progress, load_app_state, clear_recent_files, get_local_data_dir, \
-	set_show_progress
+from src.storage import (
+	clear_recent_files,
+	get_local_data_dir,
+	get_show_progress,
+	load_app_state,
+	set_show_progress,
+)
 from src.ui.desktop.config_dialog import ConfigDialog
 from src.ui.desktop.console_widget import InteractiveConsole
 from src.ui.desktop.graph_canvas import TkCircularGraphCanvas
+from src.ui.desktop.progress_panel import ProgressPanel
 
 
 class GraphMLExplorerApp(tk.Tk):
@@ -134,46 +139,9 @@ class GraphMLExplorerApp(tk.Tk):
 		left_pane = ttk.Frame(main_pane)
 		main_pane.add(left_pane, weight=3)
 
-		self.progress_frame = ttk.LabelFrame(left_pane, text="Category Progress", padding=8)
+		self.progress_panel = ProgressPanel(left_pane)
 		if self._progress_visible:
-			self.progress_frame.pack(fill=tk.X, pady=(0, 6))
-
-		tier_bar = ttk.Frame(self.progress_frame)
-		tier_bar.pack(fill=tk.X, pady=(0, 6))
-
-		self.lbl_current_tier = ttk.Label(tier_bar, text="Current tier: —", font=("Segoe UI", 9, "bold"))
-		self.lbl_current_tier.pack(side=tk.LEFT)
-
-		self.lbl_total_progress = ttk.Label(tier_bar, text="", foreground="#555555", font=("Segoe UI", 9))
-		self.lbl_total_progress.pack(side=tk.RIGHT)
-
-		table_frame = ttk.Frame(self.progress_frame)
-		table_frame.pack(fill=tk.X)
-
-		columns = ("category", "done", "total", "pct", "tier", "left")
-		self.progress_tree = ttk.Treeview(
-			table_frame,
-			columns=columns,
-			show="headings",
-			selectmode="none",
-			height=1,
-		)
-		self.progress_tree.heading("category", text="Category", anchor="w")
-		self.progress_tree.heading("done", text="Done", anchor="e")
-		self.progress_tree.heading("total", text="Total", anchor="e")
-		self.progress_tree.heading("pct", text="%", anchor="e")
-		self.progress_tree.heading("tier", text="Tier", anchor="e")
-		self.progress_tree.heading("left", text="Left", anchor="e")
-
-		self.progress_tree.column("category", anchor="w", width=115, minwidth=85, stretch=False)
-		self.progress_tree.column("done", anchor="e", width=70, minwidth=50, stretch=False)
-		self.progress_tree.column("total", anchor="e", width=70, minwidth=50, stretch=False)
-		self.progress_tree.column("pct", anchor="e", width=60, minwidth=45, stretch=False)
-		self.progress_tree.column("tier", anchor="e", width=60, minwidth=45, stretch=False)
-		self.progress_tree.column("left", anchor="e", width=70, minwidth=50, stretch=False)
-
-		self.progress_tree.pack(anchor="w")
-		self.progress_tree.tag_configure("complete", foreground="#1B7A34")
+			self.progress_panel.pack(fill=tk.X, pady=(0, 6))
 
 		self.console = InteractiveConsole(
 			left_pane,
@@ -424,7 +392,7 @@ class GraphMLExplorerApp(tk.Tk):
 					text=f"{os.path.basename(norm_path)}  |  Nodes: {len(ctx.nodes)}  |  Edges: {len(ctx.edges)}  |  Mode: {conn_mode}"
 				)
 				self.lbl_status.configure(text="Ready")
-				self._update_progress_table(stats)
+				self.progress_panel.update_stats(stats)
 				self.graph_canvas.set_diagram(None)
 				self.console.append_text("Press Enter, Space, or click 'Start Game' to begin.\n")
 				self._update_button_states()
@@ -435,7 +403,7 @@ class GraphMLExplorerApp(tk.Tk):
 				self._update_button_states()
 
 			elif kind == "load_error":
-				self._update_progress_table(None)
+				self.progress_panel.update_stats(None)
 				self.graph_canvas.set_diagram(None)
 				self.lbl_status.configure(text="Load Error")
 				self.console.append_text(f"\nERROR: {payload}\n")
@@ -462,7 +430,7 @@ class GraphMLExplorerApp(tk.Tk):
 				self._update_button_states()
 
 			elif kind == "stats":
-				self._update_progress_table(payload)
+				self.progress_panel.update_stats(payload)
 
 			elif kind == "graph":
 				self.graph_canvas.set_diagram(payload)
@@ -504,50 +472,6 @@ class GraphMLExplorerApp(tk.Tk):
 		self.controller.cleanup()
 		self.destroy()
 
-	def _update_progress_table(self, stats: dict):
-		if not stats or not stats.get("rows"):
-			for item_id in self.progress_tree.get_children():
-				self.progress_tree.delete(item_id)
-			self.progress_tree.configure(height=1)
-			self.lbl_current_tier.configure(text="Current tier: —")
-			self.lbl_total_progress.configure(text="")
-			return
-
-		rows = stats["rows"]
-		self.progress_tree.configure(height=max(1, len(rows)))
-
-		current_tier = stats.get("current_tier", 0)
-		total_answered = stats.get("total_answered", sum(r["answered"] for r in rows))
-		total_items = stats.get("total_items", sum(r["total"] for r in rows))
-		overall_pct = int(100 * total_answered / total_items) if total_items else 0
-
-		self.lbl_current_tier.configure(text=f"Current tier: {current_tier}")
-		self.lbl_total_progress.configure(text=f"{total_answered} / {total_items} ({overall_pct}%)")
-
-		existing_ids = self.progress_tree.get_children()
-		existing_cats = [self.progress_tree.item(iid, "values")[0] for iid in existing_ids]
-		new_cats = [r["category"] for r in rows]
-
-		if existing_cats == new_cats:
-			for iid, r in zip(existing_ids, rows):
-				tags = ("complete",) if r["left"] == 0 else ()
-				self.progress_tree.item(
-					iid,
-					values=(r["category"], r["answered"], r["total"], f"{r['pct']}%", r["tier"], r["left"]),
-					tags=tags,
-				)
-		else:
-			for iid in existing_ids:
-				self.progress_tree.delete(iid)
-			for r in rows:
-				tags = ("complete",) if r["left"] == 0 else ()
-				self.progress_tree.insert(
-					"",
-					tk.END,
-					values=(r["category"], r["answered"], r["total"], f"{r['pct']}%", r["tier"], r["left"]),
-					tags=tags,
-				)
-
 	def _on_key_enter_or_space(self, event=None):
 		if self.controller.active_session and self.controller.active_session.waiting_for_input:
 			self.send_reveal_next()
@@ -573,8 +497,8 @@ class GraphMLExplorerApp(tk.Tk):
 		self._progress_visible = not self._progress_visible
 		set_show_progress(self._progress_visible)
 		if self._progress_visible:
-			self.progress_frame.pack(fill=tk.X, pady=(0, 6), before=self.console)
+			self.progress_panel.pack(fill=tk.X, pady=(0, 6), before=self.console)
 			self.btn_toggle_progress.configure(text="Hide Progress")
 		else:
-			self.progress_frame.pack_forget()
+			self.progress_panel.pack_forget()
 			self.btn_toggle_progress.configure(text="Show Progress")

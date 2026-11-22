@@ -8,6 +8,7 @@ from tkinter import ttk, messagebox, filedialog
 from src.app_controller import parse_graph_settings_dict
 from src.config import Config, GRAPH_SETTING_KEYS
 from src.progress_storage import get_sync_folder, get_local_data_dir
+from src.ui.desktop.exclusion_dialog import ExclusionPickerDialog
 
 
 class ConfigDialog(tk.Toplevel):
