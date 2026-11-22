@@ -461,6 +461,8 @@ class GraphMLAndroidApp(App):
 		self.console.clear()
 
 	def _on_answer_selected(self, highlight: AnswerHighlight):
+		if highlight is not None and not self._graph_visible:
+			self._toggle_graph()
 		self.graph_widget.set_highlight(highlight)
 		d = highlight.diagram if (highlight and highlight.diagram) else self.graph_widget.diagram
 		self.lbl_graph_title.text = f'Graph: {d.title}' if d else 'Graph: —'
@@ -483,6 +485,7 @@ class GraphMLAndroidApp(App):
 			self.graph_widget.height = self._graph_expanded_height
 			self.graph_widget.opacity = 1
 			self.btn_toggle_graph.text = 'Hide Graph'
+			Clock.schedule_once(lambda _dt: self.graph_widget._redraw(), 0)
 		else:
 			self.graph_widget.height = 0
 			self.graph_widget.opacity = 0

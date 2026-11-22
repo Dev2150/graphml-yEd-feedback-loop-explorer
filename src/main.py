@@ -15,11 +15,11 @@ from src.config import (
 	read_config_file,
 )
 from src.games.relationship.runner import run_relationship_guessing_game
-from src.gui_app import run_gui
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import read_from_graph_xml
 from src.models import GraphContext
-from src.progress_storage import load_graph_config
+from src.storage import load_graph_config
+from src.ui.desktop.main_window import GraphMLExplorerApp
 
 DEBUGGING = True
 PREFIX = 'src//' if DEBUGGING else '_internal//src//'
@@ -96,7 +96,11 @@ def main():
 	if '--cli' in sys.argv:
 		run_cli()
 	else:
-		run_gui(INPUT_FILE, OUTPUT_FOLDER)
+		app = GraphMLExplorerApp(INPUT_FILE, OUTPUT_FOLDER)
+		try:
+			app.mainloop()
+		finally:
+			app.controller.restore_console_redirect()
 
 
 if __name__ == '__main__':

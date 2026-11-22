@@ -1,10 +1,9 @@
 import os
 import sys
 
-SRC_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(SRC_DIR)
-if ROOT_DIR not in sys.path:
-	sys.path.insert(0, ROOT_DIR)
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+if APP_DIR not in sys.path:
+	sys.path.insert(0, APP_DIR)
 
 
 def check_is_android() -> bool:
@@ -58,7 +57,7 @@ def _show_fatal_error_app(tb_text: str):
 def main():
 	if check_is_android():
 		try:
-			from src.android_app import run_android_app
+			from src.ui.android.app import run_android_app
 			run_android_app()
 		except Exception:
 			import traceback

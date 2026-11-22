@@ -1,7 +1,7 @@
 import random
 import networkx as nx
 
-from src.family_utils import analyze_family_pair
+from src.family import analyze_family_pair
 from src.formatters import (
 	format_console_node_name,
 	format_path_string,
@@ -9,7 +9,7 @@ from src.formatters import (
 	get_path_net_effect_arrow,
 )
 from src.games.relationship.progress import get_canonical_cycle_tuple
-from src.graph_diagram import (
+from src.diagram import (
 	AnswerHighlight,
 	build_family_pair_diagram,
 	build_pair_diagram,

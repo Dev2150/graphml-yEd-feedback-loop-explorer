@@ -3,6 +3,7 @@ from typing import Callable, Optional
 from kivy.clock import Clock
 from kivy.graphics import Color, Rectangle
 from kivy.metrics import dp
+from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
@@ -85,6 +86,11 @@ class AndroidConsole(ScrollView):
 		self._pending_line_buf: str = ''
 		self._selected_answer_lbl: Optional[ConsoleAnswerLabel] = None
 
+		self._content_anchor = AnchorLayout(
+			anchor_x='left',
+			anchor_y='top',
+			size_hint_y=None,
+		)
 		self.console_box = BoxLayout(
 			orientation='vertical',
 			size_hint_y=None,
@@ -92,7 +98,14 @@ class AndroidConsole(ScrollView):
 			padding=(dp(4), dp(4)),
 		)
 		self.console_box.bind(minimum_height=self.console_box.setter('height'))
-		self.add_widget(self.console_box)
+		self._content_anchor.add_widget(self.console_box)
+		self.add_widget(self._content_anchor)
+
+		self.bind(height=self._sync_anchor_height)
+		self.console_box.bind(height=self._sync_anchor_height)
+
+	def _sync_anchor_height(self, *_):
+		self._content_anchor.height = max(self.height, self.console_box.height)
 
 	def clear_selection(self):
 		if self._selected_answer_lbl is not None:

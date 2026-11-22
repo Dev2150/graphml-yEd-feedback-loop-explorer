@@ -18,11 +18,11 @@ from src.config import (
 )
 from src.games.relationship.runner import run_relationship_guessing_game, compute_relationship_stats, GameCancelledError
 from src.games.relationship.preparer import prepare_relationship_game_data
-from src.graph_diagram import AnswerHighlight, GraphDiagramData
+from src.diagram import AnswerHighlight, GraphDiagramData
 from src.html_exporter import generate_html_and_graphml
 from src.io_graphml import read_from_graph_xml
 from src.models import GraphContext
-from src.progress_storage import (
+from src.storage import (
 	load_app_state,
 	load_graph_config,
 	record_recent_file,

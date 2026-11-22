@@ -1,7 +1,7 @@
 import tkinter as tk
 from typing import Callable, Optional
 
-from src.graph_diagram import (
+from src.diagram import (
 	AnswerHighlight,
 	DiagramCycle,
 	GraphDiagramData,

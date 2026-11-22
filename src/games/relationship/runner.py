@@ -13,9 +13,9 @@ from src.games.relationship.progress import (
 	choose_next_item,
 	get_item_key,
 )
-from src.graph_diagram import AnswerHighlight
+from src.diagram import AnswerHighlight
 from src.models import GraphContext
-from src.progress_storage import get_save_file_path, load_progress, save_progress
+from src.storage import get_save_file_path, load_progress, save_progress
 
 
 class GameCancelledError(Exception):

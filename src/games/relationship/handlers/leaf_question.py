@@ -1,6 +1,6 @@
-from src.family_utils import detect_gender, get_child_term, get_parent_term
+from src.family import detect_gender, get_child_term, get_parent_term
 from src.formatters import format_console_node_name, format_path_string
-from src.graph_diagram import AnswerHighlight, build_leaf_diagram
+from src.diagram import AnswerHighlight, build_leaf_diagram
 from src.models import GraphContext
 
 

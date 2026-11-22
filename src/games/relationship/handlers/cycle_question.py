@@ -1,7 +1,7 @@
 import random
 
 from src.formatters import format_node_name, format_path_string, get_box_prefix, get_edge_arrow
-from src.graph_diagram import AnswerHighlight, build_cycle_diagram
+from src.diagram import AnswerHighlight, build_cycle_diagram
 from src.models import GraphContext
 
 

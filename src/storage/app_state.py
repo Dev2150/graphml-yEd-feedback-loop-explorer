@@ -4,11 +4,51 @@ import os
 MAX_RECENT_FILES = 50
 
 
+def _detect_local_data_dir() -> str:
+	override = os.environ.get('GRAPHML_EXPLORER_DATA_DIR')
+	if override:
+		return override
+
+	# On Android, '~' resolves to '/data' (read-only). Use Kivy's user_data_dir or ANDROID_PRIVATE.
+	if any(k in os.environ for k in ('ANDROID_ARGUMENT', 'ANDROID_PRIVATE', 'PYTHON_SERVICE_ARGUMENT', 'ANDROID_ENTRYPOINT')):
+		try:
+			from kivy.app import App
+			running = App.get_running_app()
+			if running is not None and running.user_data_dir:
+				return running.user_data_dir
+		except Exception:
+			pass
+		android_private = os.environ.get('ANDROID_PRIVATE')
+		if android_private:
+			return os.path.join(android_private, 'YAMLGuessingGame')
+
+	appdata = os.getenv('APPDATA')
+	if not appdata:
+		appdata = os.path.expanduser('~')
+
+	return os.path.join(appdata, 'YAMLGuessingGame')
+
+
 def get_local_data_dir() -> str:
 	override = os.environ.get('GRAPHML_EXPLORER_DATA_DIR')
 	if override:
 		os.makedirs(override, exist_ok=True)
 		return override
+
+	if 'ANDROID_ARGUMENT' in os.environ:
+		android_dir = None
+		try:
+			from kivy.app import App
+			running_app = App.get_running_app()
+			if running_app is not None:
+				android_dir = running_app.user_data_dir
+		except Exception:
+			pass
+		if not android_dir:
+			android_dir = os.environ.get('ANDROID_PRIVATE')
+		if android_dir:
+			os.makedirs(android_dir, exist_ok=True)
+			return android_dir
 
 	appdata = os.getenv('APPDATA')
 	if not appdata:

@@ -2,7 +2,7 @@ from collections import defaultdict
 
 import networkx as nx
 
-from src.family_utils import (
+from src.family import (
 	FAMILY_CONNECTION_TYPES,
 	analyze_family_pair,
 	build_family_structures,

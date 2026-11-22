@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional
 
-from src.graph_diagram import AnswerHighlight, GraphDiagramData
+from src.diagram import AnswerHighlight, GraphDiagramData
 
 
 class InteractiveConsole(ttk.Frame):
