@@ -493,13 +493,13 @@ class GraphMLAndroidApp(App):
 	def _toggle_graph(self):
 		self._graph_visible = not self._graph_visible
 		if self._graph_visible:
-			self.graph_widget.height = self._graph_expanded_height
 			self.graph_widget.opacity = 1
+			self.graph_widget.height = self._graph_expanded_height
 			self.btn_toggle_graph.text = 'Hide Graph'
 			Clock.schedule_once(lambda _dt: self.graph_widget._redraw(), 0)
 		else:
-			self.graph_widget.height = 0
 			self.graph_widget.opacity = 0
+			self.graph_widget.height = 0
 			self.btn_toggle_graph.text = 'Show Graph'
 			self.graph_widget._stop_ant_animation()
 

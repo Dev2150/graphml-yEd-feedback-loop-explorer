@@ -63,7 +63,7 @@ class CircularGraphWidget(Widget):
 		self._ant_event = None
 		self._ant_group = None
 		self._ant_edges_geom = []
-		self.bind(pos=self._redraw, size=self._redraw)
+		self.bind(pos=self._redraw, size=self._redraw, opacity=self._redraw)
 
 	def set_diagram(self, diagram: GraphDiagramData):
 		self.diagram = diagram
@@ -158,13 +158,15 @@ class CircularGraphWidget(Widget):
 		return lbl.texture
 
 	def _redraw(self, *_):
+		if self._ant_group is not None:
+			self._ant_group.clear()
 		self.canvas.clear()
 		self._ant_edges_geom = []
 		self._ant_group = None
 		self._node_hits = []
 		self._cycle_hits = []
 
-		if self.width < 20 or self.height < 20:
+		if self.width < 20 or self.height < 20 or self.opacity == 0:
 			self._stop_ant_animation()
 			return
 
@@ -180,6 +182,7 @@ class CircularGraphWidget(Widget):
 		)
 
 		ox, oy = self.x, self.y
+		ant_group = InstructionGroup()
 		with self.canvas:
 			StencilPush()
 			Rectangle(pos=self.pos, size=self.size)
@@ -292,7 +295,7 @@ class CircularGraphWidget(Widget):
 					for edge, x1, y1, x2, y2, ux, uy in highlighted_edges:
 						pol = pol_map.get((edge.source_id, edge.target_id))
 						self._ant_edges_geom.append((edge, ox + x1, oy + y1, ox + x2, oy + y2, ux, uy, pol))
-					self._ant_group = InstructionGroup()
+					self._ant_group = ant_group
 					self.canvas.add(self._ant_group)
 					self._update_ant_group()
 
@@ -542,18 +545,20 @@ class CircularGraphWidget(Widget):
 		):
 			self._stop_ant_animation()
 			return
-		self._ant_phase = (self._ant_phase + dp(22.0) * min(0.1, dt)) % dp(18.0)
+		self._ant_phase = (self._ant_phase + dp(10.0) * min(0.1, dt)) % dp(15.0)
 		self._update_ant_group()
+
 
 	def _update_ant_group(self):
 		if self._ant_group is None:
 			return
 		self._ant_group.clear()
 		if not self._ant_edges_geom:
+			self.canvas.ask_update()
 			return
-		dash_len = dp(9.0)
-		gap_len = dp(9.0)
-		trim = dp(10.0)
+		dash_len = dp(3.0)
+		gap_len = dp(12.0)
+		trim = dp(14.0)
 		for edge, sx1, sy1, sx2, sy2, ux, uy, pol in self._ant_edges_geom:
 			segs = compute_ant_trail_segments(
 				sx1, sy1, sx2, sy2, ux, uy,
@@ -572,6 +577,7 @@ class CircularGraphWidget(Widget):
 			ar, ag, ab, _ = _hex_to_rgba(ant_hex)
 			for ax1, ay1, ax2, ay2 in segs:
 				self._ant_group.add(Color(1, 1, 1, 0.92))
-				self._ant_group.add(Line(points=[ax1, ay1, ax2, ay2], width=dp(5.4), cap='round'))
+				self._ant_group.add(Line(points=[ax1, ay1, ax2, ay2], width=dp(3.1), cap='round'))
 				self._ant_group.add(Color(ar, ag, ab, 1.0))
-				self._ant_group.add(Line(points=[ax1, ay1, ax2, ay2], width=dp(3.6), cap='round'))
+				self._ant_group.add(Line(points=[ax1, ay1, ax2, ay2], width=dp(2.5), cap='round'))
+		self.canvas.ask_update()
