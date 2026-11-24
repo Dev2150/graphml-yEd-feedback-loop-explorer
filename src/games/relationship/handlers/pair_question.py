@@ -5,7 +5,7 @@ from src.diagram import (
 	AnswerHighlight,
 	build_family_pair_diagram,
 	build_pair_diagram,
-	compute_earliest_generation_nodes,
+	compute_earliest_generation_nodes, build_default_non_cycle_highlight,
 )
 from src.family import analyze_family_pair
 from src.formatters import (
@@ -320,6 +320,8 @@ def _handle_standard_pair(
 	for _, hl in connection_entries:
 		hl.diagram = diagram
 		diagram.highlights.append(hl)
+
+	diagram.default_highlight = build_default_non_cycle_highlight(diagram.highlights)
 
 	if not connection_entries:
 		print("IRRELEVANT")

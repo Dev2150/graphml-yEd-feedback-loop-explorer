@@ -635,3 +635,53 @@ def build_family_together_diagram(
 		bidirectional_edges=spouse_pairs,
 		node_colors=node_colors,
 	)
+
+def build_default_non_cycle_highlight(
+	highlights: List[AnswerHighlight],
+) -> Optional[AnswerHighlight]:
+	"""
+	Builds a combined default AnswerHighlight starting from the first non-cycle
+	highlight and adding subsequent non-cycle highlights as long as they do not
+	assign a conflicting polarity to any shared directed edge.
+	"""
+	non_cycle = [hl for hl in highlights if not hl.is_cycle and hl.edges]
+	if not non_cycle:
+		return None
+
+	merged_nodes: Set[str] = set()
+	merged_edges: Set[Tuple[str, str]] = set()
+	merged_polarities: Dict[Tuple[str, str], int] = {}
+	merged_first_nodes: Set[str] = set()
+	diagram = non_cycle[0].diagram
+
+	for hl in non_cycle:
+		fights = False
+		for edge in hl.edges:
+			if edge in merged_edges:
+				if merged_polarities.get(edge) != hl.edge_polarities.get(edge):
+					fights = True
+					break
+		if fights:
+			continue
+
+		merged_nodes.update(hl.node_ids)
+		merged_edges.update(hl.edges)
+		for edge in hl.edges:
+			if edge in hl.edge_polarities:
+				merged_polarities[edge] = hl.edge_polarities[edge]
+		if hl.first_node_ids:
+			merged_first_nodes.update(hl.first_node_ids)
+		if hl.first_node_id:
+			merged_first_nodes.add(hl.first_node_id)
+
+	if not merged_edges:
+		return None
+
+	return AnswerHighlight(
+		node_ids=merged_nodes,
+		edges=merged_edges,
+		is_cycle=False,
+		diagram=diagram,
+		first_node_ids=merged_first_nodes,
+		edge_polarities=merged_polarities,
+	)

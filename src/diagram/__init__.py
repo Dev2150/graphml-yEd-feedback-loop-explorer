@@ -1,5 +1,6 @@
 from src.diagram.builders import (
 	build_cycle_diagram,
+	build_default_non_cycle_highlight,
 	build_family_pair_diagram,
 	build_family_shared_children_diagram,
 	build_family_together_diagram,
@@ -71,4 +72,5 @@ __all__ = [
 	'find_cycle_icon_path',
 	'format_graph_node_label',
 	'compute_ant_trail_segments',
+	'build_default_non_cycle_highlight',
 ]

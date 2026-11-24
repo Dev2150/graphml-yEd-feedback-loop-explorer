@@ -1,4 +1,4 @@
-from src.diagram import AnswerHighlight, build_leaf_diagram
+from src.diagram import AnswerHighlight, build_leaf_diagram, build_default_non_cycle_highlight
 from src.family import detect_gender, get_child_term, get_parent_term
 from src.formatters import format_console_node_name, format_path_string
 from src.games.relationship.handlers.common import ask_continue
@@ -90,9 +90,9 @@ def _handle_leaf_question(
 			edge_polarities=edge_pols,
 		)
 		diagram.highlights.append(hl)
-		if is_single:
-			diagram.default_highlight = hl
 		emit_answer(ans_text, hl)
+
+	diagram.default_highlight = build_default_non_cycle_highlight(diagram.highlights)
 
 	print()
 	if on_graph_update is not None:
