@@ -297,7 +297,6 @@ class CircularGraphWidget(Widget):
 						self._ant_edges_geom.append((edge, ox + x1, oy + y1, ox + x2, oy + y2, ux, uy, pol))
 					self._ant_group = ant_group
 					self.canvas.add(self._ant_group)
-					self._update_ant_group()
 
 				# 2c. Highlighted arrowheads
 				for edge, x1, y1, x2, y2, ux, uy in highlighted_edges:
@@ -465,6 +464,9 @@ class CircularGraphWidget(Widget):
 				StencilUnUse()
 				Rectangle(pos=self.pos, size=self.size)
 				StencilPop()
+
+		if self._ant_group is not None:
+			self._update_ant_group()
 
 		if (
 			self._ant_edges_geom
