@@ -1,3 +1,4 @@
+import sys
 import time
 import tkinter as tk
 from typing import Callable, Optional
@@ -15,9 +16,9 @@ from src.diagram import (
 	compute_diagram_cycle_centers,
 	compute_edge_geometry,
 	find_cycle_icon_path,
-	format_graph_node_label, COLOR_BLUE,
+	format_graph_node_label,
 )
-from src.diagram.models import COLOR_TRAIL_OUTLINE
+from src.diagram.models import COLOR_TRAIL_OUTLINE, highlight_contains_node
 
 COLOR_GLOW_FIRST = "#888888"
 COLOR_OUTLINE_FIRST = "#555555"
@@ -34,8 +35,9 @@ TRAIL_SPEED = 10.0
 ANT_TRAIL_FRAME_RATE = 16
 CYCLE_WRAP = ANT_TRAIL_LENGTH_SEGMENT + ANT_TRAIL_LENGTH_GAP
 
+
 class TkCircularGraphCanvas(tk.Canvas):
-	"""Self-contained Tkinter circular graph renderer with cycle-icon hover detection."""
+	"""Self-contained Tkinter circular graph renderer with cycle-icon hover and node-click cycling."""
 
 	def __init__(
 		self,
@@ -43,6 +45,7 @@ class TkCircularGraphCanvas(tk.Canvas):
 		on_title_change: Optional[Callable[[str], None]] = None,
 		on_cycle_hover: Optional[Callable[[frozenset, GraphDiagramData], None]] = None,
 		on_cycle_hover_clear: Optional[Callable[[], None]] = None,
+		on_answer_select: Optional[Callable[[Optional[AnswerHighlight]], None]] = None,
 		**kwargs,
 	):
 		kwargs.setdefault("bg", "#FFFFFF")
@@ -53,11 +56,15 @@ class TkCircularGraphCanvas(tk.Canvas):
 		self._on_title_change = on_title_change
 		self._on_cycle_hover = on_cycle_hover
 		self._on_cycle_hover_clear = on_cycle_hover_clear
+		self._on_answer_select = on_answer_select
 
 		self.current_diagram: Optional[GraphDiagramData] = None
 		self.active_highlight: Optional[AnswerHighlight] = None
 		self._icon_photo_cache: dict = {}
 		self._cycle_hits: list = []
+		self._node_hits: list = []
+		self._selected_node_highlight: Optional[AnswerHighlight] = None
+		self._last_clicked_node_id: Optional[str] = None
 		self._hovered_icon_edges: Optional[frozenset] = None
 		self._hovered_icon_highlight: Optional[AnswerHighlight] = None
 		self._ant_phase: float = 0.0
@@ -68,11 +75,19 @@ class TkCircularGraphCanvas(tk.Canvas):
 		self.bind("<Configure>", lambda _e: self.redraw())
 		self.bind("<Motion>", self._on_motion)
 		self.bind("<Leave>", lambda _e: self.clear_hovered_cycle_icon())
+		self.bind("<Button-1>", lambda e: self._on_node_click(e, 1))
+		self.bind("<Button-3>", lambda e: self._on_node_click(e, -1))
+		if sys.platform == "darwin":
+			self.bind("<Button-2>", lambda e: self._on_node_click(e, -1))
 
 	def set_diagram(self, diagram: Optional[GraphDiagramData]):
 		self.current_diagram = diagram
+		self._selected_node_highlight = None
+		self._last_clicked_node_id = None
 		self.clear_hovered_cycle_icon(redraw=False)
 		self.active_highlight = None
+		if self._on_answer_select is not None:
+			self._on_answer_select(None)
 		self.redraw()
 
 	def set_highlight(self, highlight: Optional[AnswerHighlight]):
@@ -80,17 +95,29 @@ class TkCircularGraphCanvas(tk.Canvas):
 		self.redraw()
 
 	def clear_hovered_cycle_icon(self, redraw: bool = True):
-		if self._on_cycle_hover_clear is not None:
-			self._on_cycle_hover_clear()
-
 		changed = (self._hovered_icon_edges is not None) or (self._hovered_icon_highlight is not None)
 		self._hovered_icon_edges = None
 		self._hovered_icon_highlight = None
 		self.configure(cursor="")
-		if changed and redraw:
-			self.redraw()
+		if changed:
+			if self._on_cycle_hover_clear is not None:
+				self._on_cycle_hover_clear()
+			if self._selected_node_highlight is not None and self._on_answer_select is not None:
+				self._on_answer_select(self._selected_node_highlight)
+			if redraw:
+				self.redraw()
 
 	def _on_motion(self, event):
+		for x1, y1, x2, y2, node_id, diag in reversed(self._node_hits):
+			if x1 <= event.x <= x2 and y1 <= event.y <= y2:
+				has_paths = any(
+					highlight_contains_node(hl, node_id)
+					for hl in getattr(diag, "highlights", [])
+				)
+				self.clear_hovered_cycle_icon(redraw=True)
+				self.configure(cursor="hand2" if has_paths else "")
+				return
+
 		best = None
 		best_d2 = float("inf")
 		for mx, my, hit_r, cyc, diag in self._cycle_hits:
@@ -124,6 +151,37 @@ class TkCircularGraphCanvas(tk.Canvas):
 
 		self.configure(cursor="hand2")
 		self.redraw()
+
+	def _on_node_click(self, event, direction: int):
+		for x1, y1, x2, y2, node_id, diag in reversed(self._node_hits):
+			if x1 <= event.x <= x2 and y1 <= event.y <= y2:
+				matching = [
+					hl for hl in getattr(diag, "highlights", [])
+					if highlight_contains_node(hl, node_id)
+				]
+				if not matching:
+					return None
+
+				cur = self._selected_node_highlight
+				if self._last_clicked_node_id == node_id and cur in matching:
+					idx = (matching.index(cur) + direction) % len(matching)
+				else:
+					idx = 0 if direction > 0 else len(matching) - 1
+
+				self._last_clicked_node_id = node_id
+				self._selected_node_highlight = matching[idx]
+				if self._on_answer_select is not None:
+					self._on_answer_select(self._selected_node_highlight)
+				self.redraw()
+				return "break"
+
+		if direction > 0 and self._selected_node_highlight is not None:
+			self._selected_node_highlight = None
+			self._last_clicked_node_id = None
+			if self._on_answer_select is not None:
+				self._on_answer_select(None)
+			self.redraw()
+		return None
 
 	def _load_tk_cycle_icon(self, polarity: int, target_px: int):
 		icon_path = find_cycle_icon_path(polarity)
@@ -160,14 +218,18 @@ class TkCircularGraphCanvas(tk.Canvas):
 	def redraw(self):
 		self.delete("all")
 		self._cycle_hits = []
+		self._node_hits = []
 		self._ant_edges_geom = []
-
 
 		default_hl = self.current_diagram.default_highlight if self.current_diagram is not None else None
 		active_hl = (
 			self.active_highlight
 			if self.active_highlight is not None
-			else (self._hovered_icon_highlight if self._hovered_icon_highlight is not None else default_hl)
+			else (
+				self._hovered_icon_highlight
+				if self._hovered_icon_highlight is not None
+				else (self._selected_node_highlight if self._selected_node_highlight is not None else default_hl)
+			)
 		)
 		diagram = (
 			active_hl.diagram
@@ -305,11 +367,12 @@ class TkCircularGraphCanvas(tk.Canvas):
 				outline_col = COLOR_OUTLINE_FIRST if is_earliest_generation else node.outline_color
 				outline_w = 2.8 if is_earliest_generation else (2.2 if is_hl else 1.4)
 
+			x1, y1 = cx - nw / 2.0, cy - nh / 2.0
+			x2, y2 = cx + nw / 2.0, cy + nh / 2.0
+			self._node_hits.append((x1, y1, x2, y2, node.node_id, diagram))
+
 			self.create_rectangle(
-				cx - nw / 2.0,
-				cy - nh / 2.0,
-				cx + nw / 2.0,
-				cy + nh / 2.0,
+				x1, y1, x2, y2,
 				fill=node.fill_color,
 				outline=outline_col,
 				width=outline_w,
@@ -426,7 +489,10 @@ class TkCircularGraphCanvas(tk.Canvas):
 			self._draw_ant_trail()
 			self.tag_raise("node_layer")
 			self.tag_raise("cycle_layer")
-			self._start_ant_animation()
+			if any(not item[0].bidirectional for item in self._ant_edges_geom):
+				self._start_ant_animation()
+			else:
+				self._stop_ant_animation()
 		else:
 			self._stop_ant_animation()
 
@@ -446,7 +512,11 @@ class TkCircularGraphCanvas(tk.Canvas):
 
 	def _tick_ant_trail(self):
 		self._ant_after_id = None
-		if not self._ant_edges_geom or not self.winfo_exists():
+		if (
+			not self._ant_edges_geom
+			or not self.winfo_exists()
+			or not any(not item[0].bidirectional for item in self._ant_edges_geom)
+		):
 			self._ant_last_tick = None
 			return
 		now = time.monotonic()
@@ -465,7 +535,7 @@ class TkCircularGraphCanvas(tk.Canvas):
 		for edge, x1, y1, x2, y2, ux, uy, pol in self._ant_edges_geom:
 			segs = compute_ant_trail_segments(
 				x1, y1, x2, y2, ux, uy,
-				phase=self._ant_phase,
+				phase=0.0 if edge.bidirectional else self._ant_phase,
 				dash_len=ANT_TRAIL_LENGTH_SEGMENT,
 				gap_len=ANT_TRAIL_LENGTH_GAP,
 				start_trim=15.0 if edge.bidirectional else 0.0,

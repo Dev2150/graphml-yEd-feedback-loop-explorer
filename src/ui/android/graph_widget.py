@@ -30,6 +30,7 @@ from src.diagram import (
 	find_cycle_icon_path,
 	format_graph_node_label,
 )
+from src.diagram.models import highlight_contains_node
 from src.ui.desktop.graph_canvas import SIZE_MULTIPLIER_SECONDARY, SIZE_MULTIPLIER_PRIMARY
 
 
@@ -44,15 +45,18 @@ def _hex_to_rgba(hex_color: str):
 
 
 class CircularGraphWidget(Widget):
-	def __init__(self, font_name: str = 'Roboto', **kwargs):
+	def __init__(self, font_name: str = 'Roboto', on_node_highlight=None, **kwargs):
 		super().__init__(**kwargs)
 		self.font_name = font_name
 		self.diagram: GraphDiagramData = None
 		self.highlight: AnswerHighlight = None
 		self._icon_texture_cache = {}
 		self._cycle_hits = []
+		self._node_hits = []
+		self._last_clicked_node_id = None
 		self._on_cycle_hover = None
 		self._on_cycle_hover_clear = None
+		self._on_node_highlight = on_node_highlight
 		self._hovered_icon_edges = None
 		self._hovered_icon_highlight = None
 		self._ant_phase = 0.0
@@ -64,10 +68,12 @@ class CircularGraphWidget(Widget):
 	def set_diagram(self, diagram: GraphDiagramData):
 		self.diagram = diagram
 		self.highlight = None
+		self._last_clicked_node_id = None
 		self._redraw()
 
 	def set_highlight(self, highlight: AnswerHighlight):
 		self.highlight = highlight
+		self._last_clicked_node_id = None
 		self._redraw()
 
 	def clear_hovered_cycle_icon(self, redraw: bool = True):
@@ -155,12 +161,16 @@ class CircularGraphWidget(Widget):
 		self.canvas.clear()
 		self._ant_edges_geom = []
 		self._ant_group = None
+		self._node_hits = []
+		self._cycle_hits = []
 
 		if self.width < 20 or self.height < 20:
 			self._stop_ant_animation()
 			return
 
 		active_hl = self.highlight
+		if active_hl is None and self._hovered_icon_highlight is not None:
+			active_hl = self._hovered_icon_highlight
 		if active_hl is None and self.diagram is not None:
 			active_hl = self.diagram.default_highlight
 		active_diagram = (
@@ -345,6 +355,8 @@ class CircularGraphWidget(Widget):
 					is_hl = node.node_id in hl_nodes
 					is_earliest_generation = node.node_id in first_hl_nodes
 
+					self._node_hits.append((bx, by, bx + nw, by + nh, node.node_id, active_diagram))
+
 					Color(*_hex_to_rgba(node.fill_color))
 					Rectangle(pos=(bx, by), size=(nw, nh))
 
@@ -379,7 +391,6 @@ class CircularGraphWidget(Widget):
 							polarity=active_hl.cycle_polarity,
 						))
 
-				self._cycle_hits = []
 				if cycles_to_draw:
 					icon_sz = max(dp(30), min(dp(50), min(self.width, self.height) * 0.20))
 					centers = compute_diagram_cycle_centers(cycles_to_draw, rects, min_sep=icon_sz * 1.15)
@@ -452,28 +463,64 @@ class CircularGraphWidget(Widget):
 				Rectangle(pos=self.pos, size=self.size)
 				StencilPop()
 
-		if self._ant_edges_geom and self.opacity > 0:
+		if (
+			self._ant_edges_geom
+			and self.opacity > 0
+			and any(not item[0].bidirectional for item in self._ant_edges_geom)
+		):
 			self._start_ant_animation()
 		else:
 			self._stop_ant_animation()
 
 	def on_touch_down(self, touch):
-		if self.collide_point(*touch.pos) and getattr(touch, 'button', None) in (None, 'left'):
-			for mx, my, hit_r, cyc, diag in reversed(self._cycle_hits):
-				dx = touch.pos[0] - mx
-				dy = touch.pos[1] - my
-				if (dx * dx + dy * dy) <= hit_r * hit_r:
-					if self.highlight and self.highlight.is_cycle and self.highlight.edges == cyc.edges:
-						self.set_highlight(None)
-					else:
-						self.set_highlight(AnswerHighlight(
-							node_ids=set(cyc.node_ids),
-							edges=set(cyc.edges),
-							is_cycle=True,
-							cycle_polarity=cyc.polarity,
-							cycle_node_ids=list(cyc.node_ids),
-							diagram=diag,
-						))
+		btn = getattr(touch, 'button', None)
+		if self.collide_point(*touch.pos) and btn in (None, 'left', 'right'):
+			for bx, by, bx2, by2, node_id, diag in reversed(self._node_hits):
+				if bx <= touch.pos[0] <= bx2 and by <= touch.pos[1] <= by2:
+					matching = [
+						hl for hl in getattr(diag, 'highlights', [])
+						if highlight_contains_node(hl, node_id)
+					]
+					if matching:
+						direction = -1 if btn == 'right' else 1
+						cur = self.highlight
+						if self._last_clicked_node_id == node_id and cur in matching:
+							idx = (matching.index(cur) + direction) % len(matching)
+						else:
+							idx = 0 if direction > 0 else len(matching) - 1
+						self._last_clicked_node_id = node_id
+						chosen = matching[idx]
+						self.highlight = chosen
+						self._redraw()
+						if self._on_node_highlight is not None:
+							self._on_node_highlight(chosen)
+						return True
+
+			if btn in (None, 'left'):
+				for mx, my, hit_r, cyc, diag in reversed(self._cycle_hits):
+					dx = touch.pos[0] - mx
+					dy = touch.pos[1] - my
+					if (dx * dx + dy * dy) <= hit_r * hit_r:
+						if self.highlight and self.highlight.is_cycle and self.highlight.edges == cyc.edges:
+							chosen = None
+						else:
+							chosen = AnswerHighlight(
+								node_ids=set(cyc.node_ids),
+								edges=set(cyc.edges),
+								is_cycle=True,
+								cycle_polarity=cyc.polarity,
+								cycle_node_ids=list(cyc.node_ids),
+								diagram=diag,
+							)
+						self.set_highlight(chosen)
+						if self._on_node_highlight is not None:
+							self._on_node_highlight(chosen)
+						return True
+
+				if self.highlight is not None:
+					self.set_highlight(None)
+					if self._on_node_highlight is not None:
+						self._on_node_highlight(None)
 					return True
 		return super().on_touch_down(touch)
 
@@ -487,7 +534,12 @@ class CircularGraphWidget(Widget):
 			self._ant_event = Clock.schedule_interval(self._on_ant_tick, 1.0 / 28.0)
 
 	def _on_ant_tick(self, dt: float):
-		if not self._ant_edges_geom or self.height < 20 or self.opacity == 0:
+		if (
+			not self._ant_edges_geom
+			or self.height < 20
+			or self.opacity == 0
+			or not any(not item[0].bidirectional for item in self._ant_edges_geom)
+		):
 			self._stop_ant_animation()
 			return
 		self._ant_phase = (self._ant_phase + dp(22.0) * min(0.1, dt)) % dp(18.0)
@@ -505,7 +557,7 @@ class CircularGraphWidget(Widget):
 		for edge, sx1, sy1, sx2, sy2, ux, uy, pol in self._ant_edges_geom:
 			segs = compute_ant_trail_segments(
 				sx1, sy1, sx2, sy2, ux, uy,
-				phase=self._ant_phase,
+				phase=0.0 if edge.bidirectional else self._ant_phase,
 				dash_len=dash_len,
 				gap_len=gap_len,
 				start_trim=trim if edge.bidirectional else 0.0,

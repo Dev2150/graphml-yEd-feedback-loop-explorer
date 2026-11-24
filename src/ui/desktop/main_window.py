@@ -176,6 +176,7 @@ class GraphMLExplorerApp(tk.Tk):
 			on_title_change=lambda title: self.lbl_graph_title.configure(text=title),
 			on_cycle_hover=self.console.highlight_cycle_edges,
 			on_cycle_hover_clear=self.console.clear_cycle_highlights,
+			on_answer_select=self.console.highlight_answer
 		)
 		self.graph_canvas.pack(fill=tk.BOTH, expand=True)
 

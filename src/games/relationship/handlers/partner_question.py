@@ -82,6 +82,7 @@ def handle_shared_children_question(
 			diagram=diagram,
 			first_node_id=y,
 		)
+		diagram.highlights.append(hl)
 		if is_single:
 			diagram.default_highlight = hl
 		emit_answer(f"{prefix}{y_name} ({y_term}) ↔ {x_name} (shares: {children_str})", hl)

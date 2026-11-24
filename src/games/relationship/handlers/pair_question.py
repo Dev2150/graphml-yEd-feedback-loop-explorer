@@ -68,6 +68,7 @@ def _handle_family_pair(
 			first_node_ids=set(earliest_nodes),
 		)
 		diagram.default_highlight = fam_hl
+		diagram.highlights.append(fam_hl)
 		emit_answer(f"{fam_res.primary_title}", fam_hl)
 		for d in fam_res.details:
 			emit_answer(f"  • {d}", fam_hl)
@@ -318,6 +319,7 @@ def _handle_standard_pair(
 
 	for _, hl in connection_entries:
 		hl.diagram = diagram
+		diagram.highlights.append(hl)
 
 	if not connection_entries:
 		print("IRRELEVANT")

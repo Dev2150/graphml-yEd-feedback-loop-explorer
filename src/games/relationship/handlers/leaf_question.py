@@ -89,6 +89,7 @@ def _handle_leaf_question(
 			first_node_id=leaf if is_source_question else anchor_node,
 			edge_polarities=edge_pols,
 		)
+		diagram.highlights.append(hl)
 		if is_single:
 			diagram.default_highlight = hl
 		emit_answer(ans_text, hl)

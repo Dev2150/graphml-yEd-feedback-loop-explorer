@@ -86,6 +86,34 @@ class InteractiveConsole(ttk.Frame):
 		self.text.configure(state=tk.DISABLED)
 		self.text.see("end-1c")
 
+	def highlight_answer(self, target_hl: Optional[AnswerHighlight]):
+		self.clear_cycle_highlights()
+		if target_hl is None:
+			return
+		first_range = None
+		for tag_name, hl in self._answer_highlights.items():
+			matched = (hl is target_hl) or (
+				target_hl.is_cycle
+				and hl.is_cycle
+				and frozenset(hl.edges) == frozenset(target_hl.edges)
+				and (hl.diagram is None or hl.diagram is target_hl.diagram)
+			)
+			if matched:
+				try:
+					self.text.tag_configure(tag_name, background="#2B2E36")
+					self._synced_console_tags.append(tag_name)
+					if first_range is None:
+						ranges = self.text.tag_ranges(tag_name)
+						if ranges:
+							first_range = ranges[0]
+				except tk.TclError:
+					pass
+		if first_range is not None:
+			try:
+				self.text.see(first_range)
+			except tk.TclError:
+				pass
+
 	def highlight_cycle_edges(self, edge_key: frozenset, diagram: GraphDiagramData):
 		self.clear_cycle_highlights()
 		for tag_name, hl in self._answer_highlights.items():

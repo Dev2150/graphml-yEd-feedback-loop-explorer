@@ -53,6 +53,7 @@ class GraphDiagramData:
 	cycles: List[DiagramCycle] = field(default_factory=list)
 	default_highlight: Optional['AnswerHighlight'] = None
 	merged_nodes: Dict[str, List[str]] = field(default_factory=dict)
+	highlights: List['AnswerHighlight'] = field(default_factory=list)
 
 
 @dataclass
@@ -109,3 +110,10 @@ def find_cycle_icon_path(polarity: Optional[int]) -> Optional[str]:
 			if os.path.isfile(candidate):
 				return candidate
 	return None
+
+def highlight_contains_node(hl: Optional[AnswerHighlight], node_id: str) -> bool:
+	if hl is None or not node_id:
+		return False
+	if node_id in hl.node_ids:
+		return True
+	return any(u == node_id or v == node_id for u, v in hl.edges)

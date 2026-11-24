@@ -462,7 +462,8 @@ class GraphMLAndroidApp(App):
 	def clear_console(self):
 		self.console.clear()
 
-	def _on_answer_selected(self, highlight: AnswerHighlight):
+	def _on_graph_node_highlight(self, highlight: AnswerHighlight):
+		self.console.select_highlight(highlight)
 		if highlight is not None and not self._graph_visible:
 			self._toggle_graph()
 		self.graph_widget.set_highlight(highlight)

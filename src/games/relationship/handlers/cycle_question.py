@@ -103,6 +103,7 @@ def handle_cycle_question(
 			cycle_node_ids=list(dict.fromkeys(cand_p)),
 			diagram=diagram,
 		)
+		diagram.highlights.append(hl)
 		if is_single:
 			diagram.default_highlight = hl
 		emit_answer(ans_text, hl)
