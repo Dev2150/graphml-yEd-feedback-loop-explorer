@@ -20,6 +20,8 @@ from src.diagram import (
 	COLOR_ANT_NEG,
 	COLOR_ANT_NEUTRAL,
 	COLOR_ANT_POS,
+	SIZE_MULTIPLIER_PRIMARY,
+	SIZE_MULTIPLIER_SECONDARY,
 	AnswerHighlight,
 	DiagramCycle,
 	GraphDiagramData,
@@ -31,8 +33,6 @@ from src.diagram import (
 	format_graph_node_label,
 )
 from src.diagram.models import highlight_contains_node
-from src.ui.desktop.graph_canvas import SIZE_MULTIPLIER_SECONDARY, SIZE_MULTIPLIER_PRIMARY
-
 
 def _hex_to_rgba(hex_color: str):
 	h = (hex_color or '').lstrip('#')

@@ -1,4 +1,3 @@
-import _tkinter as tk
 from typing import Callable, Optional
 
 from kivy.clock import Clock
@@ -214,51 +213,3 @@ class AndroidConsole(ScrollView):
 		lbl.set_selected(True)
 		if self._on_answer_selected is not None:
 			self._on_answer_selected(lbl.highlight)
-
-	def highlight_answer(self, target_hl: Optional[AnswerHighlight]):
-		self.clear_cycle_highlights()
-		if target_hl is None:
-			return
-		first_range = None
-		for tag_name, hl in self._answer_highlights.items():
-			matched = (hl is target_hl) or (
-					target_hl.is_cycle
-					and hl.is_cycle
-					and frozenset(hl.edges) == frozenset(target_hl.edges)
-					and (hl.diagram is None or hl.diagram is target_hl.diagram)
-			)
-			if matched:
-				try:
-					self.text.tag_configure(tag_name, background="#2B2E36")
-					self._synced_console_tags.append(tag_name)
-					if first_range is None:
-						ranges = self.text.tag_ranges(tag_name)
-						if ranges:
-							first_range = ranges[0]
-				except tk.TclError:
-					pass
-		if first_range is not None:
-			try:
-				self.text.see(first_range)
-			except tk.TclError:
-				pass
-
-	def select_highlight(self, highlight: Optional[AnswerHighlight]):
-		if highlight is None:
-			self.clear_selection()
-			return
-		for child in self.console_box.children:
-			if isinstance(child, ConsoleAnswerLabel) and (
-					child.highlight is highlight
-					or (
-							highlight.is_cycle
-							and child.highlight.is_cycle
-							and frozenset(child.highlight.edges) == frozenset(highlight.edges)
-							and (child.highlight.diagram is None or child.highlight.diagram is highlight.diagram)
-					)
-			):
-				if self._selected_answer_lbl is not None and self._selected_answer_lbl is not child:
-					self._selected_answer_lbl.set_selected(False)
-				self._selected_answer_lbl = child
-				child.set_selected(True)
-				return
