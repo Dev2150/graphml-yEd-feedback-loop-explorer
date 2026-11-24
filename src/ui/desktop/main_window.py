@@ -58,6 +58,8 @@ class GraphMLExplorerApp(tk.Tk):
 		self.menubar.add_cascade(label="File", menu=file_menu)
 
 		tools_menu = tk.Menu(self.menubar, tearoff=0)
+		tools_menu.add_command(label="Open Current GraphML (yEd)", accelerator="Ctrl+G",
+							   command=self.open_current_graphml)
 		tools_menu.add_command(label="Open Generated HTML", accelerator="Ctrl+H", command=self.open_generated_html)
 		tools_menu.add_command(label="Open HTML Output Folder", accelerator="Ctrl+Shift+O", command=self.open_html_folder)
 		tools_menu.add_separator()
@@ -80,6 +82,15 @@ class GraphMLExplorerApp(tk.Tk):
 
 		self.btn_open = ttk.Button(toolbar, text="📂 Open File...", command=self.open_file_dialog, takefocus=0)
 		self.btn_open.pack(side=tk.LEFT, padx=(0, 6))
+
+		self.btn_open_graphml = ttk.Button(
+			toolbar,
+			text="📄 Open GraphML",
+			command=self.open_current_graphml,
+			state=tk.DISABLED,
+			takefocus=0,
+		)
+		self.btn_open_graphml.pack(side=tk.LEFT, padx=(0, 6))
 
 		self.btn_reload = ttk.Button(toolbar, text="🔄 Reload", command=self.reload_current_file, takefocus=0)
 		self.btn_reload.pack(side=tk.LEFT, padx=(0, 12))
@@ -174,6 +185,8 @@ class GraphMLExplorerApp(tk.Tk):
 		self.bind("<Control-O>", lambda e: self.open_file_dialog())
 		self.bind("<Control-h>", lambda e: self.open_generated_html())
 		self.bind("<Control-H>", lambda e: self.open_generated_html())
+		self.bind("<Control-g>", lambda e: self.open_current_graphml())
+		self.bind("<Control-G>", lambda e: self.open_current_graphml())
 		self.bind("<Control-Shift-O>", lambda e: self.open_html_folder())
 		self.bind("<Control-comma>", lambda e: self.open_config_dialog())
 		self.bind("<F5>", lambda e: self.reload_current_file())
@@ -447,10 +460,12 @@ class GraphMLExplorerApp(tk.Tk):
 		has_html = bool(c.last_html_path and os.path.isfile(c.last_html_path))
 		game_active = c.active_session is not None
 		waiting = bool(game_active and c.active_session.waiting_for_input)
+		has_graphml = bool(c.current_graph_path and os.path.isfile(c.current_graph_path))
 
 		self.btn_open.configure(state=tk.DISABLED if c.is_busy else tk.NORMAL)
-		self.btn_reload.configure(state=tk.NORMAL if (not c.is_busy and c.current_graph_path) else tk.DISABLED)
+		self.btn_open_graphml.configure(state=tk.NORMAL if has_graphml else tk.DISABLED)
 		self.btn_open_html.configure(state=tk.NORMAL if has_html else tk.DISABLED)
+		self.btn_reload.configure(state=tk.NORMAL if (not c.is_busy and c.current_graph_path) else tk.DISABLED)
 		self.btn_config.configure(state=tk.DISABLED if c.is_busy else tk.NORMAL)
 		self.btn_regen.configure(state=tk.NORMAL if (not c.is_busy and has_ctx) else tk.DISABLED)
 
@@ -502,3 +517,18 @@ class GraphMLExplorerApp(tk.Tk):
 		else:
 			self.progress_panel.pack_forget()
 			self.btn_toggle_progress.configure(text="Show Progress")
+
+	def open_current_graphml(self):
+		graph_path = self.controller.current_graph_path
+		if not graph_path or not os.path.isfile(graph_path):
+			messagebox.showinfo("No GraphML Loaded", "Please open a GraphML file first.", parent=self)
+			return
+		try:
+			if sys.platform.startswith("win"):
+				os.startfile(graph_path)
+			elif sys.platform == "darwin":
+				subprocess.Popen(["open", graph_path])
+			else:
+				subprocess.Popen(["xdg-open", graph_path])
+		except Exception as e:
+			messagebox.showerror("Open GraphML Error", f"Could not open GraphML file:\n{e}", parent=self)

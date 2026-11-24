@@ -112,11 +112,7 @@ def _prepare_family_categories(
 			together_items.append(('together', x))
 
 	partner_items = shared_children_items + together_items
-	cycle_items = [
-		('cycle', cyc[rot_idx:] + cyc[:rot_idx])
-		for cyc in valid_cycles
-		for rot_idx in range(len(cyc))
-	]
+	cycle_items = [('cycle', cyc) for cyc in valid_cycles]
 
 	category_config = [
 		('Cycle', cycle_items),
@@ -207,7 +203,17 @@ def prepare_relationship_game_data(ctx: GraphContext) -> dict:
 		g, nodes, config.block_starting_node, config.leaf_only,
 		root_nodes, terminal_nodes, parents_map, children_map,
 	)
-	valid_cycles = _find_valid_cycles(g, nodes, config.max_cycle_length_game, config.block_starting_node)
+
+	if is_family:
+		cycle_graph = nx.DiGraph()
+		cycle_graph.add_nodes_from(g.nodes())
+		for p, chs in children_map.items():
+			for c in chs:
+				cycle_graph.add_edge(p, c)
+		valid_cycles = _find_valid_cycles(cycle_graph, nodes, config.max_cycle_length_game, config.block_starting_node)
+	else:
+		valid_cycles = _find_valid_cycles(g, nodes, config.max_cycle_length_game, config.block_starting_node)
+
 	all_node_list = list(g.nodes())
 
 	if is_family:

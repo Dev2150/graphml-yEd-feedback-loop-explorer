@@ -1,8 +1,10 @@
+from kivy.clock import Clock
 from kivy.core.image import Image as CoreImage
 from kivy.core.text import Label as CoreLabel
 from kivy.graphics import (
 	Color,
 	Ellipse,
+	InstructionGroup,
 	Line,
 	Rectangle,
 	StencilPop,
@@ -15,9 +17,13 @@ from kivy.metrics import dp
 from kivy.uix.widget import Widget
 
 from src.diagram import (
+	COLOR_ANT_NEG,
+	COLOR_ANT_NEUTRAL,
+	COLOR_ANT_POS,
 	AnswerHighlight,
 	DiagramCycle,
 	GraphDiagramData,
+	compute_ant_trail_segments,
 	compute_circular_layout,
 	compute_diagram_cycle_centers,
 	compute_edge_geometry,
@@ -49,6 +55,10 @@ class CircularGraphWidget(Widget):
 		self._on_cycle_hover_clear = None
 		self._hovered_icon_edges = None
 		self._hovered_icon_highlight = None
+		self._ant_phase = 0.0
+		self._ant_event = None
+		self._ant_group = None
+		self._ant_edges_geom = []
 		self.bind(pos=self._redraw, size=self._redraw)
 
 	def set_diagram(self, diagram: GraphDiagramData):
@@ -143,7 +153,11 @@ class CircularGraphWidget(Widget):
 
 	def _redraw(self, *_):
 		self.canvas.clear()
+		self._ant_edges_geom = []
+		self._ant_group = None
+
 		if self.width < 20 or self.height < 20:
+			self._stop_ant_animation()
 			return
 
 		active_hl = self.highlight
@@ -165,6 +179,7 @@ class CircularGraphWidget(Widget):
 				Rectangle(pos=self.pos, size=self.size)
 
 				if active_diagram is None or not active_diagram.nodes:
+					self._stop_ant_animation()
 					lbl = CoreLabel(
 						text='Reveal an answer to view graph',
 						font_size=dp(12),
@@ -259,13 +274,32 @@ class CircularGraphWidget(Widget):
 						Line(points=[ox + start_x, oy + start_y, ox + base_x, oy + base_y], width=gw, cap='round')
 
 					Color(er, eg, eb, 1.0)
+					Line(points=[ox + start_x, oy + start_y, ox + base_x, oy + base_y], width=dp(2.0))
+
+				# 2b. Ant-trail animation layer on top of highlighted shafts (under arrowheads & nodes)
+				if active_hl is not None and not active_hl.is_cycle and highlighted_edges:
+					pol_map = getattr(active_hl, 'edge_polarities', None) or {}
+					for edge, x1, y1, x2, y2, ux, uy in highlighted_edges:
+						pol = pol_map.get((edge.source_id, edge.target_id))
+						self._ant_edges_geom.append((edge, ox + x1, oy + y1, ox + x2, oy + y2, ux, uy, pol))
+					self._ant_group = InstructionGroup()
+					self.canvas.add(self._ant_group)
+					self._update_ant_group()
+
+				# 2c. Highlighted arrowheads
+				for edge, x1, y1, x2, y2, ux, uy in highlighted_edges:
+					er, eg, eb, _ = _hex_to_rgba(edge.color)
+					Color(er, eg, eb, 1.0)
+					base_x = x2 - ux * hl_arrow_len
+					base_y = y2 - uy * hl_arrow_len
 					lx = base_x - uy * hl_arrow_hw
 					ly = base_y + ux * hl_arrow_hw
 					rx = base_x + uy * hl_arrow_hw
 					ry = base_y - ux * hl_arrow_hw
-					Line(points=[ox + start_x, oy + start_y, ox + base_x, oy + base_y], width=dp(2.0))
 					Triangle(points=[ox + x2, oy + y2, ox + lx, oy + ly, ox + rx, oy + ry])
 					if edge.bidirectional:
+						start_x = x1 + ux * hl_arrow_len
+						start_y = y1 + uy * hl_arrow_len
 						slx = start_x - uy * hl_arrow_hw
 						sly = start_y + ux * hl_arrow_hw
 						srx = start_x + uy * hl_arrow_hw
@@ -418,6 +452,11 @@ class CircularGraphWidget(Widget):
 				Rectangle(pos=self.pos, size=self.size)
 				StencilPop()
 
+		if self._ant_edges_geom and self.opacity > 0:
+			self._start_ant_animation()
+		else:
+			self._stop_ant_animation()
+
 	def on_touch_down(self, touch):
 		if self.collide_point(*touch.pos) and getattr(touch, 'button', None) in (None, 'left'):
 			for mx, my, hit_r, cyc, diag in reversed(self._cycle_hits):
@@ -437,3 +476,50 @@ class CircularGraphWidget(Widget):
 						))
 					return True
 		return super().on_touch_down(touch)
+
+	def _stop_ant_animation(self):
+		if self._ant_event is not None:
+			self._ant_event.cancel()
+			self._ant_event = None
+
+	def _start_ant_animation(self):
+		if self._ant_event is None and self._ant_edges_geom:
+			self._ant_event = Clock.schedule_interval(self._on_ant_tick, 1.0 / 28.0)
+
+	def _on_ant_tick(self, dt: float):
+		if not self._ant_edges_geom or self.height < 20 or self.opacity == 0:
+			self._stop_ant_animation()
+			return
+		self._ant_phase = (self._ant_phase + dp(22.0) * min(0.1, dt)) % dp(18.0)
+		self._update_ant_group()
+
+	def _update_ant_group(self):
+		if self._ant_group is None:
+			return
+		self._ant_group.clear()
+		if not self._ant_edges_geom:
+			return
+		dash_len = dp(9.0)
+		gap_len = dp(9.0)
+		trim = dp(10.0)
+		for edge, sx1, sy1, sx2, sy2, ux, uy, pol in self._ant_edges_geom:
+			segs = compute_ant_trail_segments(
+				sx1, sy1, sx2, sy2, ux, uy,
+				phase=self._ant_phase,
+				dash_len=dash_len,
+				gap_len=gap_len,
+				start_trim=trim if edge.bidirectional else 0.0,
+				end_trim=trim,
+			)
+			if not segs:
+				continue
+			ant_hex = (
+				COLOR_ANT_POS if (pol is not None and pol > 0)
+				else (COLOR_ANT_NEG if (pol is not None and pol < 0) else COLOR_ANT_NEUTRAL)
+			)
+			ar, ag, ab, _ = _hex_to_rgba(ant_hex)
+			for ax1, ay1, ax2, ay2 in segs:
+				self._ant_group.add(Color(1, 1, 1, 0.92))
+				self._ant_group.add(Line(points=[ax1, ay1, ax2, ay2], width=dp(5.4), cap='round'))
+				self._ant_group.add(Color(ar, ag, ab, 1.0))
+				self._ant_group.add(Line(points=[ax1, ay1, ax2, ay2], width=dp(3.6), cap='round'))

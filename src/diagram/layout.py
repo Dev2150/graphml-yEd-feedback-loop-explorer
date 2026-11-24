@@ -571,3 +571,53 @@ def compute_edge_geometry(
 		result.append((edge, x1, y1, x2, y2, ux, uy))
 
 	return result
+
+
+def compute_ant_trail_segments(
+	x1: float,
+	y1: float,
+	x2: float,
+	y2: float,
+	ux: float,
+	uy: float,
+	phase: float,
+	dash_len: float = 12.0,
+	gap_len: float = 12.0,
+	start_trim: float = 0.0,
+	end_trim: float = 14.0,
+) -> List[Tuple[float, float, float, float]]:
+	"""
+	Computes animated dash segments along an edge from (x1, y1) to (x2, y2),
+	advancing in the direction of (ux, uy) as `phase` increases.
+	"""
+	total_len = math.hypot(x2 - x1, y2 - y1)
+	t_start = max(0.0, start_trim)
+	t_end = total_len - max(0.0, end_trim)
+	if t_end - t_start <= 2.0:
+		return []
+
+	period = dash_len + gap_len
+	if period <= 1e-3:
+		return [(x1 + ux * t_start, y1 + uy * t_start, x1 + ux * t_end, y1 + uy * t_end)]
+
+	p = phase % period
+	k = math.floor((t_start - p - dash_len) / period)
+	segments: List[Tuple[float, float, float, float]] = []
+
+	while True:
+		seg_a = k * period + p
+		if seg_a >= t_end:
+			break
+		seg_b = seg_a + dash_len
+		a = max(t_start, seg_a)
+		b = min(t_end, seg_b)
+		if b - a >= 1.5:
+			segments.append((
+				x1 + ux * a,
+				y1 + uy * a,
+				x1 + ux * b,
+				y1 + uy * b,
+			))
+		k += 1
+
+	return segments

@@ -1,4 +1,4 @@
-from typing import Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple
 
 
 def ask_continue(ask_input) -> bool:
@@ -20,3 +20,15 @@ def compute_cycle_polarity(path: list, edge_values: dict, ignore_polarity: bool)
 	for k in range(len(path) - 1):
 		corr *= edge_values.get((path[k], path[k + 1]), 1)
 	return 1 if corr > 0 else -1
+
+
+def compute_path_edge_polarities(path: list, edge_values: dict, ignore_polarity: bool) -> Dict[Tuple, int]:
+	if ignore_polarity:
+		return {}
+	polarities: Dict[Tuple, int] = {}
+	cum = 1
+	for k in range(len(path) - 1):
+		edge = (path[k], path[k + 1])
+		cum *= edge_values.get(edge, 1)
+		polarities[edge] = 1 if cum > 0 else -1
+	return polarities

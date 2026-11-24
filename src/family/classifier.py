@@ -467,7 +467,26 @@ def _analyze_in_law_relationships(
 						'lineages': [f"{u_name} ← |{p_u_name} (Spouse) ↔ {p_v_name}| → {v_name}"],
 					})
 
-	return in_law_entries
+	dedup_map: Dict[Tuple[str, str, str], dict] = {}
+	dedup_entries: List[dict] = []
+	for entry in in_law_entries:
+		key = (entry['category'], entry['title'], entry['detail'])
+		if key not in dedup_map:
+			cloned = {
+				'category': entry['category'],
+				'title': entry['title'],
+				'detail': entry['detail'],
+				'lineages': list(entry['lineages']),
+			}
+			dedup_map[key] = cloned
+			dedup_entries.append(cloned)
+		else:
+			existing_lineages = dedup_map[key]['lineages']
+			for lin in entry['lineages']:
+				if lin not in existing_lineages:
+					existing_lineages.append(lin)
+
+	return dedup_entries
 
 
 def analyze_family_pair(
@@ -505,11 +524,15 @@ def analyze_family_pair(
 
 	primary = blood_entries[0] if blood_entries else in_law_entries[0]
 	details: List[str] = []
+	seen_details: Set[str] = set()
 	lineages: List[str] = []
 	seen_lineages: Set[str] = set()
 
 	for entry in all_entries:
-		details.append(entry['detail'])
+		detail = entry['detail']
+		if detail not in seen_details:
+			seen_details.add(detail)
+			details.append(detail)
 		for l in entry['lineages']:
 			if l not in seen_lineages:
 				seen_lineages.add(l)

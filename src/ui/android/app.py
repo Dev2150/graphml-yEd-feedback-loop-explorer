@@ -273,6 +273,8 @@ class GraphMLAndroidApp(App):
 		if getattr(self, '_poll_event', None) is not None:
 			self._poll_event.cancel()
 			self._poll_event = None
+		if getattr(self, 'graph_widget', None) is not None:
+			self.graph_widget._stop_ant_animation()
 		try:
 			Window.unbind(on_keyboard=self._handle_hardware_back)
 			if IS_DESKTOP:
@@ -490,6 +492,7 @@ class GraphMLAndroidApp(App):
 			self.graph_widget.height = 0
 			self.graph_widget.opacity = 0
 			self.btn_toggle_graph.text = 'Show Graph'
+			self.graph_widget._stop_ant_animation()
 
 	def _update_graph_panel(self, diagram_data: GraphDiagramData):
 		self.console.clear_selection()

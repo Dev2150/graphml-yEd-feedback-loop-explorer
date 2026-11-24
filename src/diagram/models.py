@@ -11,6 +11,10 @@ COLOR_BLUE = '#00CCFF'
 COLOR_RED = '#FF0000'
 COLOR_SPOUSE_GREEN = '#77DD77'
 COLOR_DARK_GREEN = '#006400'
+COLOR_ANT_POS = '#00c947'
+COLOR_ANT_NEG = '#c90000'
+COLOR_ANT_NEUTRAL = '#34eb49'
+COLOR_TRAIL_OUTLINE = "#ffffff"
 NODE_WRAP_CHAR_THRESHOLD = 18
 
 
@@ -61,6 +65,7 @@ class AnswerHighlight:
 	diagram: Optional[GraphDiagramData] = None
 	first_node_id: Optional[str] = None
 	first_node_ids: Set[str] = field(default_factory=set)
+	edge_polarities: Dict[Tuple[str, str], int] = field(default_factory=dict)
 
 
 def blend_hex_with_white(hex_color: str, alpha: float) -> str:

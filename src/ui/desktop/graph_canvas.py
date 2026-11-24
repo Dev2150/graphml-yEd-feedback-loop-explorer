@@ -1,17 +1,23 @@
+import time
 import tkinter as tk
 from typing import Callable, Optional
 
 from src.diagram import (
+	COLOR_ANT_NEG,
+	COLOR_ANT_NEUTRAL,
+	COLOR_ANT_POS,
 	AnswerHighlight,
 	DiagramCycle,
 	GraphDiagramData,
 	blend_hex_with_white,
+	compute_ant_trail_segments,
 	compute_circular_layout,
 	compute_diagram_cycle_centers,
 	compute_edge_geometry,
 	find_cycle_icon_path,
-	format_graph_node_label,
+	format_graph_node_label, COLOR_BLUE,
 )
+from src.diagram.models import COLOR_TRAIL_OUTLINE
 
 COLOR_GLOW_FIRST = "#888888"
 COLOR_OUTLINE_FIRST = "#555555"
@@ -20,6 +26,13 @@ GLOW_STEP_NOT_FIRST = ((16.0, 0.28), (10.0, 0.50), (5.0, 0.78))
 
 SIZE_MULTIPLIER_PRIMARY = 1.0
 SIZE_MULTIPLIER_SECONDARY = 0.65
+
+ANT_TRAIL_LENGTH_SEGMENT = 3
+ANT_TRAIL_LENGTH_GAP = 12
+ANT_TRAIL_WIDTH = 1
+TRAIL_SPEED = 10.0
+ANT_TRAIL_FRAME_RATE = 16
+CYCLE_WRAP = ANT_TRAIL_LENGTH_SEGMENT + ANT_TRAIL_LENGTH_GAP
 
 class TkCircularGraphCanvas(tk.Canvas):
 	"""Self-contained Tkinter circular graph renderer with cycle-icon hover detection."""
@@ -47,6 +60,10 @@ class TkCircularGraphCanvas(tk.Canvas):
 		self._cycle_hits: list = []
 		self._hovered_icon_edges: Optional[frozenset] = None
 		self._hovered_icon_highlight: Optional[AnswerHighlight] = None
+		self._ant_phase: float = 0.0
+		self._ant_after_id = None
+		self._ant_last_tick: Optional[float] = None
+		self._ant_edges_geom: list = []
 
 		self.bind("<Configure>", lambda _e: self.redraw())
 		self.bind("<Motion>", self._on_motion)
@@ -143,6 +160,8 @@ class TkCircularGraphCanvas(tk.Canvas):
 	def redraw(self):
 		self.delete("all")
 		self._cycle_hits = []
+		self._ant_edges_geom = []
+
 
 		default_hl = self.current_diagram.default_highlight if self.current_diagram is not None else None
 		active_hl = (
@@ -162,9 +181,11 @@ class TkCircularGraphCanvas(tk.Canvas):
 		w = self.winfo_width()
 		h = self.winfo_height()
 		if w < 40 or h < 40:
+			self._stop_ant_animation()
 			return
 
 		if diagram is None or not diagram.nodes:
+			self._stop_ant_animation()
 			self.create_text(
 				w / 2.0,
 				h / 2.0,
@@ -266,6 +287,7 @@ class TkCircularGraphCanvas(tk.Canvas):
 					cy + (nh + pad) / 2.0,
 					fill=blend_hex_with_white(glow_base, alpha),
 					outline="",
+					tags=("node_layer",),
 				)
 
 		# 4. Node boxes & labels
@@ -291,6 +313,7 @@ class TkCircularGraphCanvas(tk.Canvas):
 				fill=node.fill_color,
 				outline=outline_col,
 				width=outline_w,
+				tags=("node_layer",),
 			)
 			self.create_text(
 				cx,
@@ -299,6 +322,7 @@ class TkCircularGraphCanvas(tk.Canvas):
 				fill=node.text_color,
 				font=node_fonts[node.node_id],
 				justify=tk.CENTER,
+				tags=("node_layer",),
 			)
 
 		# 5. Feedback loop icons
@@ -329,10 +353,11 @@ class TkCircularGraphCanvas(tk.Canvas):
 							mid_y + r_glow + pad / 2.0,
 							fill=blend_hex_with_white(badge_col, alpha),
 							outline="",
+							tags=("cycle_layer",),
 						)
 				photo = self._load_tk_cycle_icon(polarity, draw_sz)
 				if photo is not None:
-					self.create_image(mid_x, mid_y, image=photo)
+					self.create_image(mid_x, mid_y, image=photo, tags=("cycle_layer",))
 					if is_hl_cyc:
 						r_ring = draw_sz * 0.50
 						self.create_oval(
@@ -340,6 +365,7 @@ class TkCircularGraphCanvas(tk.Canvas):
 							mid_x + r_ring, mid_y + r_ring,
 							outline=badge_col,
 							width=3.0,
+							tags=("cycle_layer",),
 						)
 				else:
 					r_bg = draw_sz * 0.44
@@ -349,17 +375,20 @@ class TkCircularGraphCanvas(tk.Canvas):
 						fill="#FFFFFF",
 						outline=badge_col,
 						width=4.0 if is_hl_cyc else 2.6,
+						tags=("cycle_layer",),
 					)
 					arm = r_bg * 0.56
 					thick = max(3.5, r_bg * (0.28 if is_hl_cyc else 0.22))
 					self.create_line(
 						mid_x - arm, mid_y, mid_x + arm, mid_y,
 						fill=badge_col, width=thick, capstyle=tk.ROUND,
+						tags=("cycle_layer",),
 					)
 					if polarity > 0:
 						self.create_line(
 							mid_x, mid_y - arm, mid_x, mid_y + arm,
 							fill=badge_col, width=thick, capstyle=tk.ROUND,
+							tags=("cycle_layer",),
 						)
 
 			normal_items = []
@@ -387,3 +416,79 @@ class TkCircularGraphCanvas(tk.Canvas):
 				_draw_cycle_icon(mx, my, cyc.polarity, True, cyc.is_secondary)
 				base_sz = icon_sz * (SIZE_MULTIPLIER_SECONDARY if cyc.is_secondary else SIZE_MULTIPLIER_PRIMARY)
 				self._cycle_hits.append((mx, my, max(base_sz * 0.55, 14.0), cyc, diagram))
+
+		# 6. Ant-trail animation for non-cycle highlights
+		if active_hl is not None and not active_hl.is_cycle and highlighted_edges:
+			pol_map = getattr(active_hl, "edge_polarities", None) or {}
+			for edge, x1, y1, x2, y2, ux, uy in highlighted_edges:
+				pol = pol_map.get((edge.source_id, edge.target_id))
+				self._ant_edges_geom.append((edge, x1, y1, x2, y2, ux, uy, pol))
+			self._draw_ant_trail()
+			self.tag_raise("node_layer")
+			self.tag_raise("cycle_layer")
+			self._start_ant_animation()
+		else:
+			self._stop_ant_animation()
+
+	def _stop_ant_animation(self):
+		if self._ant_after_id is not None:
+			try:
+				self.after_cancel(self._ant_after_id)
+			except Exception:
+				pass
+			self._ant_after_id = None
+		self._ant_last_tick = None
+
+	def _start_ant_animation(self):
+		if self._ant_after_id is None and self._ant_edges_geom:
+			self._ant_last_tick = time.monotonic()
+			self._ant_after_id = self.after(35, self._tick_ant_trail)
+
+	def _tick_ant_trail(self):
+		self._ant_after_id = None
+		if not self._ant_edges_geom or not self.winfo_exists():
+			self._ant_last_tick = None
+			return
+		now = time.monotonic()
+		dt = min(0.1, max(0.0, now - self._ant_last_tick)) if self._ant_last_tick is not None else 0.035
+		self._ant_last_tick = now
+		self._ant_phase = (self._ant_phase + TRAIL_SPEED * dt) % CYCLE_WRAP
+		self._draw_ant_trail()
+		self.tag_raise("node_layer")
+		self.tag_raise("cycle_layer")
+		self._ant_after_id = self.after(ANT_TRAIL_FRAME_RATE, self._tick_ant_trail)
+
+	def _draw_ant_trail(self):
+		self.delete("ant_trail")
+		if not self._ant_edges_geom:
+			return
+		for edge, x1, y1, x2, y2, ux, uy, pol in self._ant_edges_geom:
+			segs = compute_ant_trail_segments(
+				x1, y1, x2, y2, ux, uy,
+				phase=self._ant_phase,
+				dash_len=ANT_TRAIL_LENGTH_SEGMENT,
+				gap_len=ANT_TRAIL_LENGTH_GAP,
+				start_trim=15.0 if edge.bidirectional else 0.0,
+				end_trim=15.0,
+			)
+			if not segs:
+				continue
+			ant_col = (
+				COLOR_ANT_POS if (pol is not None and pol > 0)
+				else (COLOR_ANT_NEG if (pol is not None and pol < 0) else COLOR_ANT_NEUTRAL)
+			)
+			for ax1, ay1, ax2, ay2 in segs:
+				self.create_line(
+					ax1, ay1, ax2, ay2,
+					fill=COLOR_TRAIL_OUTLINE,
+					width=ANT_TRAIL_WIDTH,
+					capstyle=tk.ROUND,
+					tags=("ant_trail",),
+				)
+				self.create_line(
+					ax1, ay1, ax2, ay2,
+					fill=ant_col,
+					width=5.2,
+					capstyle=tk.ROUND,
+					tags=("ant_trail",),
+				)

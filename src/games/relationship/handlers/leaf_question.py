@@ -79,11 +79,15 @@ def _handle_leaf_question(
 			)
 			ans_text = f"{prefix}{formatted}"
 
+		edge_pols = {} if (is_counter or ignore_edge_colors or is_family) \
+			else { edge: 1 if edge_values.get(edge, 1) > 0 else -1, }
+
 		hl = AnswerHighlight(
 			node_ids={anchor_node, leaf},
 			edges={edge},
 			diagram=diagram,
 			first_node_id=leaf if is_source_question else anchor_node,
+			edge_polarities=edge_pols,
 		)
 		if is_single:
 			diagram.default_highlight = hl

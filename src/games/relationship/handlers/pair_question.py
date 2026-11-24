@@ -14,7 +14,8 @@ from src.formatters import (
 	get_edge_arrow,
 	get_path_net_effect_arrow,
 )
-from src.games.relationship.handlers.common import ask_continue, compute_cycle_polarity, path_edges
+from src.games.relationship.handlers.common import ask_continue, compute_cycle_polarity, path_edges, \
+	compute_path_edge_polarities
 from src.games.relationship.progress import get_canonical_cycle_tuple
 from src.graph_utils import find_bounded_cycles
 from src.models import GraphContext
@@ -132,9 +133,10 @@ def _handle_standard_pair(
 				ignore_edge_colors=ignore_edge_colors, is_counter=is_counter,
 			)
 			suffix = "" if (is_counter or ignore_edge_colors) else f" ({get_path_net_effect_arrow(p, edge_values)})"
+			edge_pols = compute_path_edge_polarities(p, edge_values, is_counter or ignore_edge_colors)
 			connection_entries.append((
 				f"{label_prefix} ({len(p) - 2}): {formatted_p}{suffix}",
-				AnswerHighlight(node_ids=set(p), edges=path_edges(p), first_node_id=p[0]),
+				AnswerHighlight(node_ids=set(p), edges=path_edges(p), first_node_id=p[0], edge_polarities=edge_pols),
 			))
 
 	def _append_cycle_entries(cycles: list, label_prefix: str):
@@ -174,7 +176,14 @@ def _handle_standard_pair(
 				if arr_u == arr_v
 				else f"{text_shared_source}: {s_name} {arr_u} {u_name} + {arr_v} {v_name}"
 			)
-		connection_entries.append((line, AnswerHighlight(node_ids={s, u, v}, edges={(s, u), (s, v)}, first_node_id=s)))
+		edge_pols = {} if (is_counter or ignore_edge_colors) else {
+			(s, u): 1 if edge_values.get((s, u), 1) > 0 else -1,
+			(s, v): 1 if edge_values.get((s, v), 1) > 0 else -1,
+		}
+		connection_entries.append((
+			line,
+			AnswerHighlight(node_ids={s, u, v}, edges={(s, u), (s, v)}, first_node_id=s, edge_polarities=edge_pols),
+		))
 
 	for d in shared_dsts:
 		d_name = format_console_node_name(nodes.get(d, d))
@@ -188,7 +197,14 @@ def _handle_standard_pair(
 				if arr_u == arr_v
 				else f"{text_shared_dest}: {u_name} ({arr_u}) + {v_name} ({arr_v}) → {d_name}"
 			)
-		connection_entries.append((line, AnswerHighlight(node_ids={u, v, d}, edges={(u, d), (v, d)}, first_node_id=u)))
+		edge_pols = {} if (is_counter or ignore_edge_colors) else {
+			(u, d): 1 if edge_values.get((u, d), 1) > 0 else -1,
+			(v, d): 1 if edge_values.get((v, d), 1) > 0 else -1,
+		}
+		connection_entries.append((
+			line,
+			AnswerHighlight(node_ids={u, v, d}, edges={(u, d), (v, d)}, first_node_id=u, edge_polarities=edge_pols),
+		))
 
 	# 2. Direct & indirect paths
 	if direct_u_v and direct_v_u:
@@ -201,20 +217,32 @@ def _handle_standard_pair(
 			if edge_labels.get((v, u)):
 				lbl_lines.append(f"      ({v_name} → {u_name}: {edge_labels[(v, u)]})")
 		lbl_suffix = ("\n" + "\n".join(lbl_lines)) if lbl_lines else ""
+		edge_pols = {} if (is_counter or ignore_edge_colors) else {
+			(u, v): 1 if edge_values.get((u, v), 1) > 0 else -1,
+			(v, u): 1 if edge_values.get((v, u), 1) > 0 else -1,
+		}
 		connection_entries.append((
 			f"Direct (⟳): {p1_str} ↔ {p2_str}{lbl_suffix}",
-			AnswerHighlight(node_ids={u, v}, edges={(u, v), (v, u)}, first_node_id=u),
+			AnswerHighlight(node_ids={u, v}, edges={(u, v), (v, u)}, first_node_id=u, edge_polarities=edge_pols),
 		))
 		_append_path_entries(indirect_u_v, "Indirect")
 		_append_path_entries(indirect_v_u, "Indirect ↩")
 	elif direct_u_v:
 		p_str = format_path_string([u, v], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-		connection_entries.append((f"Direct: {p_str}", AnswerHighlight(node_ids={u, v}, edges={(u, v)}, first_node_id=u)))
+		edge_pols = compute_path_edge_polarities([u, v], edge_values, is_counter or ignore_edge_colors)
+		connection_entries.append((
+			f"Direct: {p_str}",
+			AnswerHighlight(node_ids={u, v}, edges={(u, v)}, first_node_id=u, edge_polarities=edge_pols),
+		))
 		_append_path_entries(indirect_u_v, "Indirect")
 		_append_path_entries(indirect_v_u, "Indirect ↩")
 	elif direct_v_u:
 		p_str = format_path_string([v, u], nodes, edge_values, edge_labels, ignore_edge_colors=ignore_edge_colors, is_counter=is_counter)
-		connection_entries.append((f"Direct: {p_str}", AnswerHighlight(node_ids={v, u}, edges={(v, u)}, first_node_id=v)))
+		edge_pols = compute_path_edge_polarities([v, u], edge_values, is_counter or ignore_edge_colors)
+		connection_entries.append((
+			f"Direct: {p_str}",
+			AnswerHighlight(node_ids={v, u}, edges={(v, u)}, first_node_id=v, edge_polarities=edge_pols),
+		))
 		_append_path_entries(indirect_v_u, "Indirect")
 		_append_path_entries(indirect_u_v, "Indirect ↩")
 	else:

@@ -8,12 +8,16 @@ from src.diagram.builders import (
 	compute_earliest_generation_nodes,
 )
 from src.diagram.layout import (
+	compute_ant_trail_segments,
 	compute_circular_layout,
 	compute_diagram_cycle_centers,
 	compute_edge_geometry,
 	format_graph_node_label,
 )
 from src.diagram.models import (
+	COLOR_ANT_NEG,
+	COLOR_ANT_NEUTRAL,
+	COLOR_ANT_POS,
 	COLOR_BLACK,
 	COLOR_BLUE,
 	COLOR_DARK_GREEN,
@@ -43,6 +47,10 @@ __all__ = [
 	'COLOR_RED',
 	'COLOR_SPOUSE_GREEN',
 	'COLOR_WHITE',
+	'COLOR_ANT_NEG',
+	'COLOR_ANT_NEUTRAL',
+	'COLOR_ANT_POS',
+	'COLOR_WHITE',
 	'DiagramCycle',
 	'DiagramEdge',
 	'DiagramNode',
@@ -62,4 +70,5 @@ __all__ = [
 	'compute_edge_geometry',
 	'find_cycle_icon_path',
 	'format_graph_node_label',
+	'compute_ant_trail_segments',
 ]
