@@ -179,6 +179,7 @@ class GraphMLAndroidApp(App):
 
 		self.graph_widget = CircularGraphWidget(
 			font_name=self.console_font,
+			on_node_highlight=self._on_graph_node_highlight,
 			size_hint_y=None,
 			height=self._graph_expanded_height,
 		)
@@ -464,6 +465,13 @@ class GraphMLAndroidApp(App):
 
 	def _on_graph_node_highlight(self, highlight: AnswerHighlight):
 		self.console.select_highlight(highlight)
+		if highlight is not None and not self._graph_visible:
+			self._toggle_graph()
+		self.graph_widget.set_highlight(highlight)
+		d = highlight.diagram if (highlight and highlight.diagram) else self.graph_widget.diagram
+		self.lbl_graph_title.text = f'Graph: {d.title}' if d else 'Graph: —'
+
+	def _on_answer_selected(self, highlight: AnswerHighlight):
 		if highlight is not None and not self._graph_visible:
 			self._toggle_graph()
 		self.graph_widget.set_highlight(highlight)
