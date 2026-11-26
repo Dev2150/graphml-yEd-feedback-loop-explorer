@@ -39,6 +39,7 @@ class GraphMLExplorerApp(tk.Tk):
 		self._display_to_node_id: dict = {}
 		self._node_id_to_display: dict = {}
 		self._updating_explorer_ui: bool = False
+		self._last_explored_state = None
 
 		self.controller.install_console_redirect()
 
@@ -232,10 +233,7 @@ class GraphMLExplorerApp(tk.Tk):
 			width=6,
 		)
 		self.cmb_explorer_depth.pack(side=tk.LEFT, padx=(0, 8))
-		self.cmb_explorer_depth.bind("<<ComboboxSelected>>", lambda _e: self._run_explorer())
-
-		self.btn_explore_run = ttk.Button(row_cases, text="Explore", command=self._run_explorer, takefocus=0)
-		self.btn_explore_run.pack(side=tk.LEFT)
+		self.cmb_explorer_depth.bind("<<ComboboxSelected>>", lambda _e: self._run_explorer(force=True))
 
 		self.lbl_explorer_hint = ttk.Label(
 			row_cases,
@@ -303,6 +301,16 @@ class GraphMLExplorerApp(tk.Tk):
 	# ------------------------------------------------------------------
 	# Explorer Mode Controls & Node Selection
 	# ------------------------------------------------------------------
+	def _resolve_node_text(self, txt: str):
+		clean = txt.strip()
+		if not clean:
+			return None
+		nid = self._display_to_node_id.get(clean)
+		if nid is None:
+			low = clean.lower()
+			nid = next((node_id for node_id, disp in self._explorer_nodes if disp.lower() == low), None)
+		return nid
+
 	def _bind_explorer_combobox(self, combo: ttk.Combobox, var: tk.StringVar, slot: str):
 		def _restore_all(_event=None):
 			all_vals = [disp for _, disp in self._explorer_nodes]
@@ -317,9 +325,17 @@ class GraphMLExplorerApp(tk.Tk):
 			combo["values"] = [d for d in all_vals if q in d.lower()] if q else all_vals
 
 		def _on_select(_event=None):
-			if self._updating_explorer_ui:
+			if self._updating_explorer_ui or not self._explorer_mode:
 				return
 			self._on_explorer_node_changed(slot)
+
+		def _on_var_write(*_args):
+			if self._updating_explorer_ui or not self._explorer_mode:
+				return
+			txt = var.get().strip()
+			# Auto-trigger when cleared or when text matches a valid node (ignore partial typing)
+			if txt == "" or self._resolve_node_text(txt) is not None:
+				self._on_explorer_node_changed(slot)
 
 		combo.bind("<FocusIn>", _restore_all)
 		combo.bind("<Button-1>", _restore_all)
@@ -327,10 +343,11 @@ class GraphMLExplorerApp(tk.Tk):
 		combo.bind("<<ComboboxSelected>>", _on_select)
 		combo.bind("<Return>", _on_select)
 		combo.bind("<KP_Enter>", _on_select)
+		var.trace_add("write", _on_var_write)
 
 	def _refresh_explorer_node_choices(self):
-		prev_a = self._display_to_node_id.get(self.var_explorer_a.get().strip())
-		prev_b = self._display_to_node_id.get(self.var_explorer_b.get().strip())
+		prev_a = self._resolve_node_text(self.var_explorer_a.get())
+		prev_b = self._resolve_node_text(self.var_explorer_b.get())
 
 		self._explorer_nodes = []
 		self._display_to_node_id = {}
@@ -365,17 +382,10 @@ class GraphMLExplorerApp(tk.Tk):
 			self._updating_explorer_ui = False
 
 	def _get_selected_explorer_ids(self):
-		a_txt = self.var_explorer_a.get().strip()
-		b_txt = self.var_explorer_b.get().strip()
-		nid_a = self._display_to_node_id.get(a_txt)
-		nid_b = self._display_to_node_id.get(b_txt)
-		if nid_a is None and a_txt:
-			low = a_txt.lower()
-			nid_a = next((nid for nid, disp in self._explorer_nodes if disp.lower() == low), None)
-		if nid_b is None and b_txt:
-			low = b_txt.lower()
-			nid_b = next((nid for nid, disp in self._explorer_nodes if disp.lower() == low), None)
-		return nid_a, nid_b
+		return (
+			self._resolve_node_text(self.var_explorer_a.get()),
+			self._resolve_node_text(self.var_explorer_b.get()),
+		)
 
 	def _parse_explorer_depth(self):
 		raw = self.var_explorer_depth.get().strip()
@@ -395,6 +405,7 @@ class GraphMLExplorerApp(tk.Tk):
 		if self._explorer_mode == enabled:
 			return
 		self._explorer_mode = enabled
+		self._last_explored_state = None
 
 		if enabled:
 			self.controller.cancel_active_game()
@@ -409,7 +420,7 @@ class GraphMLExplorerApp(tk.Tk):
 
 			nid_a, nid_b = self._get_selected_explorer_ids()
 			if nid_a or nid_b:
-				self._run_explorer()
+				self._run_explorer(force=True)
 			else:
 				self.console.append_text(
 					"Explorer Mode:\n"
@@ -453,6 +464,7 @@ class GraphMLExplorerApp(tk.Tk):
 		if nid_a or nid_b:
 			self._run_explorer()
 		else:
+			self._last_explored_state = None
 			self.console.clear()
 			self.graph_canvas.set_diagram(None)
 
@@ -471,12 +483,13 @@ class GraphMLExplorerApp(tk.Tk):
 		self._sync_explorer_right_click()
 		nid_a, nid_b = self._get_selected_explorer_ids()
 		if chosen == "dual" and not (nid_a and nid_b):
+			self._last_explored_state = None
 			self.console.clear()
 			self.console.append_text("Select both Node A and Node B for Dual exploration.\n")
 			self.graph_canvas.set_diagram(None)
 			return
 		if nid_a or nid_b:
-			self._run_explorer()
+			self._run_explorer(force=True)
 
 	def _clear_explorer_slot(self, slot: str):
 		self._updating_explorer_ui = True
@@ -500,7 +513,7 @@ class GraphMLExplorerApp(tk.Tk):
 			self._updating_explorer_ui = False
 		nid_a, nid_b = self._get_selected_explorer_ids()
 		if nid_a or nid_b:
-			self._run_explorer()
+			self._run_explorer(force=True)
 
 	def _on_explorer_node_right_click(self, node_id: str, diagram):
 		if not self._explorer_mode or self._explorer_case not in SINGLE_NODE_MODES:
@@ -516,9 +529,9 @@ class GraphMLExplorerApp(tk.Tk):
 			self.var_explorer_b.set("")
 		finally:
 			self._updating_explorer_ui = False
-		self._run_explorer()
+		self._run_explorer(force=True)
 
-	def _run_explorer(self):
+	def _run_explorer(self, force: bool = False):
 		if not self._explorer_mode or not self.controller.ctx:
 			return
 		nid_a, nid_b = self._get_selected_explorer_ids()
@@ -530,14 +543,20 @@ class GraphMLExplorerApp(tk.Tk):
 			self.var_explorer_case.set(self._explorer_case)
 		self._sync_explorer_right_click()
 
+		depth_val = self._parse_explorer_depth()
+		state_key = (self._explorer_case, nid_a, nid_b, depth_val if self._explorer_case in ("descendants", "ascendants") else None)
+		if not force and state_key == self._last_explored_state:
+			return
+		self._last_explored_state = state_key
+
 		try:
 			res = self.controller.explore(
 				mode=self._explorer_case,
 				node_a_id=nid_a,
 				node_b_id=nid_b,
-				max_depth=self._parse_explorer_depth(),
+				max_depth=depth_val,
 			)
-		except ValueError as exc:
+		except Exception as exc:
 			self.console.clear()
 			self.console.append_text(f"{exc}\n")
 			self.graph_canvas.set_diagram(None)
@@ -767,8 +786,9 @@ class GraphMLExplorerApp(tk.Tk):
 					self._sync_explorer_right_click()
 					nid_a, nid_b = self._get_selected_explorer_ids()
 					if nid_a or nid_b:
-						self._run_explorer()
+						self._run_explorer(force=True)
 					else:
+						self._last_explored_state = None
 						self.console.clear()
 						self.graph_canvas.set_diagram(None)
 						self.lbl_status.configure(text="Explorer Ready")

@@ -255,7 +255,7 @@ def _explore_directional(
 			p,
 			nodes,
 			edge_values,
-			edge_labels=edge_labels if len(p) == 2 else None,
+			edge_labels_dict=edge_labels if len(p) == 2 else None,
 			ignore_edge_colors=ignore_edge_colors,
 			is_counter=is_counter,
 		)

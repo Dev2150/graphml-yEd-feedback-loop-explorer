@@ -126,13 +126,16 @@ class GraphMLAndroidApp(App):
 		info_bar.add_widget(self.lbl_status)
 		root.add_widget(info_bar)
 
-		# --- Collapsible Explorer Controls ---
+		# --- Dynamic Slot: either Explorer Controls OR Progress Panel ---
+		self.top_mode_slot = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(4))
+		self.top_mode_slot.bind(minimum_height=self.top_mode_slot.setter('height'))
+		root.add_widget(self.top_mode_slot)
+
+		# Explorer Controls (only attached while in Explorer Mode)
 		self.explorer_bar = BoxLayout(
 			orientation='vertical',
 			size_hint_y=None,
-			height=0,
-			opacity=0,
-			disabled=True,
+			height=dp(76),
 			spacing=dp(4),
 		)
 		exp_row1 = BoxLayout(size_hint_y=None, height=dp(38), spacing=dp(4))
@@ -204,7 +207,6 @@ class GraphMLAndroidApp(App):
 
 		self.explorer_bar.add_widget(exp_row1)
 		self.explorer_bar.add_widget(exp_row2)
-		root.add_widget(self.explorer_bar)
 
 		# --- Category Progress Header + Collapsible Table ---
 		self.tier_bar = BoxLayout(size_hint_y=None, height=dp(32), spacing=dp(6))
@@ -237,17 +239,16 @@ class GraphMLAndroidApp(App):
 		self.tier_bar.add_widget(self.lbl_current_tier)
 		self.tier_bar.add_widget(self.lbl_total_progress)
 		self.tier_bar.add_widget(self.btn_toggle_progress)
-		root.add_widget(self.tier_bar)
 
 		self.progress_scroll = ScrollView(
 			size_hint_y=None,
 			height=0,
-			opacity=1 if self._progress_visible else 0,
 		)
 		self.progress_grid = GridLayout(cols=5, size_hint_y=None, spacing=dp(2), padding=(dp(2), dp(2)))
 		self.progress_grid.bind(minimum_height=self.progress_grid.setter('height'))
 		self.progress_scroll.add_widget(self.progress_grid)
-		root.add_widget(self.progress_scroll)
+
+		self._rebuild_top_mode_slot()
 
 		# --- Collapsible Circular Graph Panel ---
 		graph_bar = BoxLayout(size_hint_y=None, height=dp(28), spacing=dp(6))
@@ -288,7 +289,11 @@ class GraphMLAndroidApp(App):
 		)
 		root.add_widget(self.console)
 
-		# --- Bottom Game Controls ---
+		# --- Bottom Game Controls Slot ---
+		self.bottom_slot = BoxLayout(orientation='vertical', size_hint_y=None)
+		self.bottom_slot.bind(minimum_height=self.bottom_slot.setter('height'))
+		root.add_widget(self.bottom_slot)
+
 		self.bottom_bar = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
 		self.btn_start_game = Button(
 			text='Start Game',
@@ -303,7 +308,7 @@ class GraphMLAndroidApp(App):
 		)
 
 		self.bottom_bar.add_widget(self.btn_start_game)
-		root.add_widget(self.bottom_bar)
+		self.bottom_slot.add_widget(self.bottom_bar)
 
 		self.controller.install_console_redirect()
 
@@ -336,6 +341,16 @@ class GraphMLAndroidApp(App):
 			return sim_wrapper
 
 		return root
+
+	def _rebuild_top_mode_slot(self):
+		self.top_mode_slot.clear_widgets()
+		if self._explorer_mode:
+			self.top_mode_slot.add_widget(self.explorer_bar)
+		else:
+			self.top_mode_slot.add_widget(self.tier_bar)
+			if self._progress_visible and self._progress_expanded_height > 0:
+				self.progress_scroll.height = self._progress_expanded_height
+				self.top_mode_slot.add_widget(self.progress_scroll)
 
 	# ------------------------------------------------------------------
 	# Android Lifecycle & Hardware Back Button
@@ -437,20 +452,8 @@ class GraphMLAndroidApp(App):
 		if enabled:
 			self.controller.cancel_active_game()
 			self.btn_mode_switch.text = 'Game'
-			self.explorer_bar.height = dp(76)
-			self.explorer_bar.opacity = 1
-			self.explorer_bar.disabled = False
-
-			self.tier_bar.height = 0
-			self.tier_bar.opacity = 0
-			self.tier_bar.disabled = True
-			self.progress_scroll.height = 0
-			self.progress_scroll.opacity = 0
-
-			self.bottom_bar.height = 0
-			self.bottom_bar.opacity = 0
-			self.bottom_bar.disabled = True
-
+			self.bottom_slot.clear_widgets()
+			self._rebuild_top_mode_slot()
 			self._sync_explorer_controls()
 			self.console.clear()
 			self._update_graph_panel(None)
@@ -467,21 +470,9 @@ class GraphMLAndroidApp(App):
 				)
 		else:
 			self.btn_mode_switch.text = 'Explore'
-			self.explorer_bar.height = 0
-			self.explorer_bar.opacity = 0
-			self.explorer_bar.disabled = True
-
-			self.tier_bar.height = dp(32)
-			self.tier_bar.opacity = 1
-			self.tier_bar.disabled = False
-			if self._progress_visible:
-				self.progress_scroll.height = self._progress_expanded_height
-				self.progress_scroll.opacity = 1
-
-			self.bottom_bar.height = dp(48)
-			self.bottom_bar.opacity = 1
-			self.bottom_bar.disabled = False
-
+			self._rebuild_top_mode_slot()
+			self.bottom_slot.clear_widgets()
+			self.bottom_slot.add_widget(self.bottom_bar)
 			self.graph_widget.set_on_node_jump(None)
 			self.console.clear()
 			self._update_graph_panel(None)
@@ -638,7 +629,7 @@ class GraphMLAndroidApp(App):
 				node_b_id=self._explorer_node_b or None,
 				max_depth=max_depth,
 			)
-		except ValueError as exc:
+		except Exception as exc:
 			self.console.clear()
 			self.console.append_text(f'{exc}\n')
 			self._update_graph_panel(None)
@@ -811,14 +802,8 @@ class GraphMLAndroidApp(App):
 			return
 		self._progress_visible = not self._progress_visible
 		set_show_progress(self._progress_visible)
-		if self._progress_visible:
-			self.progress_scroll.height = self._progress_expanded_height
-			self.progress_scroll.opacity = 1
-			self.btn_toggle_progress.text = 'Hide Stats'
-		else:
-			self.progress_scroll.height = 0
-			self.progress_scroll.opacity = 0
-			self.btn_toggle_progress.text = 'Show Stats'
+		self.btn_toggle_progress.text = 'Hide Stats' if self._progress_visible else 'Show Stats'
+		self._rebuild_top_mode_slot()
 
 	def _toggle_graph(self):
 		self._graph_visible = not self._graph_visible
@@ -847,8 +832,7 @@ class GraphMLAndroidApp(App):
 			self.lbl_current_tier.text = 'Current tier: —'
 			self.lbl_total_progress.text = ''
 			self._progress_expanded_height = 0
-			if self._progress_visible and not self._explorer_mode:
-				self.progress_scroll.height = 0
+			self._rebuild_top_mode_slot()
 			return
 
 		rows = stats['rows']
@@ -894,8 +878,7 @@ class GraphMLAndroidApp(App):
 
 		needed_height = dp(22 + 4 + len(rows) * 22 + 4)
 		self._progress_expanded_height = min(needed_height, dp(168))
-		if self._progress_visible and not self._explorer_mode:
-			self.progress_scroll.height = self._progress_expanded_height
+		self._rebuild_top_mode_slot()
 
 	def _poll_output_queue(self, dt):
 		for kind, payload in self.controller.poll_events():
