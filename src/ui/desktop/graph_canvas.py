@@ -46,6 +46,7 @@ class TkCircularGraphCanvas(tk.Canvas):
 		on_cycle_hover: Optional[Callable[[frozenset, GraphDiagramData], None]] = None,
 		on_cycle_hover_clear: Optional[Callable[[], None]] = None,
 		on_answer_select: Optional[Callable[[Optional[AnswerHighlight]], None]] = None,
+		on_node_right_click: Optional[Callable[[str, GraphDiagramData], None]] = None,
 		**kwargs,
 	):
 		kwargs.setdefault("bg", "#FFFFFF")
@@ -71,6 +72,7 @@ class TkCircularGraphCanvas(tk.Canvas):
 		self._ant_after_id = None
 		self._ant_last_tick: Optional[float] = None
 		self._ant_edges_geom: list = []
+		self._on_node_right_click = on_node_right_click
 
 		self.bind("<Configure>", lambda _e: self.redraw())
 		self.bind("<Motion>", self._on_motion)
@@ -110,7 +112,7 @@ class TkCircularGraphCanvas(tk.Canvas):
 	def _on_motion(self, event):
 		for x1, y1, x2, y2, node_id, diag in reversed(self._node_hits):
 			if x1 <= event.x <= x2 and y1 <= event.y <= y2:
-				has_paths = any(
+				has_paths = (self._on_node_right_click is not None) or any(
 					highlight_contains_node(hl, node_id)
 					for hl in getattr(diag, "highlights", [])
 				)
@@ -155,6 +157,9 @@ class TkCircularGraphCanvas(tk.Canvas):
 	def _on_node_click(self, event, direction: int):
 		for x1, y1, x2, y2, node_id, diag in reversed(self._node_hits):
 			if x1 <= event.x <= x2 and y1 <= event.y <= y2:
+				if direction < 0 and self._on_node_right_click is not None:
+					self._on_node_right_click(node_id, diag)
+					return "break"
 				matching = [
 					hl for hl in getattr(diag, "highlights", [])
 					if highlight_contains_node(hl, node_id)
@@ -562,3 +567,6 @@ class TkCircularGraphCanvas(tk.Canvas):
 					capstyle=tk.ROUND,
 					tags=("ant_trail",),
 				)
+
+	def set_on_node_right_click(self, callback: Optional[Callable[[str, GraphDiagramData], None]]):
+		self._on_node_right_click = callback

@@ -1,6 +1,8 @@
 from src.diagram.builders import (
 	build_cycle_diagram,
 	build_default_non_cycle_highlight,
+	build_diagram_cycle,
+	build_explorer_subgraph_diagram,
 	build_family_pair_diagram,
 	build_family_shared_children_diagram,
 	build_family_together_diagram,
@@ -77,4 +79,6 @@ __all__ = [
 	'format_graph_node_label',
 	'compute_ant_trail_segments',
 	'build_default_non_cycle_highlight',
+	'build_diagram_cycle',
+	'build_explorer_subgraph_diagram',
 ]

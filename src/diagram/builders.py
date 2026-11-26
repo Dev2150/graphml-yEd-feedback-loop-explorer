@@ -19,7 +19,6 @@ from src.diagram.models import (
 )
 from src.io_graphml import detect_gender
 
-
 def _normalize_hex_color(color: Optional[str], fallback: str = COLOR_WHITE) -> str:
 	if not color:
 		return fallback
@@ -684,4 +683,33 @@ def build_default_non_cycle_highlight(
 		diagram=diagram,
 		first_node_ids=merged_first_nodes,
 		edge_polarities=merged_polarities,
+	)
+
+build_diagram_cycle = _build_diagram_cycle
+
+def build_explorer_subgraph_diagram(
+	title: str,
+	anchor_id: str,
+	node_ids: Iterable[str],
+	edge_pairs: List[Tuple[str, str]],
+	nodes_dict: Dict[str, str],
+	edge_values: Dict[Tuple[str, str], int],
+	ignore_edge_colors: bool = False,
+	cycles: Optional[List[DiagramCycle]] = None,
+	bidirectional_edges: Optional[Set[Tuple[str, str]]] = None,
+	node_colors: Optional[Dict[str, str]] = None,
+) -> GraphDiagramData:
+	return _assemble_diagram(
+		title=title,
+		node_ids=node_ids,
+		edge_pairs=edge_pairs,
+		target_ids={anchor_id},
+		common_source_ids=set(),
+		common_effect_ids=set(),
+		nodes_dict=nodes_dict,
+		edge_values=edge_values,
+		ignore_edge_colors=ignore_edge_colors,
+		cycles=cycles,
+		bidirectional_edges=bidirectional_edges,
+		node_colors=node_colors,
 	)

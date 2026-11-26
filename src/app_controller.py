@@ -17,6 +17,7 @@ from src.config import (
 	read_config_file,
 	save_config_file,
 )
+from src.explorer import ExplorerResult, build_explorer_result
 from src.games.relationship.runner import run_relationship_guessing_game, compute_relationship_stats, GameCancelledError
 from src.games.relationship.preparer import prepare_relationship_game_data
 from src.diagram import AnswerHighlight, GraphDiagramData
@@ -468,3 +469,23 @@ class AppController:
 		if join_timeout > 0 and session is not None and session.thread is not None and session.thread.is_alive():
 			session.thread.join(timeout=join_timeout)
 		self.restore_console_redirect()
+
+	def explore(
+			self,
+			mode: str,
+			node_a_id: Optional[str],
+			node_b_id: Optional[str],
+			max_depth: Optional[int] = None,
+	) -> ExplorerResult:
+		if not self.ctx:
+			raise ValueError("No graph loaded.")
+		if self.prepared_game_data is None:
+			self.prepared_game_data = prepare_relationship_game_data(self.ctx)
+		return build_explorer_result(
+			self.ctx,
+			self.prepared_game_data,
+			mode=mode,
+			node_a_id=node_a_id,
+			node_b_id=node_b_id,
+			max_depth=max_depth,
+		)

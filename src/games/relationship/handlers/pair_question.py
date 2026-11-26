@@ -1,11 +1,14 @@
 import random
+from typing import List, Optional, Tuple
 import networkx as nx
 
 from src.diagram import (
 	AnswerHighlight,
+	GraphDiagramData,
+	build_default_non_cycle_highlight,
 	build_family_pair_diagram,
 	build_pair_diagram,
-	compute_earliest_generation_nodes, build_default_non_cycle_highlight,
+	compute_earliest_generation_nodes,
 )
 from src.family import analyze_family_pair
 from src.formatters import (
@@ -14,22 +17,24 @@ from src.formatters import (
 	get_edge_arrow,
 	get_path_net_effect_arrow,
 )
-from src.games.relationship.handlers.common import ask_continue, compute_cycle_polarity, path_edges, \
-	compute_path_edge_polarities
+from src.games.relationship.handlers.common import (
+	ask_continue,
+	compute_cycle_polarity,
+	compute_path_edge_polarities,
+	path_edges,
+)
 from src.games.relationship.progress import get_canonical_cycle_tuple
 from src.graph_utils import find_bounded_cycles
 from src.models import GraphContext
 
 
-def _handle_family_pair(
-	question_num: int,
+def build_family_pair_exploration(
 	u,
 	v,
 	ctx: GraphContext,
 	prepared_data: dict,
-	emit_answer,
-	on_graph_update=None,
-):
+	question_num: int = 0,
+) -> Tuple[GraphDiagramData, List[Tuple[str, str, Optional[AnswerHighlight]]], bool]:
 	nodes = ctx.nodes
 	node_colors = ctx.node_colors
 	parents_map = prepared_data["parents_map"]
@@ -51,52 +56,50 @@ def _handle_family_pair(
 		node_colors=node_colors,
 	)
 
+	entries: List[Tuple[str, str, Optional[AnswerHighlight]]] = []
 	if not fam_res.is_relevant:
 		diagram.default_highlight = None
-		print("IRRELEVANT (No blood or marriage relationship found)")
-	else:
-		earliest_nodes = compute_earliest_generation_nodes(
-			[n.node_id for n in diagram.nodes],
-			parents_map,
-			spouses_map,
-			merged_nodes=diagram.merged_nodes,
-		)
-		fam_hl = AnswerHighlight(
-			node_ids=set(earliest_nodes),
-			edges={(e.source_id, e.target_id) for e in diagram.edges},
-			diagram=diagram,
-			first_node_ids=set(earliest_nodes),
-		)
-		diagram.default_highlight = fam_hl
-		diagram.highlights.append(fam_hl)
-		emit_answer(f"{fam_res.primary_title}", fam_hl)
-		for d in fam_res.details:
-			emit_answer(f"  • {d}", fam_hl)
-		if fam_res.lineages:
-			print("  Lineage:", end='')
-			for lineage in fam_res.lineages:
-				emit_answer(f"    {lineage}", fam_hl)
+		return diagram, entries, False
 
-	if on_graph_update is not None:
-		on_graph_update(diagram)
+	earliest_nodes = compute_earliest_generation_nodes(
+		[n.node_id for n in diagram.nodes],
+		parents_map,
+		spouses_map,
+		merged_nodes=diagram.merged_nodes,
+	)
+	fam_hl = AnswerHighlight(
+		node_ids=set(earliest_nodes),
+		edges={(e.source_id, e.target_id) for e in diagram.edges},
+		diagram=diagram,
+		first_node_ids=set(earliest_nodes),
+	)
+	diagram.default_highlight = fam_hl
+	diagram.highlights.append(fam_hl)
+
+	entries.append(("title", f"{fam_res.primary_title}", fam_hl))
+	for d in fam_res.details:
+		entries.append(("detail", f"  • {d}", fam_hl))
+	for lineage in fam_res.lineages:
+		entries.append(("lineage", f"    {lineage}", fam_hl))
+
+	return diagram, entries, True
 
 
-def _handle_standard_pair(
-	question_num: int,
+def build_standard_pair_exploration(
 	u,
 	v,
-	u_name: str,
-	v_name: str,
 	ctx: GraphContext,
 	prepared_data: dict,
-	emit_answer,
-	on_graph_update=None,
-):
+	question_num: int = 0,
+) -> Tuple[GraphDiagramData, List[Tuple[str, AnswerHighlight]]]:
 	g = ctx.graph
 	nodes = ctx.nodes
 	edge_values = ctx.edge_values
 	edge_labels = ctx.edge_labels
 	config = ctx.config
+
+	u_name = format_console_node_name(nodes.get(u, str(u)))
+	v_name = format_console_node_name(nodes.get(v, str(v)))
 
 	max_indirectness_game = config.max_indirectness_game
 	max_cycle_length_game = config.max_cycle_length_game
@@ -125,7 +128,7 @@ def _handle_standard_pair(
 		key=lambda d: str(nodes.get(d, d)).lower(),
 	)
 
-	connection_entries = []
+	connection_entries: List[Tuple[str, AnswerHighlight]] = []
 
 	def _append_path_entries(paths: list, label_prefix: str):
 		for p in paths:
@@ -322,7 +325,49 @@ def _handle_standard_pair(
 		diagram.highlights.append(hl)
 
 	diagram.default_highlight = build_default_non_cycle_highlight(diagram.highlights)
+	return diagram, connection_entries
 
+
+def _handle_family_pair(
+	question_num: int,
+	u,
+	v,
+	ctx: GraphContext,
+	prepared_data: dict,
+	emit_answer,
+	on_graph_update=None,
+):
+	diagram, entries, is_relevant = build_family_pair_exploration(
+		u, v, ctx, prepared_data, question_num=question_num
+	)
+	if not is_relevant:
+		print("IRRELEVANT (No blood or marriage relationship found)")
+	else:
+		lineage_printed = False
+		for kind, text, hl in entries:
+			if kind == "lineage" and not lineage_printed:
+				print("  Lineage:", end='')
+				lineage_printed = True
+			emit_answer(text, hl)
+
+	if on_graph_update is not None:
+		on_graph_update(diagram)
+
+
+def _handle_standard_pair(
+	question_num: int,
+	u,
+	v,
+	u_name: str,
+	v_name: str,
+	ctx: GraphContext,
+	prepared_data: dict,
+	emit_answer,
+	on_graph_update=None,
+):
+	diagram, connection_entries = build_standard_pair_exploration(
+		u, v, ctx, prepared_data, question_num=question_num
+	)
 	if not connection_entries:
 		print("IRRELEVANT")
 	elif len(connection_entries) == 1:

@@ -45,7 +45,7 @@ def _hex_to_rgba(hex_color: str):
 
 
 class CircularGraphWidget(Widget):
-	def __init__(self, font_name: str = 'Roboto', on_node_highlight=None, **kwargs):
+	def __init__(self, font_name: str = 'Roboto', on_node_highlight=None, on_node_jump=None, **kwargs):
 		super().__init__(**kwargs)
 		self.font_name = font_name
 		self.diagram: GraphDiagramData = None
@@ -57,6 +57,7 @@ class CircularGraphWidget(Widget):
 		self._on_cycle_hover = None
 		self._on_cycle_hover_clear = None
 		self._on_node_highlight = on_node_highlight
+		self._on_node_jump = on_node_jump
 		self._hovered_icon_edges = None
 		self._hovered_icon_highlight = None
 		self._ant_phase = 0.0
@@ -482,6 +483,11 @@ class CircularGraphWidget(Widget):
 		if self.collide_point(*touch.pos) and btn in (None, 'left', 'right'):
 			for bx, by, bx2, by2, node_id, diag in reversed(self._node_hits):
 				if bx <= touch.pos[0] <= bx2 and by <= touch.pos[1] <= by2:
+					if self._on_node_jump is not None and (
+						btn == 'right' or getattr(touch, 'is_double_tap', False)
+					):
+						self._on_node_jump(node_id, diag)
+						return True
 					matching = [
 						hl for hl in getattr(diag, 'highlights', [])
 						if highlight_contains_node(hl, node_id)
@@ -583,3 +589,6 @@ class CircularGraphWidget(Widget):
 				self._ant_group.add(Color(ar, ag, ab, 1.0))
 				self._ant_group.add(Line(points=[ax1, ay1, ax2, ay2], width=dp(2.5), cap='round'))
 		self.canvas.ask_update()
+
+	def set_on_node_jump(self, callback):
+		self._on_node_jump = callback
