@@ -8,7 +8,6 @@ from tkinter import ttk, filedialog, messagebox
 
 from src.app_controller import AppController
 from src.config import Config, build_effective_config
-from src.explorer import SINGLE_NODE_MODES
 from src.storage import (
 	clear_recent_files,
 	get_local_data_dir,
@@ -18,6 +17,7 @@ from src.storage import (
 )
 from src.ui.desktop.config_dialog import ConfigDialog
 from src.ui.desktop.console_widget import InteractiveConsole
+from src.ui.desktop.explorer_bar import ExplorerBar
 from src.ui.desktop.graph_canvas import TkCircularGraphCanvas
 from src.ui.desktop.progress_panel import ProgressPanel
 
@@ -31,15 +31,7 @@ class GraphMLExplorerApp(tk.Tk):
 
 		self.controller = AppController(input_file, output_folder)
 		self._progress_visible: bool = get_show_progress()
-
 		self._explorer_mode: bool = False
-		self._explorer_case: str = "neighborhood"
-		self._last_single_explorer_case: str = "neighborhood"
-		self._explorer_nodes: list = []
-		self._display_to_node_id: dict = {}
-		self._node_id_to_display: dict = {}
-		self._updating_explorer_ui: bool = False
-		self._last_explored_state = None
 
 		self.controller.install_console_redirect()
 
@@ -174,77 +166,15 @@ class GraphMLExplorerApp(tk.Tk):
 		self.lbl_status = ttk.Label(info_bar, text="Idle", foreground="#555555")
 		self.lbl_status.pack(side=tk.RIGHT)
 
-		# --- Explorer Bar (hidden until Explorer Mode is toggled on) ---
-		self.explorer_bar = ttk.LabelFrame(self, text="Graph Explorer", padding=(8, 4))
-
-		row_nodes = ttk.Frame(self.explorer_bar)
-		row_nodes.pack(fill=tk.X, pady=(0, 4))
-
-		ttk.Label(row_nodes, text="Node A:").pack(side=tk.LEFT, padx=(0, 4))
-		self.var_explorer_a = tk.StringVar()
-		self.cmb_explorer_a = ttk.Combobox(row_nodes, textvariable=self.var_explorer_a, width=26)
-		self.cmb_explorer_a.pack(side=tk.LEFT, fill=tk.X, expand=True)
-		ttk.Button(row_nodes, text="✕", width=3, command=lambda: self._clear_explorer_slot("a"), takefocus=0).pack(
-			side=tk.LEFT, padx=(2, 6)
+		self.explorer_bar = ExplorerBar(
+			self,
+			controller=self.controller,
+			on_result=self._on_explorer_result,
+			on_empty=self._on_explorer_empty,
+			on_jump_handler_change=lambda active: self.graph_canvas.set_on_node_right_click(
+				self.explorer_bar.jump_to_node if active else None
+			),
 		)
-
-		ttk.Button(row_nodes, text="⇄", width=3, command=self._swap_explorer_nodes, takefocus=0).pack(
-			side=tk.LEFT, padx=(0, 6)
-		)
-
-		ttk.Label(row_nodes, text="Node B:").pack(side=tk.LEFT, padx=(0, 4))
-		self.var_explorer_b = tk.StringVar()
-		self.cmb_explorer_b = ttk.Combobox(row_nodes, textvariable=self.var_explorer_b, width=26)
-		self.cmb_explorer_b.pack(side=tk.LEFT, fill=tk.X, expand=True)
-		ttk.Button(row_nodes, text="✕", width=3, command=lambda: self._clear_explorer_slot("b"), takefocus=0).pack(
-			side=tk.LEFT, padx=(2, 0)
-		)
-
-		row_cases = ttk.Frame(self.explorer_bar)
-		row_cases.pack(fill=tk.X)
-
-		ttk.Label(row_cases, text="Case:").pack(side=tk.LEFT, padx=(0, 6))
-		self.var_explorer_case = tk.StringVar(value=self._explorer_case)
-		self._explorer_case_buttons = {}
-		for case_val, case_lbl in (
-			("dual", "Dual (A ↔ B)"),
-			("descendants", "Descendants (A →)"),
-			("ascendants", "Ascendants (→ A)"),
-			("neighborhood", "Neighborhood"),
-		):
-			rb = ttk.Radiobutton(
-				row_cases,
-				text=case_lbl,
-				value=case_val,
-				variable=self.var_explorer_case,
-				command=self._on_explorer_case_clicked,
-				takefocus=0,
-			)
-			rb.pack(side=tk.LEFT, padx=(0, 10))
-			self._explorer_case_buttons[case_val] = rb
-
-		ttk.Label(row_cases, text="Depth:").pack(side=tk.LEFT, padx=(8, 4))
-		self.var_explorer_depth = tk.StringVar(value="3")
-		self.cmb_explorer_depth = ttk.Combobox(
-			row_cases,
-			textvariable=self.var_explorer_depth,
-			values=["1", "2", "3", "4", "5", "6", "All"],
-			state="readonly",
-			width=6,
-		)
-		self.cmb_explorer_depth.pack(side=tk.LEFT, padx=(0, 8))
-		self.cmb_explorer_depth.bind("<<ComboboxSelected>>", lambda _e: self._run_explorer(force=True))
-
-		self.lbl_explorer_hint = ttk.Label(
-			row_cases,
-			text="Right-click a node to jump",
-			foreground="#555555",
-			font=("Segoe UI", 8, "italic"),
-		)
-		self.lbl_explorer_hint.pack(side=tk.RIGHT)
-
-		self._bind_explorer_combobox(self.cmb_explorer_a, self.var_explorer_a, "a")
-		self._bind_explorer_combobox(self.cmb_explorer_b, self.var_explorer_b, "b")
 
 		# --- Main Split Pane ---
 		self.main_pane = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
@@ -299,130 +229,45 @@ class GraphMLExplorerApp(tk.Tk):
 		self.bind("0", self._on_key_stop)
 
 	# ------------------------------------------------------------------
-	# Explorer Mode Controls & Node Selection
+	# Explorer Mode Switching
 	# ------------------------------------------------------------------
-	def _resolve_node_text(self, txt: str):
-		clean = txt.strip()
-		if not clean:
-			return None
-		nid = self._display_to_node_id.get(clean)
-		if nid is None:
-			low = clean.lower()
-			nid = next((node_id for node_id, disp in self._explorer_nodes if disp.lower() == low), None)
-		return nid
-
-	def _bind_explorer_combobox(self, combo: ttk.Combobox, var: tk.StringVar, slot: str):
-		def _restore_all(_event=None):
-			all_vals = [disp for _, disp in self._explorer_nodes]
-			if list(combo["values"]) != all_vals:
-				combo["values"] = all_vals
-
-		def _on_key(event):
-			if event.keysym in ("Up", "Down", "Left", "Right", "Return", "KP_Enter", "Tab", "Escape"):
-				return
-			q = var.get().strip().lower()
-			all_vals = [disp for _, disp in self._explorer_nodes]
-			combo["values"] = [d for d in all_vals if q in d.lower()] if q else all_vals
-
-		def _on_select(_event=None):
-			if self._updating_explorer_ui or not self._explorer_mode:
-				return
-			self._on_explorer_node_changed(slot)
-
-		def _on_var_write(*_args):
-			if self._updating_explorer_ui or not self._explorer_mode:
-				return
-			txt = var.get().strip()
-			# Auto-trigger when cleared or when text matches a valid node (ignore partial typing)
-			if txt == "" or self._resolve_node_text(txt) is not None:
-				self._on_explorer_node_changed(slot)
-
-		combo.bind("<FocusIn>", _restore_all)
-		combo.bind("<Button-1>", _restore_all)
-		combo.bind("<KeyRelease>", _on_key)
-		combo.bind("<<ComboboxSelected>>", _on_select)
-		combo.bind("<Return>", _on_select)
-		combo.bind("<KP_Enter>", _on_select)
-		var.trace_add("write", _on_var_write)
-
-	def _refresh_explorer_node_choices(self):
-		prev_a = self._resolve_node_text(self.var_explorer_a.get())
-		prev_b = self._resolve_node_text(self.var_explorer_b.get())
-
-		self._explorer_nodes = []
-		self._display_to_node_id = {}
-		self._node_id_to_display = {}
-
-		if self.controller.ctx:
-			nodes = self.controller.ctx.nodes
-			counts: dict[str, int] = {}
-			for label in nodes.values():
-				key = str(label).lower()
-				counts[key] = counts.get(key, 0) + 1
-
-			sorted_items = sorted(nodes.items(), key=lambda kv: (str(kv[1]).lower(), str(kv[0])))
-			for nid, label in sorted_items:
-				disp = str(label) if counts.get(str(label).lower(), 0) <= 1 else f"{label} [{nid}]"
-				self._explorer_nodes.append((nid, disp))
-				self._display_to_node_id[disp] = nid
-				self._node_id_to_display[nid] = disp
-
-			default_depth = max(1, self.controller.ctx.config.max_indirectness + 1)
-			self.var_explorer_depth.set(str(default_depth) if default_depth <= 6 else "All")
-
-		all_vals = [disp for _, disp in self._explorer_nodes]
-		self.cmb_explorer_a["values"] = all_vals
-		self.cmb_explorer_b["values"] = all_vals
-
-		self._updating_explorer_ui = True
-		try:
-			self.var_explorer_a.set(self._node_id_to_display.get(prev_a, ""))
-			self.var_explorer_b.set(self._node_id_to_display.get(prev_b, ""))
-		finally:
-			self._updating_explorer_ui = False
-
-	def _get_selected_explorer_ids(self):
-		return (
-			self._resolve_node_text(self.var_explorer_a.get()),
-			self._resolve_node_text(self.var_explorer_b.get()),
-		)
-
-	def _parse_explorer_depth(self):
-		raw = self.var_explorer_depth.get().strip()
-		if raw.lower() == "all":
-			return 0
-		try:
-			return max(1, int(raw))
-		except ValueError:
-			return 3
-
 	def toggle_explorer_mode(self):
 		if self.controller.is_busy or not self.controller.ctx:
 			return
 		self._set_explorer_mode(not self._explorer_mode)
 
+	def _on_explorer_result(self, res):
+		self.console.clear()
+		self.console.append_text(f"{res.title}\n")
+		for text, hl in res.answer_lines:
+			self.console.append_answer_line(text, hl)
+		self.graph_canvas.set_diagram(res.diagram)
+		self.lbl_status.configure(text=f"Explorer: {res.mode.capitalize()}")
+
+	def _on_explorer_empty(self, message: str = ""):
+		self.console.clear()
+		if message:
+			self.console.append_text(message)
+		self.graph_canvas.set_diagram(None)
+
 	def _set_explorer_mode(self, enabled: bool):
 		if self._explorer_mode == enabled:
 			return
 		self._explorer_mode = enabled
-		self._last_explored_state = None
 
 		if enabled:
 			self.controller.cancel_active_game()
 			self.btn_mode_switch.configure(text="🎮 Game Mode")
 			self.progress_panel.pack_forget()
 			self.explorer_bar.pack(fill=tk.X, padx=8, pady=(2, 6), before=self.main_pane)
-			self.console.clear()
-			self.graph_canvas.set_diagram(None)
-			self._refresh_explorer_node_choices()
-			self._sync_explorer_right_click()
+			self.explorer_bar.refresh_node_choices(self.controller.ctx)
+			self.explorer_bar.sync_controls(True)
 			self._update_button_states()
 
-			nid_a, nid_b = self._get_selected_explorer_ids()
-			if nid_a or nid_b:
-				self._run_explorer(force=True)
+			if self.explorer_bar.has_selection():
+				self.explorer_bar.run_current(force=True)
 			else:
-				self.console.append_text(
+				self._on_explorer_empty(
 					"Explorer Mode:\n"
 					"  • Pick Node A and Node B for Dual mode (A ↔ B, as if answering A → X → B).\n"
 					"  • Pick only one node for Descendants, Ascendants, or Neighborhood.\n"
@@ -431,143 +276,15 @@ class GraphMLExplorerApp(tk.Tk):
 		else:
 			self.btn_mode_switch.configure(text="🧭 Explorer Mode")
 			self.explorer_bar.pack_forget()
-			self.graph_canvas.set_on_node_right_click(None)
+			self.explorer_bar.sync_controls(False)
 			if self._progress_visible:
 				self.progress_panel.pack(fill=tk.X, pady=(0, 6), before=self.console)
-			self.console.clear()
-			self.graph_canvas.set_diagram(None)
+			self._on_explorer_empty()
 			self.lbl_status.configure(text="Ready" if self.controller.ctx else "Idle")
 			self._update_button_states()
 			if self.controller.ctx:
 				self.console.append_text("Press Enter, Space, or click 'Start Game' to begin.\n")
 			self.focus_set()
-
-	def _sync_explorer_right_click(self):
-		if self._explorer_mode and self._explorer_case in SINGLE_NODE_MODES:
-			self.graph_canvas.set_on_node_right_click(self._on_explorer_node_right_click)
-			self.lbl_explorer_hint.configure(text="Right-click a node to jump")
-		else:
-			self.graph_canvas.set_on_node_right_click(None)
-			self.lbl_explorer_hint.configure(text="")
-
-		is_dir = self._explorer_case in ("descendants", "ascendants")
-		self.cmb_explorer_depth.configure(state="readonly" if is_dir else tk.DISABLED)
-
-	def _on_explorer_node_changed(self, _slot: str):
-		nid_a, nid_b = self._get_selected_explorer_ids()
-		if nid_a and nid_b and nid_a != nid_b:
-			self._explorer_case = "dual"
-		elif (nid_a or nid_b) and self._explorer_case == "dual":
-			self._explorer_case = self._last_single_explorer_case
-		self.var_explorer_case.set(self._explorer_case)
-		self._sync_explorer_right_click()
-		if nid_a or nid_b:
-			self._run_explorer()
-		else:
-			self._last_explored_state = None
-			self.console.clear()
-			self.graph_canvas.set_diagram(None)
-
-	def _on_explorer_case_clicked(self):
-		chosen = self.var_explorer_case.get()
-		if chosen in SINGLE_NODE_MODES:
-			self._last_single_explorer_case = chosen
-			nid_a, nid_b = self._get_selected_explorer_ids()
-			if nid_a and nid_b:
-				self._updating_explorer_ui = True
-				try:
-					self.var_explorer_b.set("")
-				finally:
-					self._updating_explorer_ui = False
-		self._explorer_case = chosen
-		self._sync_explorer_right_click()
-		nid_a, nid_b = self._get_selected_explorer_ids()
-		if chosen == "dual" and not (nid_a and nid_b):
-			self._last_explored_state = None
-			self.console.clear()
-			self.console.append_text("Select both Node A and Node B for Dual exploration.\n")
-			self.graph_canvas.set_diagram(None)
-			return
-		if nid_a or nid_b:
-			self._run_explorer(force=True)
-
-	def _clear_explorer_slot(self, slot: str):
-		self._updating_explorer_ui = True
-		try:
-			if slot == "a":
-				self.var_explorer_a.set("")
-			else:
-				self.var_explorer_b.set("")
-		finally:
-			self._updating_explorer_ui = False
-		self._on_explorer_node_changed(slot)
-
-	def _swap_explorer_nodes(self):
-		a_val = self.var_explorer_a.get()
-		b_val = self.var_explorer_b.get()
-		self._updating_explorer_ui = True
-		try:
-			self.var_explorer_a.set(b_val)
-			self.var_explorer_b.set(a_val)
-		finally:
-			self._updating_explorer_ui = False
-		nid_a, nid_b = self._get_selected_explorer_ids()
-		if nid_a or nid_b:
-			self._run_explorer(force=True)
-
-	def _on_explorer_node_right_click(self, node_id: str, diagram):
-		if not self._explorer_mode or self._explorer_case not in SINGLE_NODE_MODES:
-			return
-		target_id = node_id
-		if diagram is not None and node_id in getattr(diagram, "merged_nodes", {}):
-			target_id = diagram.merged_nodes[node_id][0]
-		if target_id not in self._node_id_to_display:
-			return
-		self._updating_explorer_ui = True
-		try:
-			self.var_explorer_a.set(self._node_id_to_display[target_id])
-			self.var_explorer_b.set("")
-		finally:
-			self._updating_explorer_ui = False
-		self._run_explorer(force=True)
-
-	def _run_explorer(self, force: bool = False):
-		if not self._explorer_mode or not self.controller.ctx:
-			return
-		nid_a, nid_b = self._get_selected_explorer_ids()
-		if nid_a and nid_b and nid_a != nid_b and self._explorer_case != "dual":
-			self._explorer_case = "dual"
-			self.var_explorer_case.set("dual")
-		elif (nid_a or nid_b) and not (nid_a and nid_b) and self._explorer_case == "dual":
-			self._explorer_case = self._last_single_explorer_case
-			self.var_explorer_case.set(self._explorer_case)
-		self._sync_explorer_right_click()
-
-		depth_val = self._parse_explorer_depth()
-		state_key = (self._explorer_case, nid_a, nid_b, depth_val if self._explorer_case in ("descendants", "ascendants") else None)
-		if not force and state_key == self._last_explored_state:
-			return
-		self._last_explored_state = state_key
-
-		try:
-			res = self.controller.explore(
-				mode=self._explorer_case,
-				node_a_id=nid_a,
-				node_b_id=nid_b,
-				max_depth=depth_val,
-			)
-		except Exception as exc:
-			self.console.clear()
-			self.console.append_text(f"{exc}\n")
-			self.graph_canvas.set_diagram(None)
-			return
-
-		self.console.clear()
-		self.console.append_text(f"{res.title}\n")
-		for text, hl in res.answer_lines:
-			self.console.append_answer_line(text, hl)
-		self.graph_canvas.set_diagram(res.diagram)
-		self.lbl_status.configure(text=f"Explorer: {res.mode.capitalize()}")
 
 	# ------------------------------------------------------------------
 	# Startup & Recent Files Menu
@@ -780,19 +497,15 @@ class GraphMLExplorerApp(tk.Tk):
 					text=f"{os.path.basename(norm_path)}  |  Nodes: {len(ctx.nodes)}  |  Edges: {len(ctx.edges)}  |  Mode: {conn_mode}"
 				)
 				self.progress_panel.update_stats(stats)
-				self._refresh_explorer_node_choices()
+				self.explorer_bar.refresh_node_choices(ctx)
 
 				if self._explorer_mode:
-					self._sync_explorer_right_click()
-					nid_a, nid_b = self._get_selected_explorer_ids()
-					if nid_a or nid_b:
-						self._run_explorer(force=True)
+					self.explorer_bar.sync_controls(True)
+					if self.explorer_bar.has_selection():
+						self.explorer_bar.run_current(force=True)
 					else:
-						self._last_explored_state = None
-						self.console.clear()
-						self.graph_canvas.set_diagram(None)
 						self.lbl_status.configure(text="Explorer Ready")
-						self.console.append_text(
+						self._on_explorer_empty(
 							"Explorer Mode:\n"
 							"  • Pick Node A and Node B for Dual mode (A ↔ B, as if answering A → X → B).\n"
 							"  • Pick only one node for Descendants, Ascendants, or Neighborhood.\n"
@@ -813,7 +526,7 @@ class GraphMLExplorerApp(tk.Tk):
 			elif kind == "load_error":
 				self.progress_panel.update_stats(None)
 				self.graph_canvas.set_diagram(None)
-				self._refresh_explorer_node_choices()
+				self.explorer_bar.refresh_node_choices(None)
 				self.lbl_status.configure(text="Load Error")
 				self.console.append_text(f"\nERROR: {payload}\n")
 				self._update_button_states()

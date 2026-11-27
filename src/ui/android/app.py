@@ -15,17 +15,15 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
-from kivy.uix.spinner import Spinner
-from kivy.uix.textinput import TextInput
 
 from src.android_file_picker import open_graphml_with_system_picker, open_html_viewer
 from src.app_controller import AppController
 from src.config import Config
 from src.diagram import AnswerHighlight, GraphDiagramData
-from src.explorer import SINGLE_NODE_MODES
 from src.storage import get_show_progress, set_show_progress
 from src.ui.android.config_popup import open_config_popup
 from src.ui.android.console_widget import AndroidConsole
+from src.ui.android.explorer_bar import AndroidExplorerBar
 from src.ui.android.file_browser_popup import (
 	open_file_browser_popup,
 	open_folder_picker_popup,
@@ -48,13 +46,7 @@ class GraphMLAndroidApp(App):
 		self._open_popups: list = []
 		self._last_browse_dir: str = ''
 		self._on_resume_refresh = None
-
 		self._explorer_mode: bool = False
-		self._explorer_case: str = 'neighborhood'
-		self._last_single_explorer_case: str = 'neighborhood'
-		self._explorer_node_a: str = ''
-		self._explorer_node_b: str = ''
-		self._updating_explorer_ui: bool = False
 
 	def build(self):
 		Window.clearcolor = (0.118, 0.122, 0.133, 1)  # #1E1F22
@@ -131,82 +123,15 @@ class GraphMLAndroidApp(App):
 		self.top_mode_slot.bind(minimum_height=self.top_mode_slot.setter('height'))
 		root.add_widget(self.top_mode_slot)
 
-		# Explorer Controls (only attached while in Explorer Mode)
-		self.explorer_bar = BoxLayout(
-			orientation='vertical',
-			size_hint_y=None,
-			height=dp(76),
-			spacing=dp(4),
+		self.explorer_bar = AndroidExplorerBar(
+			controller=self.controller,
+			on_track_popup=self._open_tracked_popup,
+			on_result=self._on_explorer_result,
+			on_empty=self._on_explorer_empty,
+			on_jump_handler_change=lambda active: self.graph_widget.set_on_node_jump(
+				self.explorer_bar.jump_to_node if active else None
+			),
 		)
-		exp_row1 = BoxLayout(size_hint_y=None, height=dp(38), spacing=dp(4))
-		self.btn_exp_a = Button(
-			text='A: Pick...',
-			font_size=dp(12),
-			shorten=True,
-			shorten_from='right',
-			on_release=lambda *_: self._open_explorer_node_picker('a'),
-		)
-		self.btn_exp_a.bind(size=lambda inst, sz: setattr(inst, 'text_size', (max(0, sz[0] - dp(10)), None)))
-		self.btn_exp_clear_a = Button(
-			text='×',
-			size_hint_x=None,
-			width=dp(32),
-			font_size=dp(14),
-			on_release=lambda *_: self._clear_explorer_slot('a'),
-		)
-		self.btn_exp_swap = Button(
-			text='⇄',
-			size_hint_x=None,
-			width=dp(36),
-			font_size=dp(14),
-			on_release=lambda *_: self._swap_explorer_nodes(),
-		)
-		self.btn_exp_b = Button(
-			text='B: Pick...',
-			font_size=dp(12),
-			shorten=True,
-			shorten_from='right',
-			on_release=lambda *_: self._open_explorer_node_picker('b'),
-		)
-		self.btn_exp_b.bind(size=lambda inst, sz: setattr(inst, 'text_size', (max(0, sz[0] - dp(10)), None)))
-		self.btn_exp_clear_b = Button(
-			text='×',
-			size_hint_x=None,
-			width=dp(32),
-			font_size=dp(14),
-			on_release=lambda *_: self._clear_explorer_slot('b'),
-		)
-		for w in (self.btn_exp_a, self.btn_exp_clear_a, self.btn_exp_swap, self.btn_exp_b, self.btn_exp_clear_b):
-			exp_row1.add_widget(w)
-
-		exp_row2 = BoxLayout(size_hint_y=None, height=dp(34), spacing=dp(4))
-		self._exp_case_btns = {}
-		for case_val, case_lbl in (
-			('dual', 'Dual'),
-			('descendants', 'Desc'),
-			('ascendants', 'Asc'),
-			('neighborhood', 'Neigh'),
-		):
-			btn = Button(
-				text=case_lbl,
-				font_size=dp(12),
-				on_release=lambda _b, c=case_val: self._select_explorer_case(c),
-			)
-			exp_row2.add_widget(btn)
-			self._exp_case_btns[case_val] = btn
-
-		self.sp_exp_depth = Spinner(
-			text='3',
-			values=('1', '2', '3', '4', '5', '6', 'All'),
-			size_hint_x=None,
-			width=dp(62),
-			font_size=dp(12),
-		)
-		self.sp_exp_depth.bind(text=self._on_explorer_depth_changed)
-		exp_row2.add_widget(self.sp_exp_depth)
-
-		self.explorer_bar.add_widget(exp_row1)
-		self.explorer_bar.add_widget(exp_row2)
 
 		# --- Category Progress Header + Collapsible Table ---
 		self.tier_bar = BoxLayout(size_hint_y=None, height=dp(32), spacing=dp(6))
@@ -444,6 +369,20 @@ class GraphMLAndroidApp(App):
 			return
 		self._set_explorer_mode(not self._explorer_mode)
 
+	def _on_explorer_result(self, res):
+		self.console.clear()
+		self.console.append_text(f'{res.title}\n')
+		for text, hl in res.answer_lines:
+			self.console.add_answer_line(text, hl)
+		self._update_graph_panel(res.diagram)
+		self.lbl_status.text = f'Explorer: {res.mode.capitalize()}'
+
+	def _on_explorer_empty(self, message: str = ''):
+		self.console.clear()
+		if message:
+			self.console.append_text(message)
+		self._update_graph_panel(None)
+
 	def _set_explorer_mode(self, enabled: bool):
 		if self._explorer_mode == enabled:
 			return
@@ -454,15 +393,13 @@ class GraphMLAndroidApp(App):
 			self.btn_mode_switch.text = 'Game'
 			self.bottom_slot.clear_widgets()
 			self._rebuild_top_mode_slot()
-			self._sync_explorer_controls()
-			self.console.clear()
-			self._update_graph_panel(None)
+			self.explorer_bar.sync_controls(self.controller.ctx, active=True)
 			self._update_button_states()
 
-			if self._explorer_node_a or self._explorer_node_b:
-				self._run_explorer()
+			if self.explorer_bar.has_selection():
+				self.explorer_bar.run_current()
 			else:
-				self.console.append_text(
+				self._on_explorer_empty(
 					'Explorer Mode:\n'
 					'• Pick A & B for Dual (A ↔ B).\n'
 					'• Pick 1 node for Desc / Asc / Neigh.\n'
@@ -473,174 +410,12 @@ class GraphMLAndroidApp(App):
 			self._rebuild_top_mode_slot()
 			self.bottom_slot.clear_widgets()
 			self.bottom_slot.add_widget(self.bottom_bar)
-			self.graph_widget.set_on_node_jump(None)
-			self.console.clear()
-			self._update_graph_panel(None)
+			self.explorer_bar.sync_controls(self.controller.ctx, active=False)
+			self._on_explorer_empty()
 			self.lbl_status.text = 'Ready' if self.controller.ctx else 'Idle'
 			self._update_button_states()
 			if self.controller.ctx:
 				self.console.append_text('Ready! Tap "Start Game" to begin.\n')
-
-	def _sync_explorer_controls(self):
-		nodes = self.controller.ctx.nodes if self.controller.ctx else {}
-		if self._explorer_node_a and self._explorer_node_a not in nodes:
-			self._explorer_node_a = ''
-		if self._explorer_node_b and self._explorer_node_b not in nodes:
-			self._explorer_node_b = ''
-
-		self.btn_exp_a.text = f"A: {nodes[self._explorer_node_a]}" if self._explorer_node_a else 'A: Pick...'
-		self.btn_exp_b.text = f"B: {nodes[self._explorer_node_b]}" if self._explorer_node_b else 'B: Pick...'
-
-		for case_val, btn in self._exp_case_btns.items():
-			btn.background_color = (0.24, 0.48, 0.78, 1) if case_val == self._explorer_case else (0.34, 0.36, 0.40, 1)
-
-		self.sp_exp_depth.disabled = self._explorer_case not in ('descendants', 'ascendants')
-		if self._explorer_mode and self._explorer_case in SINGLE_NODE_MODES:
-			self.graph_widget.set_on_node_jump(self._on_explorer_node_jump)
-		else:
-			self.graph_widget.set_on_node_jump(None)
-
-	def _open_explorer_node_picker(self, slot: str):
-		if not self.controller.ctx:
-			return
-		nodes = self.controller.ctx.nodes
-		items = sorted(nodes.items(), key=lambda kv: (str(kv[1]).lower(), str(kv[0])))
-
-		content = BoxLayout(orientation='vertical', spacing=dp(6), padding=dp(8))
-		ti_search = TextInput(hint_text='Filter nodes...', multiline=False, size_hint_y=None, height=dp(38))
-		content.add_widget(ti_search)
-
-		sv = ScrollView(do_scroll_x=False)
-		lst = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(4))
-		lst.bind(minimum_height=lst.setter('height'))
-		sv.add_widget(lst)
-		content.add_widget(sv)
-
-		popup = Popup(title=f'Select Node {"A" if slot == "a" else "B"}', content=content, size_hint=(0.94, 0.86))
-
-		def _choose(nid: str):
-			popup.dismiss()
-			if slot == 'a':
-				self._explorer_node_a = nid
-			else:
-				self._explorer_node_b = nid
-			if self._explorer_node_a and self._explorer_node_b and self._explorer_node_a != self._explorer_node_b:
-				self._explorer_case = 'dual'
-			elif (self._explorer_node_a or self._explorer_node_b) and self._explorer_case == 'dual':
-				self._explorer_case = self._last_single_explorer_case
-			self._sync_explorer_controls()
-			if self._explorer_node_a or self._explorer_node_b:
-				self._run_explorer()
-			else:
-				self.console.clear()
-				self._update_graph_panel(None)
-
-		def _render(*_):
-			lst.clear_widgets()
-			q = ti_search.text.strip().lower()
-			for nid, label in items:
-				if q and q not in str(label).lower():
-					continue
-				btn = Button(
-					text=str(label),
-					size_hint_y=None,
-					height=dp(40),
-					halign='left',
-					valign='middle',
-					font_size=dp(13),
-					on_release=lambda _b, node_id=nid: _choose(node_id),
-				)
-				btn.bind(size=lambda inst, sz: setattr(inst, 'text_size', (max(0, sz[0] - dp(12)), sz[1])))
-				lst.add_widget(btn)
-
-		ti_search.bind(text=_render)
-		_render()
-
-		btn_row = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(6))
-		btn_row.add_widget(Button(text='Clear', on_release=lambda *_: _choose('')))
-		btn_row.add_widget(Button(text='Cancel', on_release=lambda *_: popup.dismiss()))
-		content.add_widget(btn_row)
-		self._open_tracked_popup(popup)
-
-	def _clear_explorer_slot(self, slot: str):
-		if slot == 'a':
-			self._explorer_node_a = ''
-		else:
-			self._explorer_node_b = ''
-		if (self._explorer_node_a or self._explorer_node_b) and self._explorer_case == 'dual':
-			self._explorer_case = self._last_single_explorer_case
-		self._sync_explorer_controls()
-		if self._explorer_node_a or self._explorer_node_b:
-			self._run_explorer()
-		else:
-			self.console.clear()
-			self._update_graph_panel(None)
-
-	def _swap_explorer_nodes(self):
-		self._explorer_node_a, self._explorer_node_b = self._explorer_node_b, self._explorer_node_a
-		self._sync_explorer_controls()
-		if self._explorer_node_a or self._explorer_node_b:
-			self._run_explorer()
-
-	def _select_explorer_case(self, case_val: str):
-		if case_val in SINGLE_NODE_MODES:
-			self._last_single_explorer_case = case_val
-			if self._explorer_node_a and self._explorer_node_b:
-				self._explorer_node_b = ''
-		self._explorer_case = case_val
-		self._sync_explorer_controls()
-		if case_val == 'dual' and not (self._explorer_node_a and self._explorer_node_b):
-			self.console.clear()
-			self.console.append_text('Select both Node A and Node B for Dual mode.\n')
-			self._update_graph_panel(None)
-			return
-		if self._explorer_node_a or self._explorer_node_b:
-			self._run_explorer()
-
-	def _on_explorer_depth_changed(self, _spinner, _text: str):
-		if self._updating_explorer_ui:
-			return
-		if self._explorer_mode and self._explorer_case in ('descendants', 'ascendants'):
-			if self._explorer_node_a or self._explorer_node_b:
-				self._run_explorer()
-
-	def _on_explorer_node_jump(self, node_id: str, diagram: GraphDiagramData):
-		if not self._explorer_mode or self._explorer_case not in SINGLE_NODE_MODES or not self.controller.ctx:
-			return
-		target_id = node_id
-		if diagram is not None and node_id in getattr(diagram, 'merged_nodes', {}):
-			target_id = diagram.merged_nodes[node_id][0]
-		if target_id not in self.controller.ctx.nodes:
-			return
-		self._explorer_node_a = target_id
-		self._explorer_node_b = ''
-		self._sync_explorer_controls()
-		self._run_explorer()
-
-	def _run_explorer(self):
-		if not self._explorer_mode or not self.controller.ctx:
-			return
-		raw_depth = self.sp_exp_depth.text.strip()
-		max_depth = 0 if raw_depth.lower() == 'all' else int(raw_depth)
-		try:
-			res = self.controller.explore(
-				mode=self._explorer_case,
-				node_a_id=self._explorer_node_a or None,
-				node_b_id=self._explorer_node_b or None,
-				max_depth=max_depth,
-			)
-		except Exception as exc:
-			self.console.clear()
-			self.console.append_text(f'{exc}\n')
-			self._update_graph_panel(None)
-			return
-
-		self.console.clear()
-		self.console.append_text(f'{res.title}\n')
-		for text, hl in res.answer_lines:
-			self.console.add_answer_line(text, hl)
-		self._update_graph_panel(res.diagram)
-		self.lbl_status.text = f'Explorer: {res.mode.capitalize()}'
 
 	# ------------------------------------------------------------------
 	# Startup
@@ -896,23 +671,14 @@ class GraphMLAndroidApp(App):
 				conn_mode = ctx.config.connection_type
 				self.lbl_file.text = f"{os.path.basename(norm_path)} ({len(ctx.nodes)}N / {len(ctx.edges)}E | {conn_mode})"
 				self._update_progress_table(stats)
+				self.explorer_bar.on_graph_loaded(ctx, active=self._explorer_mode)
 
-				self._updating_explorer_ui = True
-				try:
-					default_depth = max(1, ctx.config.max_indirectness + 1)
-					self.sp_exp_depth.text = str(default_depth) if default_depth <= 6 else 'All'
-				finally:
-					self._updating_explorer_ui = False
-
-				self._sync_explorer_controls()
 				if self._explorer_mode:
-					if self._explorer_node_a or self._explorer_node_b:
-						self._run_explorer()
+					if self.explorer_bar.has_selection():
+						self.explorer_bar.run_current()
 					else:
-						self.console.clear()
-						self._update_graph_panel(None)
 						self.lbl_status.text = 'Explorer Ready'
-						self.console.append_text(
+						self._on_explorer_empty(
 							'Explorer Mode:\n'
 							'• Pick A & B for Dual (A ↔ B).\n'
 							'• Pick 1 node for Desc / Asc / Neigh.\n'
@@ -932,7 +698,7 @@ class GraphMLAndroidApp(App):
 			elif kind == 'load_error':
 				self._update_progress_table(None)
 				self._update_graph_panel(None)
-				self._sync_explorer_controls()
+				self.explorer_bar.sync_controls(None, active=self._explorer_mode)
 				self.lbl_status.text = 'Load Error'
 				self.console.append_text(f'\nERROR: {payload}\n')
 				self._update_button_states()
